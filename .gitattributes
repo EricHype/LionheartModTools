@@ -1,0 +1,4 @@
+# Game resource content must stay byte-exact (the engine is picky about line endings
+# and exact formatting -- see SKILL.md). Never let git normalize line endings on these.
+mods/** -text
+examples/_quinn_splice_parts.txt -text

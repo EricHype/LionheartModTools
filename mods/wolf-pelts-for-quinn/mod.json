@@ -1,0 +1,13 @@
+{
+  "mod_format_version": 1,
+  "id": "wolf-pelts-for-quinn",
+  "name": "Wolf Pelts for Quinn",
+  "version": "1.0.0",
+  "author": "vkays",
+  "description": "Adds a quest where Quinn the herbalist asks you to bring three wolf pelts, testing them for magical corruption.",
+  "files": [
+    "Resources/Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn.Quest.txt",
+    "Resources/Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn XP.can",
+    "Resources/Levels/1 Barcelona/Dialog/Gate District/Herbalist Dialogue.DialogTree"
+  ]
+}

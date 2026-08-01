@@ -1,0 +1,158 @@
+=== OFFER_REPLY ===
+Requirement=!None
+Custom Requirement=CActionExpression
+{
+Action=CNotAction
+{
+Action=CIsQuestStateTheCurrentStateAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn
+State=008HTXBM
+}
+}
+}
+Reply Text=Is there anything around here I could help you with?
+Go to node ID=800 wolf pelts request
+Action work in progress=(Offers the Wolf Pelts for Quinn quest if not already given)
+Custom Action=CActivateQuestStateAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn
+State=008HTXBM
+}
+Icon=Quest Icon
+
+=== TURNIN_REPLY ===
+Requirement=!None
+Custom Requirement=CAND
+{
+Operand1=CActionExpression
+{
+Action=CIsQuestStateTheCurrentStateAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn
+State=008HTXBM
+}
+}
+Operator=
+Operand2=CActionExpression
+{
+Action=CNotAction
+{
+Action=CIsQuestCompletedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn
+}
+}
+}
+}
+Reply Text=I brought you three wolf pelts, as you asked.
+Go to node ID=810 wolf pelts turned in
+Action work in progress=(Checks for and removes 3 Wolf Pelts, completes the quest)
+Custom Action=CIfAction
+{
+If=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory Items/Wolf Pelt
+}
+}
+Then=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CActionRemoveInventoryItem
+{
+Who to remove from=$instigator
+Inventory Item To remove=Inventory Items/Wolf Pelt
+}
+Action=CIfAction
+{
+If=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory Items/Wolf Pelt
+}
+}
+Then=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CActionRemoveInventoryItem
+{
+Who to remove from=$instigator
+Inventory Item To remove=Inventory Items/Wolf Pelt
+}
+Action=CIfAction
+{
+If=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory Items/Wolf Pelt
+}
+}
+Then=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=3
+Action=CActionRemoveInventoryItem
+{
+Who to remove from=$instigator
+Inventory Item To remove=Inventory Items/Wolf Pelt
+}
+Action=CSetQuestSatusToCompletedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Wolf Pelts for Quinn
+}
+Action=CGiveExperiencePointsToAllPlayersAction
+{
+Get XP Frome=$instigator
+Experience Points To Add=25
+}
+}
+}
+Else=
+Return failure if the If failes=0
+}
+}
+}
+Else=
+Return failure if the If failes=0
+}
+}
+}
+Else=
+Return failure if the If failes=0
+}
+Icon=Quest Icon
+
+=== NODE_800 ===
+Node ID=800 wolf pelts request
+Text=Actually, yes -- I have come across some wolf pelts that may be tainted by dark magic. Bring me three wolf pelts and I will test them for corruption. It is important work, and I will make it worth your while.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=I will see what I can find.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
+
+=== NODE_810 ===
+Node ID=810 wolf pelts turned in
+Text=Let me have a look at those...
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Good luck with your tests.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
+
