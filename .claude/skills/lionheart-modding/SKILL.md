@@ -137,6 +137,57 @@ To find an NPC's actual DialogTree, search the relevant `Levels\<Area>\*.zax` fi
 `Dialog Tree File=` near the NPC's name — don't assume it doesn't exist just because the
 Character Template `.can` is silent on it.
 
+## CRITICAL: new entities in a `.zax` don't appear on saves that already visited that level
+
+Once a save has entered a level for the first time, that level's **entity list
+(who/what exists there)** gets locked into the save's own snapshot. Re-entering the level
+on that save (even via a full map transition, e.g. leaving to an adjacent map and walking
+back in) does **not** re-derive the entity list from the edited `.zax` file — it restores
+whatever was captured the first time that level was ever visited on that save.
+
+This is easy to misdiagnose as a broken entity definition, because **editing an existing
+NPC's dialogue *is* picked up fresh on revisit** (dialogue text/files are resolved at
+conversation time, not baked into the save snapshot) — so a workflow of "edit dialogue,
+revisit, confirm it changed" builds false confidence that the same revisit-test will work
+for verifying brand-new entities too. It won't. If you add a new `CGeneratorAI` (or any
+new `Level Part`) to a `.zax` and it "doesn't appear" for a tester, first ask whether they
+tested on a save that had already visited that level before your edit — if so, that's very
+likely the entire explanation, not a construction bug. The only valid test for a new
+entity is a save that has **never** entered that level before (or a brand-new game).
+
+(Confirmed the hard way: Marco the pickpocket's `CGeneratorAI` entity was correctly built
+on the first real attempt, but appeared to fail three times in a row — including when
+placed directly adjacent to Amir/Jafar's own confirmed-working generator — purely because
+every test was run on a save that had already visited the Gate District. He appeared
+immediately on a fresh new game.)
+
+### How the engine actually enforces this (and why there's no quick workaround)
+
+Save files (`SaveGames\*.sav`) are plain text in the same brace grammar as everything
+else and are readable/parseable, but only the *currently loaded* level's own top-level
+stats (`Player Health=`, `Map File Name=`, etc.) are plain fields — every level you've
+ever left gets serialized into a **binary blob** inside a
+`CSwappedLayerFilenameMappingTable{Layer Mapping Array=Array{Layer Mapping=CSwappedLayerFilenameMapping{
+Partial Layer Name=..., Current Temp File=TempFile{...raw bytes...}}}}` and reloaded from
+that blob on any revisit — never re-parsed from the `.zax`. This is the actual mechanism
+behind the gotcha above.
+
+Don't try to route around this by hand-editing a save's `Map File Name=` to jump to an
+unvisited level — the player's spawn position for that case isn't stored as a discoverable
+plain-text field, so there's no way to guarantee a safe landing spot, and corrupting a
+save is a real risk for very little payoff.
+
+Also confirmed **not available** in the retail build: the in-game editor (`Editor (&F6&)`,
+`Select Map`, `Load Map` — all present as dead strings in `Lionheart.exe`, none wired up;
+guarded by `"CHEAT: Editor tool for testing. Not a real option in the retail game"`).
+Pressing F6 or checking the Esc menu does nothing. Don't re-suggest checking these unless
+someone has actually managed to patch the exe to re-enable them.
+
+**The actual practical workflow: staging saves.** Walk to the threshold of whatever area
+you're about to add content to once, save there, and reuse that save for every subsequent
+test in that zone — this turns "hours of travel to re-test" into "one load + a short walk"
+per iteration, with zero risk to the player's real progress.
+
 ## Quest mechanics
 
 - `Resources/.../<Name>.Quest.txt`: `CQuestDefinition { Name=..., States=Array {...},
