@@ -177,11 +177,32 @@ unvisited level — the player's spawn position for that case isn't stored as a 
 plain-text field, so there's no way to guarantee a safe landing spot, and corrupting a
 save is a real risk for very little payoff.
 
-Also confirmed **not available** in the retail build: the in-game editor (`Editor (&F6&)`,
-`Select Map`, `Load Map` — all present as dead strings in `Lionheart.exe`, none wired up;
-guarded by `"CHEAT: Editor tool for testing. Not a real option in the retail game"`).
-Pressing F6 or checking the Esc menu does nothing. Don't re-suggest checking these unless
-someone has actually managed to patch the exe to re-enable them.
+Also confirmed **not available, and not patchable** in the retail build: the in-game
+editor (`Editor (&F6&)`, `Select Map`, `Load Map` — all present as dead strings in
+`Lionheart.exe`, none wired up; guarded by `"CHEAT: Editor tool for testing. Not a real
+option in the retail game"`). Pressing F6 or checking the Esc menu does nothing.
+
+This was investigated all the way down via Ghidra/ReVa static analysis (traced the real
+Win32 message pump at `FUN_006538d0` → `WM_KEYDOWN` handling → key-code translation
+`FUN_00653520` confirms `VK_F6 (0x75)` maps to internal code `0x1c` → the only two places
+that could ever consume that code are (1) a listener-dispatch system at `FUN_005a2a20`
+whose registration array is initialized and destroyed but **never populated anywhere in
+the binary** — permanently zero listeners, dead code — and (2) direct key-state polling
+via `FUN_005a28e0`, which has exactly **four callers in the entire executable**, all of
+which check only Shift/RShift (`0x2a`/`0x36`) for list multi-select, never `0x1c`).
+Conclusion: the actual F6-editor handler was removed from the retail build entirely, not
+just hidden behind a flag — only the inert menu-label string survived. There is nothing to
+patch; re-enabling the menu item would do nothing since no code anywhere consumes that
+keypress. Don't re-attempt this investigation — it's settled.
+
+Dynamic debugging (attaching x32dbg to the running game) was also tried as part of this
+and is **not practical** in this environment: the game runs exclusive-fullscreen, and a
+paused/attached debugger prevents Windows from switching away from it, causing hangs that
+require killing the debugger (which also kills the debuggee, since Windows kills a
+debuggee by default when its debugger exits without a clean detach). No windowed-mode
+option exists in-game or in the bundled `dxcfg.exe` to work around this. If a similar
+question comes up again, prefer static analysis (Ghidra/ReVa) over live debugging for this
+particular game.
 
 **The actual practical workflow: staging saves.** Walk to the threshold of whatever area
 you're about to add content to once, save there, and reuse that save for every subsequent
