@@ -1,0 +1,29 @@
+CDialogTree
+{
+Name=Marco
+Portrait=!None
+Should Have Voiceovers=0
+Default Canceled Node Action=
+------------------------------------------------------------
+Node ID=1 Conversation Start
+Text=Ah, it's nice to see another member of the underground.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Let's see what you have.
+Go to node ID=
+Custom Action=CDisplayMerchantWindowAction
+{
+LayerPart name of merchants inventory=Marco Inventory
+LayerPart name of merchants character=$Trigger
+Player=$instigator
+After Closed Action=
+}
+Icon=Quest Icon
+
+Requirement=!None
+Reply Text=Not today. Goodbye.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
+}

@@ -1,0 +1,17 @@
+CDialogTree
+{
+Name=Marco
+Portrait=!None
+Should Have Voiceovers=0
+Default Canceled Node Action=
+------------------------------------------------------------
+Node ID=1 Conversation Start
+Text=Watch yourself out there. These streets can turn dangerous once night falls.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Thanks for the warning.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
+}

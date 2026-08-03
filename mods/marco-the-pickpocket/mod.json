@@ -1,0 +1,14 @@
+{
+  "mod_format_version": 1,
+  "id": "marco-the-pickpocket",
+  "name": "Marco the Pickpocket",
+  "version": "1.0.0",
+  "author": "vkays",
+  "description": "Adds Marco, a new NPC near the Gate District blacksmith. Without the Thief perk he warns you the streets can be dangerous at night; with it he opens a shop stocked with rogue-friendly gear.",
+  "files": [
+    "Resources/Levels/1 Barcelona/Character Templates/Gate District/Marco.can",
+    "Resources/Levels/1 Barcelona/Dialog/Gate District/Marco Dialogue.DialogTree",
+    "Resources/Levels/1 Barcelona/Dialog/Gate District/Marco Dialogue Thief.DialogTree",
+    "Levels/1 Barcelona/Gate District.zax"
+  ]
+}
