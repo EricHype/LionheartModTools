@@ -113,25 +113,99 @@ Node ID=<next node>
 No indentation inside `.DialogTree` files (flat, left-aligned), unlike other resource
 files.
 
-## Where an NPC's dialogue actually gets linked (not where you'd guess)
+## Adding a brand-new NPC to a level
 
-The reusable `Character Templates/<Name>.can` file (the NPC's AI/stats template) has
-**no reference to its DialogTree at all**. The link lives in the **level's own `.zax`
-placement data**: a `CGeneratorAI` spawns the entity from the Character Template, and a
-`CAIInteractionSpecifier` activity on that spawn wires up the conversation:
+Four pieces, all confirmed working end-to-end via Marco the Pickpocket:
+
+1. **Character Template**: clone an existing one, e.g.
+   `Resources/Levels/<Area>/Character Templates/<Folder>/<Name>.can` — copy a
+   similar-complexity existing citizen/NPC template rather than building from scratch.
+   Nothing in this file references dialogue or the level at all (see point 3).
+2. **DialogTree(s)**: `Resources/Levels/<Area>/Dialog/<Folder>/<Name> Dialogue.DialogTree`
+   (see the DialogTree format section above). Use **separate files per branch** (e.g. one
+   for "has perk", one for "doesn't") rather than trying to gate replies within a single
+   tree — simpler and avoids ever needing to jump to a non-default starting node.
+3. **Level wiring** (`Levels/<Area>/<Level>.zax`): this is where the NPC actually gets
+   spawned and linked to its dialogue — the Character Template `.can` has **no reference to
+   its DialogTree at all**. Add a new top-level `Level Part=CEntityBase` under
+   `Tree List=CSortList2D` containing the spawner.
+4. **(Optional) Shop wiring**, if the NPC sells things — a *separate* `CEntityBase` with
+   `Name=<Something> Inventory` and `Activity=CMerchantAI{Display Name=..., Items=Array{...}}`,
+   opened from a DialogTree reply's `Custom Action=CDisplayMerchantWindowAction{Merchant=<Name
+   field of the merchant entity>, After Closed Action=}` — confirmed via both the Herbalist's
+   and Blacksmith's shops. Don't fire it directly from an interaction-level `CIfAction`; it
+   belongs on a reply, after some dialogue.
+
+### The spawner: use `CGeneratorAI`, not `CSimpleGeneratorForCannedEntitiesAI`
+
+This is the single easiest mistake to make, and it fails **silently** (the entity just never
+appears, with no error) — `CSimpleGeneratorForCannedEntitiesAI` is the pattern used for
+ambient background citizens, not real interactable NPCs. Real, persistent NPCs (confirmed
+via Jafar/"Amir") use `CGeneratorAI` with this required structure:
 
 ```
 Activity=CGeneratorAI
 {
-    Groups=Array { Group=CGeneratorAIGroup { Things to Generate=Array {
-        Thing to Generate=CSpawnableCannedEntity { Entity=Levels/.../Character Templates/<Name> }
-    }}}
-    New Name=<InstanceName>
-    AIs to Add=Array { AI=CAIInteractionSpecifier {
-        Action=... CDisplayDialogTreeAction { Dialog Tree File=Levels/.../Dialog/<Folder>/<Name> Dialogue }
+    Area=COvalGeneratorArea { Radius=11 }
+    Has Started Generating=0
+    Groups=Array { Item Count=1, Group=CGeneratorAIGroup
+    {
+        Max Party Mojo=3
+        Quantity to generate min=1
+        Quantity to generate max=1
+        Things to Generate=Array { Item Count=1, Thing to Generate=CSpawnableCannedEntity
+        {
+            Weight=1
+            Entity=Levels/<Area>/Character Templates/<Folder>/<Name>
+        }}
     }}
+    New Name=<InstanceName>
+    Remove Default AIs=0
+    AIs to Add=Array { Item Count=1, AI=CAIInteractionSpecifier
+    {
+        Interaction Type=Interaction Specifiers/GetCloseThenTalk
+        Action=CDisplayDialogTreeAction { Dialog Tree File=Levels/<Area>/Dialog/<Folder>/<Name> Dialogue }
+    }}
+    Canned AIs to Add=Array { Item Count=0 }
+    New Facing Angle=<radians>
+    Angle Variation=0
 }
 ```
+
+Wrap the `CEntityBase` around this with `Visible=0, Collideable=0, Stationary=1, Active=1,
+Model=Editor/Character Generator Point`, plus `Position X=`/`Position Y=` for where the
+character spawns. `After Action=` (death-cleanup, e.g. failing quests tied to the NPC) is
+optional — only needed if the NPC has quests keyed to their death, like Jafar does.
+
+**Positioning**: pick coordinates near a confirmed-walkable reference point (an existing
+NPC's position, or an `Editor/Spawn Point` entity) rather than guessing blind — bad
+positions fail exactly as silently as the wrong generator class does, and the only way to
+tell them apart is by comparing against a known-working entity (see the save-staleness
+gotcha below, which is *also* an easy way to misdiagnose a bad position as a bad spawner).
+
+### Gating behavior on a perk (or any other condition)
+
+No precedent exists in the shipped game for perk-gated NPC behavior — this pattern is
+assembled from separately-confirmed primitives. Branch at the interaction level with
+`CIfAction`, using the `CExpressionAction` adapter to turn the `CHasPerkExpression`
+*Expression* into a bare *Action* (per the `If=` gotcha above — never
+`CActionExpression`-wrapped):
+
+```
+Action=CIfAction
+{
+    If=CExpressionAction
+    {
+        Expression=CHasPerkExpression { Perks To Check For=Array { Item Count=1, Perk To Check For=Perks/<Name> } }
+        Character to get attributes from=$Instigator
+    }
+    Then=CDisplayDialogTreeAction { Dialog Tree File=Levels/.../<Name> Dialogue Variant }
+    Else=CDisplayDialogTreeAction { Dialog Tree File=Levels/.../<Name> Dialogue }
+    Return failure if the If failes=0
+}
+```
+
+### Finding an existing NPC's DialogTree
 
 To find an NPC's actual DialogTree, search the relevant `Levels\<Area>\*.zax` files for
 `Dialog Tree File=` near the NPC's name — don't assume it doesn't exist just because the
