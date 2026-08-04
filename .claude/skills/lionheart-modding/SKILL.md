@@ -283,6 +283,72 @@ you're about to add content to once, save there, and reuse that save for every s
 test in that zone — this turns "hours of travel to re-test" into "one load + a short walk"
 per iteration, with zero risk to the player's real progress.
 
+## Building a brand-new map from scratch
+
+Confirmed possible, with one major caveat below. `Levels/Empty Scratch map.zax` (185
+lines) is a leftover dev template — a genuinely minimal, complete `CLayerSaveData` root
+structure, safe to clone as a starting point instead of a real level.
+
+**Terrain (`Plasma Ground=CPlasmaTileMap`)**: a classic quad-heightmap. One elevation byte
+per grid *vertex*, spaced 64 world-units apart: vertex columns = `Width/64 + 1`, vertex
+rows = `Height/64 + 1` (confirmed against Gate District: 4224/64+1=67 columns, matching
+its real row byte-length exactly). `Elevations Row N=`, `Light Overlay Row N=`, and
+`Fog Of War 3 Row N=` must all have the same row count as this formula implies — **the
+scratch template's own `Height=960` field is inconsistent with its actual grid data (only
+15 rows exist, implying a real height of 896)**, which caused genuinely broken rendering
+(terrain visibly shifting and disappearing as the player moved) until fixed by either
+adding the missing row or correcting `Height` to match. Also fix `Blending` (the scratch
+template's value, `1.27591e+010`, is obviously uninitialized garbage — use something like
+`0.85`) and give it at least one real `Texture 0=` (`Num Textures=0` may itself have
+contributed to the broken rendering). No per-cell texture-index layer exists anywhere in
+this structure — texture blending across multiple textures is presumably procedural/
+height-based and wasn't reverse-engineered; for a first new map, staying at `Num
+Textures=1` (one flat, unblended texture) sidesteps this entirely, at the cost of the
+ground looking visibly tiled/repetitive rather than naturally blended.
+
+**Spawn point**: a `CEntityBase` with `Activity=CGeneratorAI`... no — simpler:
+`Activity=CSpawnPointAI{Spawn Action=CSeriesAction{...}, Facing Angle=...}`, `Model=Editor/Spawn
+Point`, named e.g. `Start Here`, registered at the map's root via `Team Info=Array{Team
+Info=CTeamInfo{Spawn Point Name=<matching name, lowercase in the scratch template but this
+didn't seem to matter — matched by the door/trigger's `New Location=` field against the
+entity's own `Name=`, not this Team Info field>}}`.
+
+**Getting there and back**: `CRelocateAction{New Map Name=<Partial File Name of target>,
+New Location=<Name of a spawn-point-style entity in that target>, Who To Switch=$Instigator}`
+is the whole mechanism — no separate level registry exists, everything resolves by path
+string like the rest of this engine. If firing this from inside a DialogTree reply (not a
+level trigger), wrap it in `CDelayAction{Next Action=CRelocateAction{...}, Delay=1}` —
+confirmed pattern from Jafar's own dialogue (`Levels/1 Barcelona/Dialog/Gate
+District/Jafar.DialogTree`), presumably to let the dialogue UI close before the map swap.
+
+**CRITICAL: for the return trip, use a real `CDoorAI` door entity, not a `CFreeRangePoly`
+zone trigger.** Every real shop-exit in the shipped game (Blacksmith, Herbalist, etc.) uses
+an invisible `CFreeRangePoly` polygon + `Interaction Type=Interaction Specifiers/GetCloseThen
+Exit Area` (or `GetCloseThen Continue On` for wilderness-to-wilderness transitions), and this
+looks like the obviously-correct pattern to copy. **It does not work when added to
+custom/hand-authored content** — confirmed after building it four different ways (multiple
+`Interaction Type` variants, both `CEntityBase` and `CFreeRangePoly`, with and without a
+`CDelayAction` wrapper) and cross-checking field-for-field against three independent
+real, confirmed-working examples: no interaction cursor ever appeared anywhere in the new
+map, not even hovering directly over it. The likely cause: `Empty Scratch map.zax` (and
+by extension anything cloned from it) shows signs of having never been fully processed by
+the original level editor (see the `Blending`/`Height` garbage above) — some baked
+navigation/interaction data the polygon-hover system depends on may simply be missing, and
+this wouldn't show up as a text-field difference since it might not exist as text at all.
+
+What **does** work: a real `CEntityAnimated` with `Model=<an actual door model>` and
+`Activity=Array{Activity=CDoorAI{After Opened=CMultipleActionsAction{Action=Array{Action=
+CRelocateAction{...}}}, After Closed=CAddAIAction{...re-adds the open-interaction after
+closing...}}, Activity=CAIInteractionSpecifier{Interaction Type=Interaction
+Specifiers/GetCloseThen OpenDoor, Action=COpenDoorAction{Door Name=$Trigger}}}` — copy this
+whole structure from a real door (e.g. `Herbalist door` in `Levels/1 Barcelona/Gate
+District.zax`, `Model=Environments/Rethgorad/Town/WidowsDoor`) rather than a
+`CFreeRangePoly` zone. The working theory: the door's actual 3D model provides real
+collision geometry for the interaction/hover raycast to hit, whereas a polygon-only zone
+apparently doesn't, at least not for anything we've hand-authored. **Prefer real
+model-based doors over invisible trigger zones for any new interactive exit**, even though
+zones are the pattern the shipped game itself uses everywhere.
+
 ## Quest mechanics
 
 - `Resources/.../<Name>.Quest.txt`: `CQuestDefinition { Name=..., States=Array {...},
