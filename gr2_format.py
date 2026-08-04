@@ -180,15 +180,15 @@ def decompress_sector(raw_file: bytes, info: SectorInfo) -> bytes:
         return sector_bytes
 
     if info.compression_type in (CompressionType.OODLE0, CompressionType.OODLE1):
-        # The C reference (opengr2-c/gr2_read.c) routes both OODLE0 and OODLE1 through
-        # the same Compression_UnOodle1 decoder -- "Oodle0" was never a distinct shipped
-        # algorithm (its would-be handler is #if 0'd out in the reference source).
-        from gr2_oodle1 import oodle1_decompress
-        result = oodle1_decompress(raw_file, info.data_offset, info.decompressed_length,
+        # Both route through the same real decoder in Lionheart's granny2.dll (confirmed
+        # via disassembly -- there is no separate "Oodle0" algorithm for this build). See
+        # docs/gr2-format.md for the full writeup of this decoder's traced call chain.
+        from gr2_granny_decompress import granny_decompress
+        result = granny_decompress(raw_file, info.data_offset, info.decompressed_length,
                                     info.oodle_stop_0, info.oodle_stop_1)
         if len(result) != info.decompressed_length:
             raise ValueError(
-                f"Oodle1 decompression produced {len(result)} bytes, "
+                f"Decompression produced {len(result)} bytes, "
                 f"expected {info.decompressed_length}"
             )
         return result

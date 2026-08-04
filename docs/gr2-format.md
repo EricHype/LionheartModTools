@@ -1,243 +1,146 @@
-# GR2 (Granny3D) model format — investigation checkpoint
+# GR2 (Granny3D) model format — SOLVED
 
-Goal: read Lionheart's `.gr2` character model/animation files (real Granny3D meshes,
-not sprites — see `Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.GR2`
-for the file used throughout this investigation) well enough to eventually understand
-and author new character content. This doc is a checkpoint — the container format is
-fully working; decompression is not, and picking it back up needs real disassembly
-work, not more guessing. Read this before spending more time on it.
+Lionheart's `.gr2` character model/animation files (real Granny3D meshes, not sprites)
+can now be read end-to-end: container format, real decompression, and the self-describing
+element tree all work. Verified against
+`Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.GR2`: it decodes to the
+genuine model data — exporter info (`'Granny Standard Exporter, SDK version 2.1.0.3'`),
+original source paths (`'C:\Icewind Art\Monsters\WereRat\Anims\Final\WereRat_Model.max'`
+— this asset was originally built with Icewind Dale-engine tooling, reused for
+Lionheart), a real 441-field skeleton with actual bone names (`Bip01`, `Bip01 Pelvis`,
+`Bip01 Tail1`..`Tail4`, `Bip01 R Thigh`, finger bones, etc.), a vertex buffer with real
+bone-weighted vertices, and a 3099-entry triangle index buffer.
 
-## What's done and working: `gr2_format.py`
+## How to use it
 
-A from-scratch Python port of the GR2 container format (header → file_info → sector
-table → fixup/pointer tables → self-describing element tree), modeled on
-`opengr2-rs` (github.com/NoFr1ends/opengr2-rs, a generic/game-agnostic GR2 parser).
-**Fully validated**: running it against `opengr2-rs`'s own bundled test fixtures
-(`prova.gr2`, `test1.gr2`) reproduces their test assertions exactly (header size/format,
-FileInfo total_size/crc32/sector_count/type_ref/root_ref, and a correctly-walked element
-tree with real field names like `ArtToolInfo`, `ExporterName`, and actual mesh vertex
-data — `Position`/`Normal`/`TextureCoordinates0` arrays). Also correctly parses the
-header/file_info/sector table of the real `WereRat.MODEL.GR2` (byte-exact against
-hand-verification done earlier in this investigation) and correctly decodes its one
-*uncompressed* sector (sector 5, `compression_type=0`).
-
-Run it directly: `python gr2_format.py <file.gr2>` dumps header/file_info/sector info and
-the root element tree (see `dump_elements()` at the bottom of the file).
-
-**This part needs no further work.** The element tree walker is fully generic/self-
-describing (field names come from the file itself via the type sector) — once real
-decompressed bytes are available for a sector, `parse_element()` already turns them into
-named, typed values with zero additional Lionheart-specific work.
-
-## Current status (second checkpoint): `gr2_granny_decompress.py` — close, not correct yet
-
-A second, from-scratch port of the *real* algorithm (traced via Ghidra disassembly of
-Lionheart's actual `granny2.dll`, not `nwn2mdk`) now exists in `gr2_granny_decompress.py`.
-It runs to completion without crashing and produces the right *length* output, and two
-real, confirmed bugs from the first attempt at this port are already fixed:
-
-1. **Missing init-time weight bump.** `FUN_1000d820` (window init) ends with a call
-   `FUN_1000d920(window, 0, 0x30003)` — a packed-delta Fenwick-style update meaning
-   "add 3 to slot 0" (0x30003 = 3 packed into both 16-bit halves, matching the same
-   packed-pair-add trick used everywhere in this code). Without it, every fresh window
-   starts at `weight_total=0`, which causes a `ZeroDivisionError` on the very first
-   decode. Fixed by having `Window.__init__` end with `self._add(0, 3)`.
-2. **Wrong tree-update model.** The 15-node array searched in `FUN_1000df50` is a plain
-   **prefix-sum array** (`tree[i]` = cumulative weight through block `i`), confirmed
-   unambiguously by `FUN_1000ddf0`'s rebuild code (`tree[i] = tree[i-1] + block_total[i]`,
-   an explicit running sum). Updating it after a block's weight changes therefore requires
-   bumping a **suffix range** `tree[block_index..14]` (see `FUN_1000d920`'s
-   `switch(idx>>1)` with intentional fallthrough through all remaining cases) — not an
-   "ancestor path" the way a textbook Fenwick tree would. My first attempt at this
-   (incrementing only the O(log n) nodes touched during the binary-search descent) was a
-   plausible-looking guess that turned out to be mathematically wrong, and it eventually
-   ran the search off the end of the weights array. Fixed by adding `Window._add()`
-   (a direct port of `FUN_1000d920`) and having `Window._search()` call it for the found
-   block once identified, instead of mutating nodes during descent.
-
-**Still wrong**: tested against `WereRat.MODEL.GR2` sector 0, the corruption pattern
-changed (was ~94% repeated `0xDD` with the *wrong* nwn2mdk-derived algorithm; is now 87%
-repeated `0xFE` with this real-algorithm port) but the sector is still overwhelmingly one
-repeated byte, and `type_ref` position 19472 still does not decode to a small, valid
-`type_id`. Something is still desyncing the arithmetic decoder, almost certainly in the
-bit-level renormalization core (`Decoder.decode_commit` in `gr2_granny_decompress.py`,
-ported from `FUN_1000d520`) since that's the most intricate, least-checkable-by-static-
-reasoning piece — three renormalization granularities (byte/nibble/bit) plus a separate
-underflow ("E3 mapping") loop, all mutating shared decoder state.
-
-**Where to pick this up:**
-- Add tracing (a debug harness for exactly this already exists in this session's shell
-  history / was written ad hoc — recreate it): monkeypatch `Decoder.decode_commit` to log
-  `(val, err, max_val)`, the interval width immediately after narrowing but *before*
-  renormalization, and the interval width and `decoder.pos` immediately after. Watch for
-  whether the *byte/nibble/bit* renormalization loops are firing the right *number of
-  times* relative to how far the pre-renorm width falls below the granularity thresholds
-  (`0x7F800000`/`0x78000000`/`0x40000000`) — a loop that exits one iteration too early or
-  late would under- or over-consume bits without crashing, exactly matching the observed
-  symptom (decoder limps along self-consistently but drifts from the true bitstream).
-- Specifically re-verify the **nibble-granularity block runs at most once** (it's an
-  `if`, not a `while`, in the real disassembly — already implemented that way in
-  `decode_commit`, but worth re-confirming against the raw disassembly at
-  `0x1000d5cd`-ish, since this is an easy thing to mistranscribe as a loop).
-- Re-verify the **decoder init sequence** (`Decoder.__init__`/`_init_value`) against raw
-  disassembly one more time — it was derived carefully (see the resolved stack-offset
-  ambiguity note below) but has never been independently cross-checked against a second
-  source, unlike the container format which had `opengr2-rs`'s own test fixtures to
-  validate against. There is no equivalent "known good" fixture for this real algorithm.
-- Consider re-deriving `Window._rebuild()` (port of `FUN_1000e390`/`FUN_1000ddf0`) more
-  rigorously — it was implemented as a *reasoned simplification*, not a line-by-line
-  transcription, unlike everything else in this file. It's gated behind
-  `weight_total > 0x3fff` so it likely isn't the cause of the *early* (byte ~1) corruption
-  already observed, but it will matter once decode gets further and needs re-verification
-  before being trusted.
-- The Ghidra project (`/granny2.dll`) is still imported and analyzed; useful addresses for
-  a fresh pass: `FUN_1000d520` (0x1000d520, decoder core), `Decoder.__init__`'s source at
-  the top of `FUN_1001c670` (0x1001c670, lines ~22-40 in the decompilation — note Ghidra
-  splits what is really one contiguous stack struct into separately-named locals
-  `apuStack_28[3]`/`local_18`/`local_14`/`local_10`/`local_c`/`local_8`/`local_4`; get the
-  disassembly with `includeDisassembly: true` to see the real `[ESP+N]` offsets and
-  resolve this ambiguity, which is how the current init sequence was derived).
-
-## Earlier, wrong attempt: `gr2_oodle1.py` — wrong algorithm entirely, do not extend it
-
-This file is a faithful, carefully cross-checked port of the "Oodle1" decompressor from
-`opengr2-c` (github.com/arves100/opengr2 in C) and `nwn2mdk`
-(github.com/Arbos/nwn2mdk, MPL-2.0, the Neverwinter Nights 2 modding project both `opengr2-c`
-and `opengr2-rs` cite as their source for this algorithm). It runs without crashing and
-produces plausible-*looking* output (sensible block-size sequences), but the actual
-decoded bytes are wrong — tested against `WereRat.MODEL.GR2` sector 0 (should contain
-readable field names like "ArtToolInfo"), it produces ~94% repeated `0xDD` bytes with
-zero readable ASCII anywhere. The corruption starts almost immediately (within the first
-few decoded blocks), not just at a stream boundary, so it's a real algorithmic mismatch,
-not a rounding/truncation bug.
-
-**Root cause, confirmed via Ghidra disassembly of the real `granny2.dll` shipped with
-Lionheart** (`C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the
-Crusader\granny2.dll`, 32-bit x86, imported into the Ghidra project as `/granny2.dll`):
-Lionheart's actual decoder (`FUN_1001c670` and its callees, traced below) is a
-**different, more sophisticated range coder** than the one `nwn2mdk` reverse-engineered.
-Rad Game Tools evidently changed the coder's internals between the `granny2.dll` build
-NWN2 shipped with and the one Lionheart shipped with (different years, different SDK
-versions) — so `gr2_oodle1.py`'s algorithm was never going to work here, regardless of
-which on-disk `compression_type` it's applied to. (Side note, also confirmed via
-disassembly: on-disk `compression_type` 1 and 2 both route through the *same* decoder
-function in Lionheart's DLL — there is no separate "Oodle0 vs Oodle1" algorithm split;
-that naming in `opengr2-rs`'s enum is misleading for this build.)
-
-**Do not try to fix `gr2_oodle1.py` by tweaking it further.** It needs to be replaced by
-a faithful port of the real algorithm below.
-
-## The real algorithm — traced via Ghidra, not yet ported
-
-Ghidra project: `/granny2.dll` (already imported + analyzed — `analyze-program` was run,
-so functions/strings/xrefs are populated; no need to re-import). Call chain from the
-public API down to the real decompressor:
+`gr2_format.py`'s `decompress_sector` now calls the real decompressor
+(`gr2_granny_decompress.granny_decompress`) directly, so the whole pipeline works as a
+single call:
 
 ```
-_GrannyReadEntireFile@4 (0x10026900)
-  -> FUN_10012370 (0x10012370)
-    -> FUN_10012510 (0x10012510)
-      -> FUN_10011ba0 (0x10011ba0)   -- per-section driver; reads SectorInfo.compression_type
-                                          directly (offset 0 of the 44-byte/0x2c section struct,
-                                          confirming the struct layout in gr2_format.py is right),
-                                          calls FUN_10013750 when compression_type != 0
-        -> FUN_10013750 (0x10013750)  -- also reachable directly as _GrannyDecompressData@28
-             dispatch: type 0 -> FUN_10019400 (plain memcpy, NOT decompression-specific --
-                                  it's a generic memcpy used 20+ places in the DLL)
-                       type 1 -> FUN_1001c670 (the real decoder)
-                       other  -> error "Unrecognized compression"
-          -> FUN_1001c670 (0x1001c670)   -- top-level 3-phase loop, structurally matches
-                                             nwn2mdk's gr2_decompress: 3x 12-byte TParameter
-                                             blocks (36-byte prefix, same 9-bit/23-bit bitfield
-                                             layout already confirmed bit-exact in gr2_oodle1.py's
-                                             _parse_parameter), then iterates 3 phases bounded by
-                                             stop0/stop1/decompressed_size.
-             -> FUN_1001c080 (0x1001c080)  -- per-phase dictionary/window-set init
-             -> FUN_1001c1f0 (0x1001c1f0)  -- per-block decode step (literal vs backref;
-                                               backref copy confirmed to be FUN_1001c340, a
-                                               plain memcpy with the same "fixed source, tiled
-                                               forward" pattern already implemented correctly
-                                               in gr2_oodle1.py's _decompress_block)
-                -> FUN_1000de50 (0x1000de50)  -- weighted-window "try decode" (returns either
-                                                  an already-known value, or a sentinel meaning
-                                                  "decode a fresh value and store it" -- same
-                                                  shape as nwn2mdk's try_decode, DIFFERENT
-                                                  internal data structure, see below)
-                   -> FUN_1000df50 (0x1000df50)  -- binary search over a 16-block prefix-sum
-                                                     array (NOT a flat ranges[]/weights[]
-                                                     linear scan like nwn2mdk, and NOT a
-                                                     Fenwick tree despite superficially looking
-                                                     like one -- see "current status" above).
-                                                     Ported as Window._search().
-                   -> FUN_1000e390 (0x1000e390)  -- periodic rebuild (triggered when
-                                                     weight_total exceeds 0x3fff). Ported as
-                                                     Window._rebuild(), but as a *reasoned
-                                                     simplification* rather than a faithful
-                                                     transcription -- needs re-verification
-                                                     (see "current status" above).
-                   -> FUN_1000d920 (0x1000d920)  -- prefix-sum suffix-range update (adds a
-                                                     delta to one weight slot and propagates
-                                                     it through tree[block_index..14]).
-                                                     Ported as Window._add().
-                   -> FUN_1000d890 (0x1000d890)  -- picks a block-width/shift so 16 blocks
-                                                     roughly cover max_value+1 (note: called
-                                                     with max_value+1, not max_value --
-                                                     confirmed via disassembly). Ported as
-                                                     Window._pick_shift().
-                -> FUN_1000d780 (0x1000d780)  -- Decode_Commit-equivalent: combines decode+
-                                                  commit in one call via 64-bit multiply/divide
-                                                  against state fields param_1[4],[5],[6].
-                                                  Ported as decode_raw() (for brand-new
-                                                  symbols) and inline in Window.try_decode()
-                                                  (for the weighted-window case).
-                   -> FUN_1000d520 (0x1000d520)  -- the actual bit-level range-coder
-                                                     commit/renormalize. Uses an XOR-interval
-                                                     comparison (`uVar2 ^ uVar7`) rather than
-                                                     nwn2mdk's simple numer/denom division, with
-                                                     THREE renormalization granularities
-                                                     (byte, then nibble, then bit), each refilling
-                                                     from the compressed stream and pushing bits
-                                                     into an accumulator via a 256-byte lookup
-                                                     table at DAT_100292cc (confirmed to be
-                                                     exactly a 4-bit reversal table -- computed
-                                                     programmatically in the port, no need to
-                                                     hardcode it). Ported as
-                                                     Decoder.decode_commit() -- **this is the
-                                                     prime suspect for the remaining bug**, see
-                                                     "current status" above.
-Small/mechanical helpers, ported and not suspected of any bugs:
-  FUN_1000d7f0, FUN_1000d7d0 -- buffer-size calculators (unused directly in the Python port,
-                                 since Python lists don't need pre-sized buffers)
-  FUN_10019370 -- memset (unused directly, same reason)
-  FUN_1001c340 -- memcpy (backref copy, ported into decompress_block())
+python gr2_format.py <file.gr2>
 ```
 
-## Next steps to actually finish this
+dumps header/file_info/sector info and the full element tree. Or from Python:
 
-See "Current status" above for the concrete next debugging steps (tracing renormalization
-loop entry/exit counts, re-verifying the decoder init sequence and the rebuild function).
-Once the decoder is believed fixed, validate the same way this session did for the
-container format: decompressed sector byte-length must match `decompressed_length`
-exactly, AND (unlike this session's early mistake with `gr2_oodle1.py`) actually inspect
-the decoded *content* for plausibility (readable ASCII field names, sane float values)
-before trusting it — a length match alone is not sufficient evidence of correctness.
+```python
+import gr2_format as gf
 
-Test file: `WereRat.MODEL.GR2`, sector 0 (`compression_type=1`, `compressed_length=10084`,
-`decompressed_length=29448`, `oodle_stop_0=oodle_stop_1=26008`, `data_offset=8692`,
-`fixup_offset=352`, `fixup_size=695`) is the reference case used throughout this
-investigation — its type sector root should decode starting near offset 19472 with a
-small, valid `type_id` (1-22), which is the concrete, checkable sign that decompression
-is finally correct end-to-end. As of this checkpoint it decodes to a repeated `0xFE` byte
-there, not a valid type_id.
+gf_file = gf.GrannyFile.load_from_file("SomeModel.gr2")
+gf.dump_elements(gf_file.root_elements)
+```
 
-## Ruled out / not worth retrying
+## `gr2_format.py` — container format
 
-- Calling `granny2.dll` directly via `ctypes` from Python: the DLL is 32-bit x86, this
-  machine's Python is 64-bit, and a 64-bit process cannot load a 32-bit DLL. Would need a
-  separate 32-bit Python install (not done; deprioritized in favor of the from-scratch
-  port, since the user wants an independent implementation, not a runtime DLL dependency).
-- Trusting `opengr2-c`'s choice to route on-disk `compression_type` 1 and 2 through the
-  same decoder: this turned out to be *correct* (confirmed via disassembly — both really
-  do hit the same function in Lionheart's DLL), so that was never the bug. The bug was
-  trusting `nwn2mdk`'s specific algorithm implementation to be the same one Lionheart's
-  `granny2.dll` build uses. It isn't.
+Header → file_info → sector table → fixup/pointer tables → self-describing element tree.
+Modeled on `opengr2-rs` (github.com/NoFr1ends/opengr2-rs). Validated against
+`opengr2-rs`'s own test fixtures (`prova.gr2`, `test1.gr2` — reproduces their test
+assertions exactly) and against real Lionheart files. The element tree walker needs no
+Lionheart-specific knowledge — field names and structure come from the file itself.
+
+## `gr2_granny_decompress.py` — the real decompressor
+
+A from-scratch Python port of Lionheart's actual `granny2.dll` decompression algorithm,
+traced via Ghidra disassembly of the DLL shipped with the game (32-bit x86,
+`C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader\granny2.dll`,
+imported into a Ghidra project as `/granny2.dll`). It is **not** related to `nwn2mdk` or
+`opengr2-c`'s "Oodle1" algorithm (see "dead end" section below) — Rad Game Tools changed
+the coder's internals between the `granny2.dll` build Neverwinter Nights 2 shipped with
+and the one Lionheart shipped with, so that algorithm was never viable here.
+
+It's a carryless (Schindler-style) range coder: `low`/`high` track the current 31-bit
+coding sub-interval, `value` tracks the reconstructed stream position within it, and all
+three renormalize together (shifting in fresh, bit-reversed bytes) via three
+granularities (byte/nibble/bit) plus a separate underflow ("E3 mapping") loop. The
+per-symbol frequency model (`Window`) is a 16-block **prefix-sum array** (`tree[i]` =
+cumulative weight through block `i`) searched via binary search and updated via a
+suffix-range add (`Window._add`, port of `FUN_1000d920`) — not a Fenwick/ancestor-path
+tree, despite superficially looking like one. `Dictionary` (port of `FUN_1001c080`) has
+one literal-byte window (not four, no `pos%4` indexing), 65 backref-size windows
+(indices 0-64, matching `backref_size+1`), and exactly **two** backref-offset windows
+whose values combine as `offset = hi*4 + lo + 1` — nwn2mdk's three-window
+`(hi<<10)+(mid<<2)+lo+1` scheme does not apply to this build.
+
+Key call-chain (addresses in `granny2.dll`, still importable/re-analyzable at
+`/granny2.dll` in the Ghidra project):
+
+```
+FUN_1001c670 (top-level 3-phase loop)     -> granny_decompress()
+  FUN_1001c080 (per-phase window-set init) -> Dictionary.__init__()
+  FUN_1001c1f0 (per-block decode step)     -> decompress_block()
+    FUN_1000de50 (window try-decode)       -> Window.try_decode()
+      FUN_1000df50 (block search)          -> Window._search()
+      FUN_1000e390 + FUN_1000ddf0 (rebuild) -> Window._rebuild()
+      FUN_1000d920 (prefix-sum update)      -> Window._add()
+      FUN_1000d890 (block-width picker)     -> Window._pick_shift()
+    FUN_1000d780 (decode_commit)            -> decode_raw() / inline in try_decode()
+      FUN_1000d520 (bit-level renormalize)  -> Decoder.decode_commit()
+```
+
+### Bugs found and fixed during the port (kept here as a debugging-methodology record)
+
+Getting this bit-exact took several rounds of "run it, notice it's still wrong, find a
+concrete reason why" — worth keeping as a record since the failure modes were subtle and
+each one taught something about how to debug this class of algorithm:
+
+1. **Missing init-time weight bump.** `FUN_1000d820` (window init) ends with
+   `FUN_1000d920(window, 0, 0x30003)` — add 3 (packed into both 16-bit halves of the
+   delta) to slot 0. Without it, every window starts at `weight_total=0`, causing a
+   `ZeroDivisionError` on the first decode.
+2. **Wrong tree-update model.** The 15-node array is a prefix-sum array (confirmed by
+   `FUN_1000ddf0`'s explicit `tree[i] = tree[i-1] + block_total[i]`), so a weight change
+   needs a *suffix-range* update (`tree[block_index..14]`), not the ancestor-path update
+   a textbook Fenwick tree would need. Fixed by implementing `Window._add()` as a direct
+   port of `FUN_1000d920`'s `switch`-with-fallthrough.
+3. **Wrong window count/shape (the big one).** The port was originally modeled
+   structurally on nwn2mdk: four `pos%4`-indexed literal windows, and three windows
+   (`lowbit`/`highbit`/`midbit_windows[highbit]`) combining as
+   `offset = (hi<<10)+(mid<<2)+lo+1` for backref distances. Neither matches the real
+   code. Found by reading `FUN_1001c1f0`'s raw disassembly (not just its decompilation)
+   and noticing the backref memcpy's source-address computation only subtracts *two*
+   register-derived values, not three — meaning only two `FUN_1000de50` calls determine
+   the offset, not three. This was **the actual root cause** of the corruption; the two
+   fixes above were real but insufficient on their own. Also discovered in the same pass:
+   there is exactly one literal-byte window (no positional indexing at all), and every
+   window in this Dictionary is created with `FUN_1000d820`'s `param_2` argument fixed at
+   0, which (per that function's own logic) makes "max value" and "count cap" the *same*
+   value everywhere — a distinction nwn2mdk's API has that this code doesn't.
+4. **Validation technique that actually worked**: cross-checking suspect components
+   against independent from-scratch references settled things pure reasoning couldn't.
+   A "bit-only" decoder (renormalizing strictly one bit at a time, no byte/nibble
+   shortcuts) matching the optimized decoder exactly across 30 blocks ruled out the
+   renormalization core. A naive O(n) linear scan over `Window.weights[]` matching
+   `Window._search()`'s result on every call ruled out the tree/search logic. Both
+   pointed at the *glue code* (`decompress_block`) as the remaining suspect, which is
+   where bug #3 actually was.
+5. **Lesson reconfirmed**: a length match is not a correctness signal (this was already
+   learned once this session with the wrong nwn2mdk-based algorithm, then had to be
+   relearned — both buggy versions of this *correct* algorithm also produced right-length,
+   wrong-content output before the real bug was found). The only trustworthy check is
+   content plausibility: byte-value distribution, ASCII field names, and ultimately
+   parsing the full element tree and confirming real, sensible structure (a monotonically
+   increasing `StringOffsets` array was the first unambiguous proof of correctness).
+
+## Dead end: `gr2_oodle1.py` (nwn2mdk-derived) — do not use or extend
+
+Kept in the repo only as a documented dead end. This is a faithful port of the "Oodle1"
+decompressor from `opengr2-c`/`nwn2mdk` (github.com/Arbos/nwn2mdk, MPL-2.0, a Neverwinter
+Nights 2 modding project). It runs without crashing and produces plausible-*looking*
+output, but decodes real Lionheart sectors to ~94% repeated garbage bytes. Confirmed via
+disassembly that Lionheart's `granny2.dll` build uses a structurally different range coder
+than the one NWN2's older `granny2.dll` build used — this was never fixable by iterating
+on the algorithm itself, only by re-deriving the real one from Lionheart's own DLL (which
+`gr2_granny_decompress.py` now does).
+
+## Not yet done
+
+- This has only been validated against one file (`WereRat.MODEL.GR2`). Broader validation
+  across more `.gr2` files (other monsters, animation files, larger models) would be
+  worthwhile before relying on this for authoring/editing work.
+- No writer/encoder exists yet — this is read-only. Per earlier analysis, authoring new
+  content likely doesn't need a matching *compressor*, since the format supports
+  uncompressed sectors natively (`compression_type=0`); a new `.gr2` writer could plausibly
+  just emit everything uncompressed.
+- Understanding what the actual mesh/skeleton/animation data *means* well enough to author
+  new content (new characters, edited meshes) is a separate, substantial next project now
+  that reading the format is solved.

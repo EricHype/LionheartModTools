@@ -177,12 +177,23 @@ _REBUILD_THRESHOLD = 0x3FFF
 
 
 class Window:
-    def __init__(self, max_value: int, count_cap: int):
-        self.max_value = max_value
-        self.count_cap = count_cap
-        self.shift = self._pick_shift(max_value + 1)  # FUN_1000d820 calls FUN_1000d890(.., param_4+1)
+    def __init__(self, size: int):
+        """`size` is FUN_1000d820's single `param_4` -- every window in Dictionary is
+        created with param_2=0, which (per FUN_1000d820's own logic) makes param_4 do
+        double duty as both the structural sizing basis (block width, via
+        FUN_1000d890) and count_cap (ushort[0x16], compared against value_count).
+        There is no separate max_value vs count_cap distinction in the real code --
+        that split was carried over from nwn2mdk and does not apply here."""
+        self.size = size
+        self.count_cap = size
+        self.shift = self._pick_shift(size + 1)  # FUN_1000d820 calls FUN_1000d890(.., param_4+1)
         self.block_width = 1 << self.shift
-        n_slots = 16 * self.block_width
+        # New values are allocated sequentially at positions 1..count_cap, which can
+        # exceed the tree's own 16*block_width structural range (that's exactly what
+        # _add's "escape_threshold" bypass -- position >= 15*block_width skips the
+        # tree entirely -- exists for). Size generously enough to cover both, plus the
+        # +1/+2 linear-scan lookahead in _search.
+        n_slots = max(16 * self.block_width, self.count_cap + 1) + 2
         self.tree = [0] * 15          # cumulative-sum internal nodes (prefix sums)
         self.weight_total = 0
         self.value_count = 0
@@ -348,7 +359,7 @@ class Parameter:
     decoded_value_max: int
     backref_value_max: int
     decoded_count: int
-    highbit_count: int
+    offset_hi_size: int  # raw word1>>9 (padding|highbit_count combined, NOT pure highbit_count)
     sizes_count: bytes
 
 
@@ -359,34 +370,37 @@ def _parse_parameter(data: bytes, offset: int) -> Parameter:
         decoded_value_max=w0 & 0x1FF,
         backref_value_max=(w0 >> 9) & 0x7FFFFF,
         decoded_count=w1 & 0x1FF,
-        highbit_count=(w1 >> 19) & 0x1FFF,
+        offset_hi_size=w1 >> 9,
         sizes_count=sizes_count,
     )
 
 
 class Dictionary:
+    """Port of FUN_1001c080. Real structure (confirmed via raw disassembly, NOT the
+    nwn2mdk-shaped structure this was first modeled on -- see docs/gr2-format.md):
+    one single decoded_window (not four, no pos%4 indexing), 65 size_windows (indices
+    0..64, matching backref_size+1), and exactly TWO offset windows (not three) whose
+    resolved values combine as `offset = hi*4 + lo + 1` -- read directly off the
+    memcpy source-address computation in FUN_1001c1f0's disassembly."""
+
     def __init__(self, param: Parameter):
         self.decoded_size = 0
         self.backref_size = 0
 
         self.decoded_value_max = param.decoded_value_max
         self.backref_value_max = param.backref_value_max
-        self.lowbit_value_max = min(self.backref_value_max + 1, 4)
-        self.midbit_value_max = min(self.backref_value_max // 4 + 1, 256)
-        self.highbit_value_max = self.backref_value_max // 1024 + 1
 
-        self.lowbit_window = Window(self.lowbit_value_max, self.lowbit_value_max)
-        self.highbit_window = Window(self.highbit_value_max, param.highbit_count + 1)
-        self.midbit_windows = [Window(self.midbit_value_max, self.midbit_value_max)
-                                for _ in range(self.highbit_value_max)]
-        self.decoded_windows = [Window(self.decoded_value_max, param.decoded_count)
-                                 for _ in range(4)]
+        self.decoded_window = Window(param.decoded_count)
 
         self.size_windows: list[Window] = []
         for i in range(4):
             for _ in range(16):
-                self.size_windows.append(Window(64, param.sizes_count[3 - i]))
-        self.size_windows.append(Window(64, param.sizes_count[0]))
+                self.size_windows.append(Window(param.sizes_count[3 - i]))
+        self.size_windows.append(Window(param.sizes_count[0]))
+
+        self.offset_lo_size = min(self.backref_value_max, 4)
+        self.offset_lo_window = Window(self.offset_lo_size)
+        self.offset_hi_window = Window(param.offset_hi_size)
 
 
 _BACKREF_SIZES = (128, 192, 256, 512)
@@ -407,13 +421,12 @@ def decompress_block(dictionary: Dictionary, decoder: Decoder, buf: bytearray, p
     if dictionary.backref_size > 0:
         bs = dictionary.backref_size
         backref_size = bs + 1 if bs < 61 else _BACKREF_SIZES[bs - 61]
+
+        lo = resolve(dictionary.offset_lo_window, dictionary.offset_lo_size)
         backref_range = min(dictionary.backref_value_max, dictionary.decoded_size)
+        hi = resolve(dictionary.offset_hi_window, (backref_range >> 2) + 1)
 
-        d3 = resolve(dictionary.lowbit_window, dictionary.lowbit_value_max)
-        d4 = resolve(dictionary.highbit_window, backref_range // 1024 + 1)
-        d5 = resolve(dictionary.midbit_windows[d4], min(backref_range // 4 + 1, 256))
-
-        backref_offset = (d4 << 10) + (d5 << 2) + d3 + 1
+        backref_offset = hi * 4 + lo + 1
         dictionary.decoded_size += backref_size
 
         repeat = backref_size // backref_offset
@@ -426,8 +439,7 @@ def decompress_block(dictionary: Dictionary, decoder: Decoder, buf: bytearray, p
         buf[dst:dst + remain] = buf[src:src + remain]
         return backref_size
 
-    i = pos % 4
-    d2 = resolve(dictionary.decoded_windows[i], dictionary.decoded_value_max)
+    d2 = resolve(dictionary.decoded_window, dictionary.decoded_value_max)
     buf[pos] = d2 & 0xFF
     dictionary.decoded_size += 1
     return 1
