@@ -1,0 +1,12 @@
+{
+  "mod_format_version": 1,
+  "id": "test-pocket",
+  "name": "Test Pocket (WIP)",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "Experimental new standalone map (in progress). Adds a small pocket area near Barcelona, reachable via a new dialogue option with Quinn the Herbalist, with a real door back to her shop. Currently just flat, empty ground - no NPCs, quest, or theme yet.",
+  "files": [
+    "Levels/1 Barcelona/Test Pocket.zax",
+    "Resources/Levels/1 Barcelona/Dialog/Gate District/Herbalist Dialogue.DialogTree"
+  ]
+}
