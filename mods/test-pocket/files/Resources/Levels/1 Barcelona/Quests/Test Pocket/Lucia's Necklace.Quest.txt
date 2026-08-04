@@ -1,0 +1,9 @@
+CQuestDefinition
+{
+	Name=Lucia's Necklace
+	States=Array
+	{
+		Item Count=0
+	}
+	Sub-Quest of=!None
+}

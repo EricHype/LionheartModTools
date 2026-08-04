@@ -113,6 +113,17 @@ Node ID=<next node>
 No indentation inside `.DialogTree` files (flat, left-aligned), unlike other resource
 files.
 
+**CRITICAL when creating a brand-new `.DialogTree` from scratch (not editing an existing
+one): the `CDialogTree{Name=, Portrait=, Should Have Voiceovers=0, Default Canceled Node
+Action=, ---dashes---, ...nodes..., }` root wrapper above is mandatory, including the
+final closing `}` after the last node.** Every prior DialogTree edit this session was
+*splicing into an existing file* that already had this wrapper, so it never came up — the
+first time a new file was built from scratch (Lucia's dialogue) it was written as just the
+bare node list with no wrapper at all, and the game's actual error for this was a generic
+`"the executable or data file has become corrupted"` message on opening the conversation,
+not a helpful parse error. If you see that exact message when talking to an NPC with a
+newly-authored DialogTree, check the wrapper first before anything else.
+
 ## Adding a brand-new NPC to a level
 
 Four pieces, all confirmed working end-to-end via Marco the Pickpocket:

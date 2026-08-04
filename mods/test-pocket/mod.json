@@ -2,11 +2,16 @@
   "mod_format_version": 1,
   "id": "test-pocket",
   "name": "Test Pocket (WIP)",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "vkays",
-  "description": "Experimental new standalone map (in progress). Adds a small pocket area near Barcelona, reachable via a new dialogue option with Quinn the Herbalist, with a real door back to her shop. Currently just flat, empty ground - no NPCs, quest, or theme yet.",
+  "description": "Experimental new standalone map, reachable via a new dialogue option with Quinn the Herbalist, with a real door back to her shop. Populated with its first quest: Lucia asks you to retrieve a necklace from the chest beside her - bring it back and she puts it on, transforms into a hostile wererat, and attacks.",
   "files": [
     "Levels/1 Barcelona/Test Pocket.zax",
-    "Resources/Levels/1 Barcelona/Dialog/Gate District/Herbalist Dialogue.DialogTree"
+    "Resources/Levels/1 Barcelona/Dialog/Gate District/Herbalist Dialogue.DialogTree",
+    "Resources/Levels/1 Barcelona/Character Templates/Test Pocket/Lucia.can",
+    "Resources/Levels/1 Barcelona/Character Templates/Test Pocket/Lucia Wererat.can",
+    "Resources/Levels/1 Barcelona/Dialog/Test Pocket/Lucia Dialogue.DialogTree",
+    "Resources/Levels/1 Barcelona/Quests/Test Pocket/Lucia's Necklace.Quest.txt",
+    "Resources/Levels/1 Barcelona/Quests/Test Pocket/Lucia's Necklace XP.can"
   ]
 }
