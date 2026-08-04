@@ -29,7 +29,76 @@ describing (field names come from the file itself via the type sector) — once 
 decompressed bytes are available for a sector, `parse_element()` already turns them into
 named, typed values with zero additional Lionheart-specific work.
 
-## What's broken: `gr2_oodle1.py` — wrong algorithm, do not extend it
+## Current status (second checkpoint): `gr2_granny_decompress.py` — close, not correct yet
+
+A second, from-scratch port of the *real* algorithm (traced via Ghidra disassembly of
+Lionheart's actual `granny2.dll`, not `nwn2mdk`) now exists in `gr2_granny_decompress.py`.
+It runs to completion without crashing and produces the right *length* output, and two
+real, confirmed bugs from the first attempt at this port are already fixed:
+
+1. **Missing init-time weight bump.** `FUN_1000d820` (window init) ends with a call
+   `FUN_1000d920(window, 0, 0x30003)` — a packed-delta Fenwick-style update meaning
+   "add 3 to slot 0" (0x30003 = 3 packed into both 16-bit halves, matching the same
+   packed-pair-add trick used everywhere in this code). Without it, every fresh window
+   starts at `weight_total=0`, which causes a `ZeroDivisionError` on the very first
+   decode. Fixed by having `Window.__init__` end with `self._add(0, 3)`.
+2. **Wrong tree-update model.** The 15-node array searched in `FUN_1000df50` is a plain
+   **prefix-sum array** (`tree[i]` = cumulative weight through block `i`), confirmed
+   unambiguously by `FUN_1000ddf0`'s rebuild code (`tree[i] = tree[i-1] + block_total[i]`,
+   an explicit running sum). Updating it after a block's weight changes therefore requires
+   bumping a **suffix range** `tree[block_index..14]` (see `FUN_1000d920`'s
+   `switch(idx>>1)` with intentional fallthrough through all remaining cases) — not an
+   "ancestor path" the way a textbook Fenwick tree would. My first attempt at this
+   (incrementing only the O(log n) nodes touched during the binary-search descent) was a
+   plausible-looking guess that turned out to be mathematically wrong, and it eventually
+   ran the search off the end of the weights array. Fixed by adding `Window._add()`
+   (a direct port of `FUN_1000d920`) and having `Window._search()` call it for the found
+   block once identified, instead of mutating nodes during descent.
+
+**Still wrong**: tested against `WereRat.MODEL.GR2` sector 0, the corruption pattern
+changed (was ~94% repeated `0xDD` with the *wrong* nwn2mdk-derived algorithm; is now 87%
+repeated `0xFE` with this real-algorithm port) but the sector is still overwhelmingly one
+repeated byte, and `type_ref` position 19472 still does not decode to a small, valid
+`type_id`. Something is still desyncing the arithmetic decoder, almost certainly in the
+bit-level renormalization core (`Decoder.decode_commit` in `gr2_granny_decompress.py`,
+ported from `FUN_1000d520`) since that's the most intricate, least-checkable-by-static-
+reasoning piece — three renormalization granularities (byte/nibble/bit) plus a separate
+underflow ("E3 mapping") loop, all mutating shared decoder state.
+
+**Where to pick this up:**
+- Add tracing (a debug harness for exactly this already exists in this session's shell
+  history / was written ad hoc — recreate it): monkeypatch `Decoder.decode_commit` to log
+  `(val, err, max_val)`, the interval width immediately after narrowing but *before*
+  renormalization, and the interval width and `decoder.pos` immediately after. Watch for
+  whether the *byte/nibble/bit* renormalization loops are firing the right *number of
+  times* relative to how far the pre-renorm width falls below the granularity thresholds
+  (`0x7F800000`/`0x78000000`/`0x40000000`) — a loop that exits one iteration too early or
+  late would under- or over-consume bits without crashing, exactly matching the observed
+  symptom (decoder limps along self-consistently but drifts from the true bitstream).
+- Specifically re-verify the **nibble-granularity block runs at most once** (it's an
+  `if`, not a `while`, in the real disassembly — already implemented that way in
+  `decode_commit`, but worth re-confirming against the raw disassembly at
+  `0x1000d5cd`-ish, since this is an easy thing to mistranscribe as a loop).
+- Re-verify the **decoder init sequence** (`Decoder.__init__`/`_init_value`) against raw
+  disassembly one more time — it was derived carefully (see the resolved stack-offset
+  ambiguity note below) but has never been independently cross-checked against a second
+  source, unlike the container format which had `opengr2-rs`'s own test fixtures to
+  validate against. There is no equivalent "known good" fixture for this real algorithm.
+- Consider re-deriving `Window._rebuild()` (port of `FUN_1000e390`/`FUN_1000ddf0`) more
+  rigorously — it was implemented as a *reasoned simplification*, not a line-by-line
+  transcription, unlike everything else in this file. It's gated behind
+  `weight_total > 0x3fff` so it likely isn't the cause of the *early* (byte ~1) corruption
+  already observed, but it will matter once decode gets further and needs re-verification
+  before being trusted.
+- The Ghidra project (`/granny2.dll`) is still imported and analyzed; useful addresses for
+  a fresh pass: `FUN_1000d520` (0x1000d520, decoder core), `Decoder.__init__`'s source at
+  the top of `FUN_1001c670` (0x1001c670, lines ~22-40 in the decompilation — note Ghidra
+  splits what is really one contiguous stack struct into separately-named locals
+  `apuStack_28[3]`/`local_18`/`local_14`/`local_10`/`local_c`/`local_8`/`local_4`; get the
+  disassembly with `includeDisassembly: true` to see the real `[ESP+N]` offsets and
+  resolve this ambiguity, which is how the current init sequence was derived).
+
+## Earlier, wrong attempt: `gr2_oodle1.py` — wrong algorithm entirely, do not extend it
 
 This file is a faithful, carefully cross-checked port of the "Oodle1" decompressor from
 `opengr2-c` (github.com/arves100/opengr2 in C) and `nwn2mdk`
@@ -94,30 +163,33 @@ _GrannyReadEntireFile@4 (0x10026900)
                                                   "decode a fresh value and store it" -- same
                                                   shape as nwn2mdk's try_decode, DIFFERENT
                                                   internal data structure, see below)
-                   -> FUN_1000df50 (0x1000df50)  -- NOT a flat ranges[]/weights[] linear scan
-                                                     like nwn2mdk. This is an indexed/tree
-                                                     search: 196 lines of cascading 8-way
-                                                     conditionals comparing against
-                                                     param_1[0]..param_1[7], each guarded by a
-                                                     shift amount at param_1[0x13]. Almost
-                                                     certainly a Fenwick tree / binary indexed
-                                                     tree for O(log n) cumulative-frequency
-                                                     lookup (nwn2mdk's O(n) linear scan was
-                                                     apparently a simplification specific to
-                                                     that build/reverse-engineering effort, not
-                                                     the general Granny scheme). NOT YET PORTED.
-                   -> FUN_1000e390 (0x1000e390)  -- periodic rebuild (triggered when a counter
-                                                     exceeds 0x3fff), 105+ lines of what looks
-                                                     like heap/tree rebalancing. NOT YET PORTED.
-                   -> FUN_1000d920 (0x1000d920)  -- cumulative-frequency update: a
-                                                     switch(uVar3>>1) with fallthrough cases
-                                                     0-7 updating param_1[0..7] -- classic
-                                                     partial Fenwick/BIT update pattern.
-                                                     Small, mechanical, straightforward to port.
-                   -> FUN_1000d890 (0x1000d890)  -- bucket-width calculator, small/mechanical.
+                   -> FUN_1000df50 (0x1000df50)  -- binary search over a 16-block prefix-sum
+                                                     array (NOT a flat ranges[]/weights[]
+                                                     linear scan like nwn2mdk, and NOT a
+                                                     Fenwick tree despite superficially looking
+                                                     like one -- see "current status" above).
+                                                     Ported as Window._search().
+                   -> FUN_1000e390 (0x1000e390)  -- periodic rebuild (triggered when
+                                                     weight_total exceeds 0x3fff). Ported as
+                                                     Window._rebuild(), but as a *reasoned
+                                                     simplification* rather than a faithful
+                                                     transcription -- needs re-verification
+                                                     (see "current status" above).
+                   -> FUN_1000d920 (0x1000d920)  -- prefix-sum suffix-range update (adds a
+                                                     delta to one weight slot and propagates
+                                                     it through tree[block_index..14]).
+                                                     Ported as Window._add().
+                   -> FUN_1000d890 (0x1000d890)  -- picks a block-width/shift so 16 blocks
+                                                     roughly cover max_value+1 (note: called
+                                                     with max_value+1, not max_value --
+                                                     confirmed via disassembly). Ported as
+                                                     Window._pick_shift().
                 -> FUN_1000d780 (0x1000d780)  -- Decode_Commit-equivalent: combines decode+
                                                   commit in one call via 64-bit multiply/divide
                                                   against state fields param_1[4],[5],[6].
+                                                  Ported as decode_raw() (for brand-new
+                                                  symbols) and inline in Window.try_decode()
+                                                  (for the weighted-window case).
                    -> FUN_1000d520 (0x1000d520)  -- the actual bit-level range-coder
                                                      commit/renormalize. Uses an XOR-interval
                                                      comparison (`uVar2 ^ uVar7`) rather than
@@ -126,42 +198,37 @@ _GrannyReadEntireFile@4 (0x10026900)
                                                      (byte, then nibble, then bit), each refilling
                                                      from the compressed stream and pushing bits
                                                      into an accumulator via a 256-byte lookup
-                                                     table at DAT_100292cc (looks like a nibble-
-                                                     reversal or similar bit-twiddling table --
-                                                     its actual byte contents haven't been
-                                                     dumped yet). This is the crux of the real
-                                                     algorithm and the highest-risk piece to
-                                                     port correctly. NOT YET PORTED.
-Small/mechanical helpers already understood (safe to port quickly when the time comes):
-  FUN_1000d7f0, FUN_1000d7d0 -- buffer-size calculators (simple arithmetic, no state)
-  FUN_10019370 -- memset
-  FUN_1001c340 -- memcpy (backref copy, already implemented correctly in gr2_oodle1.py)
+                                                     table at DAT_100292cc (confirmed to be
+                                                     exactly a 4-bit reversal table -- computed
+                                                     programmatically in the port, no need to
+                                                     hardcode it). Ported as
+                                                     Decoder.decode_commit() -- **this is the
+                                                     prime suspect for the remaining bug**, see
+                                                     "current status" above.
+Small/mechanical helpers, ported and not suspected of any bugs:
+  FUN_1000d7f0, FUN_1000d7d0 -- buffer-size calculators (unused directly in the Python port,
+                                 since Python lists don't need pre-sized buffers)
+  FUN_10019370 -- memset (unused directly, same reason)
+  FUN_1001c340 -- memcpy (backref copy, ported into decompress_block())
 ```
 
 ## Next steps to actually finish this
 
-1. Reconstruct the real struct layout behind the `int*`/`ushort*` params Ghidra left
-   untyped (e.g. what `param_1[0]`..`param_1[0x1c]+` in `FUN_1000df50`/`FUN_1000e390`
-   actually represent) — apply a Ghidra structure definition to make the decompilation
-   readable before transcribing it, rather than working from raw offsets.
-2. Dump the actual bytes of the `DAT_100292cc` lookup table (256 bytes, referenced from
-   `FUN_1000d520`) via `mcp__ReVa__get-data` or `read-memory` — needed for a bit-exact port.
-3. Port, in order (each is a prerequisite for testing the next): `FUN_1000d920`/
-   `FUN_1000d890` (mechanical) → `FUN_1000d520` (the real decoder core — this is where
-   correctness actually lives) → `FUN_1000df50` + `FUN_1000e390` (the indexed frequency
-   structure) → wire it into a new `FUN_1001c080`/`FUN_1001c1f0`-equivalent replacing
-   `gr2_oodle1.py`'s `Dictionary`/`_decompress_block`.
-4. Validate the same way this session did for the container format: decompressed sector
-   byte-length must match `decompressed_length` exactly, AND (unlike this session's early
-   mistake) actually inspect the decoded *content* for plausibility (readable ASCII field
-   names, sane float values) before trusting it — a length match alone is not sufficient
-   evidence of correctness, as this session's `gr2_oodle1.py` detour demonstrated.
-5. Test file: `WereRat.MODEL.GR2`, sector 0 (`compression_type=1`, `compressed_length=10084`,
-   `decompressed_length=29448`, `oodle_stop_0=oodle_stop_1=26008`, `data_offset=8692`,
-   `fixup_offset=352`, `fixup_size=695`) is the reference case used throughout this
-   investigation — its type sector root should decode starting near offset 19472 with a
-   small, valid `type_id` (1-22), which is the concrete, checkable sign that decompression
-   is finally correct end-to-end.
+See "Current status" above for the concrete next debugging steps (tracing renormalization
+loop entry/exit counts, re-verifying the decoder init sequence and the rebuild function).
+Once the decoder is believed fixed, validate the same way this session did for the
+container format: decompressed sector byte-length must match `decompressed_length`
+exactly, AND (unlike this session's early mistake with `gr2_oodle1.py`) actually inspect
+the decoded *content* for plausibility (readable ASCII field names, sane float values)
+before trusting it — a length match alone is not sufficient evidence of correctness.
+
+Test file: `WereRat.MODEL.GR2`, sector 0 (`compression_type=1`, `compressed_length=10084`,
+`decompressed_length=29448`, `oodle_stop_0=oodle_stop_1=26008`, `data_offset=8692`,
+`fixup_offset=352`, `fixup_size=695`) is the reference case used throughout this
+investigation — its type sector root should decode starting near offset 19472 with a
+small, valid `type_id` (1-22), which is the concrete, checkable sign that decompression
+is finally correct end-to-end. As of this checkpoint it decodes to a repeated `0xFE` byte
+there, not a valid type_id.
 
 ## Ruled out / not worth retrying
 
