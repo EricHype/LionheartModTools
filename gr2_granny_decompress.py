@@ -290,33 +290,95 @@ class Window:
             slot += 2
 
     def _rebuild(self) -> None:
-        """Port of FUN_1000e390 + FUN_1000ddf0: halve all weights, drop entries
-        that hit zero, then recompute the 16 block totals and rebuild the tree."""
-        block_totals = [0] * 16
-        write = 1
-        for read in range(1, self.value_count + 1):
-            w = self.weights[read] >> 1
-            if w == 0:
-                continue
-            self.weights[write] = w
-            self.values[write] = self.values[read]
-            write += 1
-        for i in range(write, self.value_count + 1):
-            self.weights[i] = 0
-        self.value_count = write - 1
+        """Port of FUN_1000e390 + FUN_1000ddf0, verified line-by-line against raw
+        disassembly (not just decompilation -- Ghidra's decompiled pseudo-C badly
+        mistypes several plain-integer loop counters as pointers here, which is
+        actively misleading without cross-checking the real instructions).
 
-        total = 0
-        for i in range(1, self.value_count + 1):
-            total += self.weights[i]
-            block_totals[min(i // self.block_width, 15)] += self.weights[i]
-        # weights[0] (the "escape"/new-symbol placeholder slot) keeps its own weight
+        Algorithm, confirmed via disassembly:
+        1. Recompute shift/block_width for value_count+1 (NOT the original
+           construction-time size -- the block structure is re-tuned to the
+           current population every rebuild).
+        2. Halve weights[0] (the escape slot) up front, specially.
+        3. For i = 1..value_count (a live bound -- shrinks as entries are dropped):
+           while weights[i] < 2: either drop it (i >= value_count: zero its value,
+           shrink value_count) or compact by copying the *tail* entry
+           (weights[value_count]/values[value_count]) into slot i and clearing the
+           tail, shrinking value_count -- swap-with-last compaction, not an
+           order-preserving shift. Then (whichever exit was taken) halve weights[i]
+           and accumulate it into this position's coarse block total, tracking
+           the single largest post-halving weight and its index as we go.
+        4. If any weight was nonzero, relocate that single largest-weight entry to
+           a canonical position (start of its own block, or the escape boundary),
+           swapping weights/values and adjusting the two affected block totals.
+        5. If weights[0] became exactly 0 and there's still room (value_count !=
+           count_cap), reset it to 2 (keeps the "escape to a new symbol" path
+           reachable) -- FUN_1000ddf0's own guard, ported into the final tree pass.
+        6. Rebuild `tree` as a plain running prefix sum over the 16 block totals;
+           weight_total is exactly the 16th (final) entry of that same chain.
+        """
+        shift = self._pick_shift(self.value_count + 1)
+        block_width = 1 << shift
+        escape_threshold = 15 * block_width
+
+        def block_of(i: int) -> int:
+            return (i >> shift) if i < escape_threshold else 15
+
+        self.weights[0] >>= 1
+
+        value_count = self.value_count
+        block_totals = [0] * 16
+        # weights[0] (the escape slot) is seeded into block_totals[0] directly --
+        # this is an assignment in the disassembly, not folded into the i=1.. loop
+        # below, and was missing entirely in an earlier version of this port.
         block_totals[0] += self.weights[0]
-        total += self.weights[0]
-        self.weight_total = total
+        best_weight = 0
+        best_index = 1
+
+        i = 1
+        while i <= value_count:
+            w = self.weights[i]
+            while w < 2:
+                if i >= value_count:
+                    self.values[i] = 0
+                    value_count -= 1
+                    break
+                self.weights[i] = self.weights[value_count]
+                self.values[i] = self.values[value_count]
+                self.weights[value_count] = 0
+                value_count -= 1
+                w = self.weights[i]
+            w >>= 1
+            self.weights[i] = w
+            if w > best_weight:
+                best_weight = w
+                best_index = i
+            block_totals[block_of(i)] += w
+            i += 1
+
+        self.value_count = value_count
+        self.shift = shift
+        self.block_width = block_width
+
+        if best_weight != 0:
+            target = ((value_count >> shift) << shift) if value_count < escape_threshold else escape_threshold
+            if target == 0:
+                target = 1
+            if best_index != target:
+                old_best_w, old_target_w = self.weights[best_index], self.weights[target]
+                self.weights[best_index], self.weights[target] = old_target_w, old_best_w
+                self.values[best_index], self.values[target] = self.values[target], self.values[best_index]
+                block_totals[block_of(target)] += old_best_w - old_target_w
+                block_totals[block_of(best_index)] += old_target_w - old_best_w
+
+        if value_count != self.count_cap and self.weights[0] == 0:
+            self.weights[0] = 2
+            block_totals[0 if escape_threshold != 0 else 15] += 2
 
         self.tree[0] = block_totals[0]
         for i in range(1, 15):
             self.tree[i] = self.tree[i - 1] + block_totals[i]
+        self.weight_total = self.tree[14] + block_totals[15]
 
     def try_decode(self, decoder: Decoder) -> int:
         """Port of FUN_1000de50. Decodes and returns the byte/symbol value."""

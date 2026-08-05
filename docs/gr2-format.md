@@ -120,6 +120,30 @@ each one taught something about how to debug this class of algorithm:
    content plausibility: byte-value distribution, ASCII field names, and ultimately
    parsing the full element tree and confirming real, sensible structure (a monotonically
    increasing `StringOffsets` array was the first unambiguous proof of correctness).
+6. **Null String pointers.** A `String` field (type_id 8) with no fixup entry is a
+   legitimate null/absent string (e.g. an optional `Name` left blank), not an error.
+   `opengr2-rs`'s own reference parser doesn't handle this either (it `.unwrap()`s and
+   would panic) — found via the broad validation pass below, since `WereRat.MODEL.GR2`
+   never happened to exercise a null string.
+7. **`VariantReference` (type_id 1) byte width.** `opengr2-rs` treats this as zero-width.
+   Wrong: empirically confirmed (by cross-referencing the fixup table against a real
+   `ANIMATION.GR2`'s `TransformTrack` array — consecutive struct `Name` fields turned out
+   to be exactly 64 bytes apart, not 4) that it occupies 5 pointer-sized slots (20 bytes on
+   32-bit). `WereRat.MODEL.GR2` never exercised a *populated* instance of this field (only
+   ever saw it as an always-null trailing `ExtendedData`, where the byte-width bug is
+   invisible), so this only surfaced once validation expanded to animation files. Content
+   is kept as an opaque raw blob (`"variant_reference_raw"`) rather than decoded — Granny's
+   real `Curve2` wrapper has multiple internal sub-formats (constant/Bezier/compressed
+   keyframes) that aren't understood yet.
+8. **Rebuild's block 0 contribution.** `Window._rebuild()` (port of `FUN_1000e390` +
+   `FUN_1000ddf0`) never added the halved `weights[0]` (the escape slot) into
+   `block_totals[0]` — the real code does this as a direct assignment before the main
+   `i=1..value_count` loop, not folded into it, and it's easy to miss on a first pass.
+   Undetectable with small test files: `_rebuild` only runs once a window's `weight_total`
+   exceeds `0x3fff`, which `WereRat.MODEL.GR2`'s sectors never reached. Found by extending
+   the "naive linear scan over `Window.weights[]` must match `Window._search()`'s result"
+   cross-check (bug #3's methodology) to run past a rebuild point instead of stopping after
+   30 blocks — it diverged on the very first search call against a freshly-rebuilt window.
 
 ## Dead end: `gr2_oodle1.py` (nwn2mdk-derived) — do not use or extend
 
@@ -132,11 +156,20 @@ than the one NWN2's older `granny2.dll` build used — this was never fixable by
 on the algorithm itself, only by re-deriving the real one from Lionheart's own DLL (which
 `gr2_granny_decompress.py` now does).
 
+## Validation
+
+`scripts/validate_gr2.py` batch-loads every `.gr2` file under a directory tree and reports
+pass/fail, grouped by failure kind. Run it as `python scripts/validate_gr2.py` (defaults to
+the game's `data/Resources` folder; `--limit N` to cap the file count, `--verbose` for full
+tracebacks per failure). Starting from a single validated file (`WereRat.MODEL.GR2`), a
+first 30-file sample immediately surfaced bugs #6 and #7 above (String/VariantReference),
+and a 400-file sample surfaced bug #8 (rebuild) — every `MODEL.GR2` passed throughout, only
+`ANIMATION.GR2` files (which exercise `TransformTrack`/`VariantReference` structure and, in
+larger files, the rebuild threshold) exposed the remaining gaps. After fixing all three: 400/400
+on that sample. See the repo's git history / session notes for the full 1968-file result.
+
 ## Not yet done
 
-- This has only been validated against one file (`WereRat.MODEL.GR2`). Broader validation
-  across more `.gr2` files (other monsters, animation files, larger models) would be
-  worthwhile before relying on this for authoring/editing work.
 - No writer/encoder exists yet — this is read-only. Per earlier analysis, authoring new
   content likely doesn't need a matching *compressor*, since the format supports
   uncompressed sectors natively (`compression_type=0`); a new `.gr2` writer could plausibly

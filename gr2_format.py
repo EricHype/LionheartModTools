@@ -309,7 +309,19 @@ def _parse_element_data(sectors: list[Sector], data_sector_id: int, data_offset:
     type_id = type_info.type_id
 
     if type_id == 1:
-        return ("variant_reference", None), data_offset
+        # "VariantReference" (per opengr2-rs's naming). opengr2-rs treats this as
+        # zero-width, which is wrong: empirically confirmed (via fixup-table
+        # cross-referencing against a real ANIMATION.GR2's TransformTrack array,
+        # where consecutive struct Name fields are exactly 64 bytes apart: a 4-byte
+        # Name pointer + three 20-byte curve fields) it occupies 5 pointer-sized
+        # slots (20 bytes for 32-bit). Content is not understood yet -- Granny's
+        # Curve2 wrapper has many internal sub-formats (constant/Bezier/compressed
+        # keyframes) -- so this is kept opaque (raw bytes) rather than pretending to
+        # interpret it. Unconfirmed whether this scales with ptr_size on 64-bit files
+        # (no 64-bit test file available yet); assumes 5*ptr_size.
+        size = 5 * ptr_size
+        raw = bytes(data[data_offset:data_offset + size])
+        return ("variant_reference_raw", raw), data_offset + size
 
     if type_id == 2:
         pos = data_offset
@@ -390,7 +402,11 @@ def _parse_element_data(sectors: list[Sector], data_sector_id: int, data_offset:
         data_offset += ptr_size
 
         ptr = data_sector.resolve_pointer(pos)
-        value = _parse_cstring(sectors[ptr.dst_sector].data, ptr.dst_offset)
+        # A String field with no fixup entry is a null pointer (an absent/empty
+        # string) -- e.g. optional Name fields left blank. Not documented in any
+        # reference implementation checked so far (opengr2-rs's own parser also just
+        # unwraps and would panic here); found via broad validation against real files.
+        value = "" if ptr is None else _parse_cstring(sectors[ptr.dst_sector].data, ptr.dst_offset)
         return ("string", value), data_offset
 
     if type_id == 9:
