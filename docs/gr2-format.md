@@ -2,7 +2,9 @@
 
 Lionheart's `.gr2` character model/animation files (real Granny3D meshes, not sprites)
 can now be read end-to-end: container format, real decompression, and the self-describing
-element tree all work. Verified against
+element tree all work. **Every one of the 1968 `.gr2` files shipped with the game loads
+successfully** (`scripts/validate_gr2.py`, see "Validation" below). Content correctness was
+verified in depth against
 `Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.GR2`: it decodes to the
 genuine model data — exporter info (`'Granny Standard Exporter, SDK version 2.1.0.3'`),
 original source paths (`'C:\Icewind Art\Monsters\WereRat\Anims\Final\WereRat_Model.max'`
@@ -165,8 +167,8 @@ tracebacks per failure). Starting from a single validated file (`WereRat.MODEL.G
 first 30-file sample immediately surfaced bugs #6 and #7 above (String/VariantReference),
 and a 400-file sample surfaced bug #8 (rebuild) — every `MODEL.GR2` passed throughout, only
 `ANIMATION.GR2` files (which exercise `TransformTrack`/`VariantReference` structure and, in
-larger files, the rebuild threshold) exposed the remaining gaps. After fixing all three: 400/400
-on that sample. See the repo's git history / session notes for the full 1968-file result.
+larger files, the rebuild threshold) exposed the remaining gaps. After fixing all three:
+**1968/1968 — every `.gr2` file shipped with the game loads successfully.**
 
 ## Not yet done
 
