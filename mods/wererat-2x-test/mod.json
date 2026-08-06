@@ -1,0 +1,11 @@
+{
+  "mod_format_version": 1,
+  "id": "wererat-2x-test",
+  "name": "WereRat 2x Scale Test",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "Test mod for the GR2 round-trip pipeline: replaces the WereRat model with a version scaled up 2x in Blender, then patched back into a valid .gr2 by gltf_to_gr2.py. Purpose is purely to confirm the game accepts a patched .gr2 file at all.",
+  "files": [
+    "Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.GR2"
+  ]
+}

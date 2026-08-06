@@ -236,6 +236,15 @@ class Element:
     kind: str  # 'reference' | 'array_of_references' | 'variant_reference' | 'string'
                # | 'f32' | 'u8' | 'i32' | 'transform' | 'array'
     value: object
+    # Byte offset (within `sectors[data_sector_id].data`) of this leaf's on-disk value.
+    # For 'array' kind this is the offset of the FIRST item (items are stored
+    # contiguously, so item i lives at offset + i*item_stride). Not meaningful for
+    # 'reference'/'array_of_references' (those recurse into a different sector/offset
+    # per item; use the child Elements' own offsets instead). Needed for patch-writing
+    # edited leaf values back into a decompressed sector without touching the type
+    # tree or fixup table -- see docs/gr2-format.md's round-trip plan.
+    data_sector_id: int = -1
+    offset: int = -1
 
 
 def _read_unsigned(data: bytes, offset: int, bits_64: bool, endian: str) -> tuple[int, int]:
@@ -285,18 +294,20 @@ def parse_element(sectors: list[Sector], data_sector_id: int, type_sector_id: in
         name = _resolve_name(sectors, type_info.name_offset)
 
         if type_info.array_size > 0:
+            array_start = data_offset
             inners = []
             for _ in range(type_info.array_size):
                 value, data_offset = _parse_element_data(
                     sectors, data_sector_id, data_offset, type_info, bits_64, endian
                 )
                 inners.append(value)
-            elements.append(Element(name, "array", inners))
+            elements.append(Element(name, "array", inners, data_sector_id, array_start))
         else:
+            leaf_start = data_offset
             value, data_offset = _parse_element_data(
                 sectors, data_sector_id, data_offset, type_info, bits_64, endian
             )
-            elements.append(Element(name, value[0], value[1]))
+            elements.append(Element(name, value[0], value[1], data_sector_id, leaf_start))
 
     return elements, data_offset
 
