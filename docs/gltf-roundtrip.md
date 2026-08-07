@@ -1,13 +1,19 @@
 # GR2 ↔ glTF round trip — editing character models in Blender
 
-**Status: the core pipeline works, confirmed in-game.** A real edit (uniformly scaling
-the WereRat model 2x in Blender) was exported, patched back into a valid `.gr2`, built
-into `data.dat`, and loaded correctly by the actual game at the correct scale. This
-also resolved the one open unknown from the original plan: a placeholder `crc32=0` in
-the patched file did **not** block loading — the game accepted it.
+**Status: the mesh/skeleton edit pipeline works, confirmed in-game.** A real edit
+(uniformly scaling the WereRat model 2x in Blender) was exported, patched back into a
+valid `.gr2`, built into `data.dat`, and loaded correctly by the actual game at the
+correct scale — for a *static, unanimated* edit. This also resolved the one open
+unknown from the original plan: a placeholder `crc32=0` in the patched file did **not**
+block loading — the game accepted it.
+
+**Whole-creature uniform scale specifically is not solved yet** — see "Whole-model
+uniform scale" below for three failed approaches and why, and `docs/gr2-format.md`'s
+`Curve2` section for the format-level discovery (animation curves are no longer opaque)
+that finally explains *why* and points at the real fix.
 
 See `docs/gr2-format.md` for the underlying container/decompression format this all
-builds on. This doc covers the two new tools built on top of it.
+builds on. This doc covers the tools built on top of it.
 
 ## The pipeline
 
@@ -35,18 +41,30 @@ builds on. This doc covers the two new tools built on top of it.
   both `.gltf`+`.bin` and single-file `.glb` (Blender's default export format).
   Same-topology only (vertex/triangle/bone counts must be unchanged) — see "Known
   limitations" below.
+- **`scale_model.py`**: standalone tool, bypasses Blender/glTF entirely — patches a
+  `.gr2` directly to uniformly scale a whole model by a factor. See "Whole-model
+  uniform scale" below; **does not currently produce a correct in-game result** for
+  animated characters, kept for reference/reuse once curve-scaling is added.
 
 ## Verification performed
 
 1. **Zero-edit round trip**: exported `WereRat.MODEL.GR2` to glTF, immediately patched
    it back with no changes, and diffed the full decoded element tree (24,510 compared
-   slots) against the original — zero mismatches.
+   slots) against the original — zero mismatches. Re-confirmed after the skeleton-scale
+   fix below (same result: 0 mismatches).
 2. **Real edit, offline verification**: scaled the mesh 2x in Blender, patched it back,
    reloaded through `gr2_format.py`, and confirmed vertex positions were exactly 2.0x
    the original values.
 3. **Real edit, in-game**: built the patched file into a test mod
    (`mods/wererat-2x-test`), rebuilt `data.dat`, and confirmed in-game that wererats
-   load at the correct 2x scale without a "corrupted" error or crash.
+   load at the correct 2x scale without a "corrupted" error or crash (with the
+   joint-stretching artifact described below).
+4. **Skeleton scale fix, synthetic test**: hand-scaled one bone node's `matrix` 2x in
+   a copy of the exported glTF (Blender not available to drive programmatically) and
+   ran it through the fixed patcher. Confirmed the target bone's `Transform.scale_shear`
+   diagonal came out at exactly 2.0 (was ~1.0) with translation unchanged, and that
+   sibling/child bones were untouched — the decomposition and patching logic works.
+   **Not yet tested against a real Blender-driven armature scale** — see limitations.
 
 ## Bugs found and fixed while building this
 
@@ -59,27 +77,94 @@ builds on. This doc covers the two new tools built on top of it.
 - **`.glb` (binary glTF) support**: Blender's default glTF export is a single packed
   `.glb`, not the `.gltf`+`.bin` pair the importer originally assumed. Added a GLB
   container parser (12-byte header + JSON chunk + BIN chunk).
+- **Skeleton scale wasn't patched.** The importer used to only patch bone
+  *translation*, so a mesh scale edit doubled vertex positions but left the skeleton's
+  own bind-pose scale unchanged, causing stretched textures at joints in the 2x test
+  (skinning math blends bone matrices against vertex positions, and the two were at
+  different scales). Fixed by decomposing each edited glTF joint node's 4x4 matrix
+  back into Granny's translation/rotation-quaternion/scale_shear representation
+  (`decompose_matrix4_colmajor`, Gram-Schmidt on the linear part, preserves shear
+  rather than just per-axis scale length) and patching the full `Transform`, plus
+  patching `InverseWorldTransform` from the glTF skin's `inverseBindMatrices`
+  accessor. See "Known limitations" for what's still unverified about this fix.
+
+## Whole-model uniform scale — three failed attempts, and why (debugging record)
+
+Goal: make a whole creature (WereRat) bigger/smaller uniformly, all tested via the same
+loop — patch a `.gr2`, drop it into `mods/wererat-2x-test`, rebuild `data.dat`, load
+in-game. Every attempt below loaded without crashing/"corrupted" errors; the failures
+were all visual (wrong shape), only visible in-game. Attempt 1 is an incomplete but
+usable baseline (imperfect, not broken); **attempts 2-4 were dead ends**, each for a
+different reason — worth keeping as a record so the same three don't get re-tried:
+
+1. **Scale mesh vertex positions only** (the very first working test, see "Verification
+   performed" above). Loaded at correct 2x scale but with **stretched textures at
+   joints** — the skeleton's own bind-pose scale stayed at 1x while the mesh was 2x, so
+   skinning blends a 1x bone matrix against 2x vertex data.
+2. **Scale the armature object in Blender**, re-export, patch bone `Transform`/
+   `InverseWorldTransform` from the edited glTF (the fix described in "Bugs found and
+   fixed" above). Turned out **worse**, not better: Blender folds an armature-object-
+   level scale into each bone's exported `InverseWorldTransform` only, via the glTF
+   skin's `inverseBindMatrices` — it does **not** touch any joint node's own local
+   `matrix`. So the patcher (which reads per-bone `Transform` from each joint node)
+   found nothing to patch there, and just faithfully copied Blender's now-inconsistent
+   IBM through. Transform stayed 1x, IBM implied 2x — an actual mismatch, not just an
+   imprecise one, hence a worse-looking result. **Lesson: don't trust that editing an
+   armature's object-level transform in Blender produces per-bone data consistent with
+   itself on export** — verify what actually changed in the exported JSON before
+   assuming it did the expected thing.
+3. **Patch `Model.InitialPlacement.scale_shear` directly** (`scale_model.py`, bypassing
+   Blender/glTF entirely) — structurally the cleanest idea, since it's one Transform for
+   the whole model instance, untouched skeleton/mesh, nothing to be inconsistent with.
+   Verified offline to patch exactly the one field. **Had zero effect in-game** — the
+   model came back at 1x size. The engine doesn't apply `InitialPlacement.scale_shear`
+   as a runtime scale (plausibly because a `TrackGroup` in the currently-playing
+   animation carries its *own* `InitialPlacement`, used instead — see
+   `Idle.ANIMATION.GR2`'s `TrackGroups[0].InitialPlacement` field, not investigated
+   further). **Lesson: a field existing and looking structurally right for a purpose
+   doesn't mean the engine actually reads it that way — verify in-game, don't infer from
+   the schema.**
+4. **Mathematically-derived skeleton scale** (`scale_model.py`, rewritten): scale every
+   vertex position by k, scale every bone's own local `Transform.translation` by k
+   (rotation/scale_shear untouched — provably produces a rigid, undistorted k-times
+   skeleton by induction through the parent/child hierarchy), then *recompute*
+   `InverseWorldTransform` from scratch by composing the patched chain under
+   `Model.InitialPlacement` and inverting it (not a shortcut formula — an earlier
+   shortcut attempt, "just scale IBM's translation column by k," was verified wrong
+   because `InitialPlacement`'s own nonzero translation breaks that shortcut; see
+   `scale_model.py`'s docstring for the full derivation). Verified offline to
+   extremely high precision: reconstructed world matrices invert to the stored IBM with
+   ~1e-6 error, matching the untouched original file's own internal consistency, and
+   every bone's world position lands exactly on "scaled by k about the
+   `InitialPlacement` anchor point." **Still messed up in-game — worse than attempt 1.**
+   Root cause (confirmed via the `Curve2` investigation in `docs/gr2-format.md`): this
+   creature's bone positions are driven every frame by separate `ANIMATION.GR2` files'
+   `PositionCurve` keyframe data, which completely overrides whatever the model file's
+   own bind-pose `Transform` says, the instant any animation plays (which is immediately
+   — idle loops constantly). So the skeleton edit was correct for a *static* bind pose
+   that the game never actually uses as-is at runtime; the mismatch between "vertices +
+   IBM computed for a 2x pose" and "actual bone position driven back to 1x by animation
+   curves" produced a worse, chaotic-looking result than attempt 1's simple, single-axis
+   mismatch. **Lesson: for any character that plays animations (i.e. basically all of
+   them), the skeleton's own `Transform` is not the runtime source of truth for bone
+   position — don't scale it expecting the effect to stick.**
+
+**Where this leaves things**: the mathematically-correct piece of attempt 4 (vertex
+scaling + the Transform/IBM math) isn't wasted — it's just missing one more piece.
+`docs/gr2-format.md`'s `Curve2` section shows animation keyframe data is fully
+self-describing and individually patchable, same as everything else. The real fix is
+almost certainly: keep attempt 4's vertex+skeleton scaling, and *also* scale
+`PositionCurve.Controls` (in groups of 3, since dimension = `len(Controls)/len(Knots)`)
+by k across every animation file this creature actually uses — not yet attempted.
 
 ## Known limitations (real, not yet addressed)
 
-- **Skeleton scale isn't patched.** The importer only patches bone *translation*, not
-  the full Transform (rotation/scale) or `InverseWorldTransform`. This is why the 2x
-  scale test showed stretched textures at joints: vertex positions doubled, but the
-  skeleton's own bind-pose scale didn't, so the skinning math (blending bone matrices
-  against vertex positions) works with mismatched scales, most visible exactly where
-  multiple bones blend. A whole-mesh uniform scale edit is a bad match for the current
-  patcher for this reason. Reshaping/moving vertices without changing overall
-  proportions, or editing weights/UVs, doesn't hit this problem. Properly supporting
-  scale edits needs full Transform (translation+rotation+scale_shear) patching, and
-  ideally decomposing an edited glTF node matrix back into Granny's translation/
-  rotation-quaternion/scale_shear-matrix representation rather than reusing the raw
-  matrix.
+- **Whole-model uniform scale doesn't work yet for animated characters** — see "Whole-
+  model uniform scale" above. The vertex+skeleton math is verified correct; what's
+  missing is scaling the separate animation files' `PositionCurve` data too.
 - **Same topology only.** Adding/removing vertices or triangles isn't supported — the
   patcher errors out if vertex count changes. Real retopology support needs a general
   sector/fixup-table rebuild, not just byte patching.
-- **Animation curves are still opaque.** `PositionCurve`/`OrientationCurve`/
-  `ScaleShearCurve` (type_id 1, `VariantReference`) are read as raw, undecoded bytes.
-  Animation editing isn't possible yet.
 - **Texture linking is best-effort.** The game ships no loose source textures (only
   compiled cache formats, same finding as this session's earlier FRM16 investigation),
   so exported glTF meshes have no material image — Blender shows them untextured. This

@@ -233,7 +233,7 @@ class TypeInfo:
 @dataclass
 class Element:
     name: str
-    kind: str  # 'reference' | 'array_of_references' | 'variant_reference' | 'string'
+    kind: str  # 'reference' | 'array_of_references' | 'variant_reference' | 'curve2' | 'string'
                # | 'f32' | 'u8' | 'i32' | 'transform' | 'array'
     value: object
     # Byte offset (within `sectors[data_sector_id].data`) of this leaf's on-disk value.
@@ -320,19 +320,30 @@ def _parse_element_data(sectors: list[Sector], data_sector_id: int, data_offset:
     type_id = type_info.type_id
 
     if type_id == 1:
-        # "VariantReference" (per opengr2-rs's naming). opengr2-rs treats this as
-        # zero-width, which is wrong: empirically confirmed (via fixup-table
-        # cross-referencing against a real ANIMATION.GR2's TransformTrack array,
-        # where consecutive struct Name fields are exactly 64 bytes apart: a 4-byte
-        # Name pointer + three 20-byte curve fields) it occupies 5 pointer-sized
-        # slots (20 bytes for 32-bit). Content is not understood yet -- Granny's
-        # Curve2 wrapper has many internal sub-formats (constant/Bezier/compressed
-        # keyframes) -- so this is kept opaque (raw bytes) rather than pretending to
-        # interpret it. Unconfirmed whether this scales with ptr_size on 64-bit files
-        # (no 64-bit test file available yet); assumes 5*ptr_size.
-        size = 5 * ptr_size
-        raw = bytes(data[data_offset:data_offset + size])
-        return ("variant_reference_raw", raw), data_offset + size
+        # "VariantReference" (per opengr2-rs's naming) / Granny's Curve2 wrapper.
+        # Previously treated as an opaque 5*ptr_size blob -- wrong. It's actually
+        # fully self-describing exactly like everything else in this format:
+        # type_info.children_offset points at a real field list, laid out INLINE
+        # at data_offset (no pointer indirection, unlike type_id==2's "reference").
+        # Confirmed by walking real ANIMATION.GR2 PositionCurve/OrientationCurve/
+        # ScaleShearCurve data across multiple animation files (Idle/Walk/Death/
+        # Attack01/GetHit): every instance in every file uses the identical schema
+        # {Degree: i32, Knots: Real32[], Controls: Real32[]} -- a plain keyframe
+        # curve (Granny's da_k32f_c32f family). Dimension isn't stored explicitly;
+        # it's Controls.length/Knots.length (3 for Position/ScaleShear, 4 for
+        # Orientation quaternions). Empty (Knots.length==0) means no animation on
+        # that track -- the bind-pose Transform value is used unchanged. This
+        # game's asset pipeline apparently never emits Granny's other Curve2
+        # sub-formats (compressed/constant/Bezier), only this one, so no format
+        # dispatch is needed here -- if a future file ever has a different child
+        # schema, parse_element will simply describe whatever fields are there.
+        if type_info.children_offset is None:
+            return ("curve2", []), data_offset
+        children = type_info.children_offset
+        elements, data_offset = parse_element(
+            sectors, data_sector_id, children.dst_sector, data_offset, children.dst_offset, bits_64, endian
+        )
+        return ("curve2", elements), data_offset
 
     if type_id == 2:
         pos = data_offset

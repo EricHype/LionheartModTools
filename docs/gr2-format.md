@@ -133,10 +133,10 @@ each one taught something about how to debug this class of algorithm:
    to be exactly 64 bytes apart, not 4) that it occupies 5 pointer-sized slots (20 bytes on
    32-bit). `WereRat.MODEL.GR2` never exercised a *populated* instance of this field (only
    ever saw it as an always-null trailing `ExtendedData`, where the byte-width bug is
-   invisible), so this only surfaced once validation expanded to animation files. Content
-   is kept as an opaque raw blob (`"variant_reference_raw"`) rather than decoded — Granny's
-   real `Curve2` wrapper has multiple internal sub-formats (constant/Bezier/compressed
-   keyframes) that aren't understood yet.
+   invisible), so this only surfaced once validation expanded to animation files. Originally
+   left as an opaque raw blob rather than decoded; **solved later, see "`Curve2` / animation
+   curve format" below** — it isn't opaque at all, and the 20-byte figure was just this
+   game's fixed field layout, not a hardcoded constant.
 8. **Rebuild's block 0 contribution.** `Window._rebuild()` (port of `FUN_1000e390` +
    `FUN_1000ddf0`) never added the halved `weights[0]` (the escape slot) into
    `block_totals[0]` — the real code does this as a direct assignment before the main
@@ -158,6 +158,60 @@ than the one NWN2's older `granny2.dll` build used — this was never fixable by
 on the algorithm itself, only by re-deriving the real one from Lionheart's own DLL (which
 `gr2_granny_decompress.py` now does).
 
+## `Curve2` / animation curve format — SOLVED
+
+`PositionCurve`/`OrientationCurve`/`ScaleShearCurve` (the `VariantReference`/`Curve2`
+fields inside each bone's `TransformTrack` in an `ANIMATION.GR2` file) were originally
+treated as an opaque 20-byte blob (bug #7 above) on the theory that Granny's real
+`Curve2` wrapper supports many internal sub-formats (constant/Bezier/compressed
+keyframes/etc.) that would need real reverse-engineering to decode, the same class of
+problem the compression algorithm was. **That theory was wrong.** `type_id == 1` is not
+special or opaque at all — like every other field in this format, its `type_info`
+carries a real `children_offset` pointing at an actual field list, and (the one thing
+that *is* different from a plain `type_id == 2` "reference") that field list is laid out
+**inline** at the current `data_offset`, not behind a pointer indirection. Once
+`parse_element` is called recursively against that inline field list instead of reading
+5 raw pointer-sized slots, the structure falls straight out with no guessing:
+
+```
+{ Degree: i32, Knots: Real32[], Controls: Real32[] }
+```
+
+Confirmed identical across every `TransformTrack` in every animation file checked
+(`Idle`, `Walk`, `Death`, `Attack01`, `GetHit`, across multiple `Shared Animations`
+numbered variants and per-model animation files) — **this game's asset pipeline only
+ever emits this one plain keyframe representation**, never Granny's compressed/constant/
+Bezier `Curve2` sub-formats. So no format-dispatch-by-byte-value logic is needed here at
+all; if some future file ever turns out to use a different `Curve2` sub-format, it would
+simply show up as a different field list at `children_offset`, and `parse_element`
+handles that generically already.
+
+Semantics (inferred from real data, not from a spec — Granny's SDK docs for the exact
+field meanings aren't public):
+- `Knots`: one float per keyframe, the time values.
+- `Controls`: flat float array, `dimension` values per keyframe where
+  `dimension = len(Controls) / len(Knots)` (3 for `PositionCurve`/`ScaleShearCurve`, 4
+  for `OrientationCurve` — a quaternion). Not stored as an explicit field; has to be
+  derived from the two array lengths.
+- `Degree`: interpolation degree between keyframes (0 seen most often in real data —
+  step/near-constant; higher values presumably mean smoother interpolation, not
+  confirmed in depth).
+- **An empty curve (`len(Knots) == 0`) means "not animated on this track"** — the bind
+  pose value from the model file's own `Skeleton.Bones[].Transform` is used unchanged
+  for the whole clip. This matters a lot for editing: most `ScaleShearCurve`s on a
+  typical skeleton are empty (scale is rarely animated), but `PositionCurve`/
+  `OrientationCurve` are usually populated for any bone that actually moves during the
+  clip.
+- Every individual `Knots`/`Controls` float is parsed as a normal leaf `Element` with
+  its own `data_sector_id`/`offset` (same mechanism already built for vertex/bone
+  patching in `gltf_to_gr2.py`) — so editing keyframe values in place is already
+  supported by existing infrastructure, no new patch machinery needed.
+
+Discovered while investigating why patching `Skeleton.Bones[].Transform` to scale a
+whole creature up broke skinning in-game (see `docs/gltf-roundtrip.md`) — animation
+playback overrides bind-pose bone transforms with unscaled `PositionCurve` data every
+frame, which is what made that approach fail chaotically rather than just imprecisely.
+
 ## Validation
 
 `scripts/validate_gr2.py` batch-loads every `.gr2` file under a directory tree and reports
@@ -170,12 +224,20 @@ and a 400-file sample surfaced bug #8 (rebuild) — every `MODEL.GR2` passed thr
 larger files, the rebuild threshold) exposed the remaining gaps. After fixing all three:
 **1968/1968 — every `.gr2` file shipped with the game loads successfully.**
 
+Re-run after the `Curve2` fix above (which changed `VariantReference` from an 20-byte
+opaque skip to a fully recursive parse of every keyframe float in every animation file):
+still **1968/1968**, confirming no regression. Notably slower this time — about 24
+minutes instead of near-instant — since animation curve data is now genuinely parsed
+field-by-field instead of skipped; this is expected, not a performance bug.
+
 ## Not yet done
 
-- No writer/encoder exists yet — this is read-only. Per earlier analysis, authoring new
-  content likely doesn't need a matching *compressor*, since the format supports
-  uncompressed sectors natively (`compression_type=0`); a new `.gr2` writer could plausibly
-  just emit everything uncompressed.
-- Understanding what the actual mesh/skeleton/animation data *means* well enough to author
-  new content (new characters, edited meshes) is a separate, substantial next project now
-  that reading the format is solved.
+- No writer/encoder exists yet for the *container* — this is read-only in the sense that
+  no matching *compressor* exists. Per earlier analysis, authoring new content likely
+  doesn't need one, since the format supports uncompressed sectors natively
+  (`compression_type=0`); the round-trip pipeline in `docs/gltf-roundtrip.md` already
+  exploits exactly this to patch and repack real files.
+- Understanding what the actual mesh/skeleton data *means* well enough to author fully
+  new content (new characters, not just edits) is a separate, substantial project.
+- `Curve2`'s `Degree` field's precise interpolation semantics beyond "0 = near-constant"
+  aren't confirmed in depth (not yet needed for anything attempted so far).

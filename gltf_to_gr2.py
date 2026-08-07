@@ -23,8 +23,10 @@ import struct
 import sys
 from pathlib import Path
 
+import math
+
 import gr2_format as gf
-from gr2_to_gltf import field, fields, flat, _group_repeated_records, FLOAT, UNSIGNED_SHORT, UNSIGNED_INT
+from gr2_to_gltf import field, fields, flat, _group_repeated_records, mat3_mul, FLOAT, UNSIGNED_SHORT, UNSIGNED_INT
 
 _COMP_FMT = {FLOAT: "f", UNSIGNED_SHORT: "H", UNSIGNED_INT: "I"}
 _TYPE_N = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
@@ -80,6 +82,100 @@ def _patch_u8(sector_data: list[bytearray], elem: gf.Element, values: tuple[int,
     struct.pack_into("<%dB" % len(values), sector_data[elem.data_sector_id], elem.offset, *values)
 
 
+def _v_norm(v: list[float]) -> float:
+    return math.sqrt(sum(x * x for x in v)) or 1e-9
+
+
+def _v_scale(v: list[float], s: float) -> list[float]:
+    return [x * s for x in v]
+
+
+def _v_dot(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _v_sub(a: list[float], b: list[float]) -> list[float]:
+    return [x - y for x, y in zip(a, b)]
+
+
+def _v_cross(a: list[float], b: list[float]) -> list[float]:
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+
+def mat3_to_quat(r: list[list[float]]) -> tuple[float, float, float, float]:
+    """Standard matrix->quaternion (Shepperd's method), the exact inverse of
+    gr2_to_gltf.quat_to_mat3's row/col convention. Returns (x, y, z, w)."""
+    m00, m01, m02 = r[0]
+    m10, m11, m12 = r[1]
+    m20, m21, m22 = r[2]
+    trace = m00 + m11 + m22
+    if trace > 0:
+        s = 0.5 / math.sqrt(trace + 1.0)
+        w = 0.25 / s
+        x = (m21 - m12) * s
+        y = (m02 - m20) * s
+        z = (m10 - m01) * s
+    elif m00 > m11 and m00 > m22:
+        s = 2.0 * math.sqrt(1.0 + m00 - m11 - m22)
+        w = (m21 - m12) / s
+        x = 0.25 * s
+        y = (m01 + m10) / s
+        z = (m02 + m20) / s
+    elif m11 > m22:
+        s = 2.0 * math.sqrt(1.0 + m11 - m00 - m22)
+        w = (m02 - m20) / s
+        x = (m01 + m10) / s
+        y = 0.25 * s
+        z = (m12 + m21) / s
+    else:
+        s = 2.0 * math.sqrt(1.0 + m22 - m00 - m11)
+        w = (m10 - m01) / s
+        x = (m02 + m20) / s
+        y = (m12 + m21) / s
+        z = 0.25 * s
+    return (x, y, z, w)
+
+
+def decompose_matrix4_colmajor(m: list[float]) -> tuple[tuple[float, float, float], tuple[float, float, float, float], list[list[float]]]:
+    """Inverse of gr2_to_gltf.transform_to_matrix4_colmajor: recover
+    (translation, rotation_quat_xyzw, scale_shear_3x3) from a column-major 4x4
+    matrix M = T * R * ScaleShear. Uses Gram-Schmidt orthogonalization of the
+    linear (upper-left 3x3) part to separate the pure-rotation component from
+    scale/shear -- this correctly preserves shear (unlike naive per-axis-length
+    scale extraction), matching how the exporter composed the matrix in the first
+    place: linear = R @ ScaleShear, so ScaleShear = R^T @ linear once R is known."""
+    tx, ty, tz = m[12], m[13], m[14]
+    c0 = [m[0], m[1], m[2]]
+    c1 = [m[4], m[5], m[6]]
+    c2 = [m[8], m[9], m[10]]
+
+    r0 = _v_scale(c0, 1.0 / _v_norm(c0))
+    c1_orth = _v_sub(c1, _v_scale(r0, _v_dot(r0, c1)))
+    r1 = _v_scale(c1_orth, 1.0 / _v_norm(c1_orth))
+    r2 = _v_cross(r0, r1)  # guarantees a proper right-handed orthonormal basis
+
+    r_transpose = [r0, r1, r2]  # = R^T directly, since r0/r1/r2 are R's columns
+    linear = [[c0[0], c1[0], c2[0]], [c0[1], c1[1], c2[1]], [c0[2], c1[2], c2[2]]]
+    scale_shear = mat3_mul(r_transpose, linear)
+
+    r_matrix = [[r0[0], r1[0], r2[0]], [r0[1], r1[1], r2[1]], [r0[2], r1[2], r2[2]]]
+    quat = mat3_to_quat(r_matrix)
+    return (tx, ty, tz), quat, scale_shear
+
+
+def _patch_transform(sector_data: list[bytearray], elem: gf.Element, translation: tuple[float, float, float],
+                      rotation: tuple[float, float, float, float], scale_shear: list[list[float]]) -> None:
+    """Writes translation/rotation/scale_shear into a Transform leaf's 68-byte block
+    (flags(4) + translation(12) + rotation(16) + scale_shear(36), matching
+    gr2_format.py's type_id==9 layout). `flags` is left untouched -- there's no way
+    to derive its (Granny-internal) meaning from a glTF matrix, so we don't guess."""
+    buf = sector_data[elem.data_sector_id]
+    struct.pack_into("<3f", buf, elem.offset + 4, *translation)
+    struct.pack_into("<4f", buf, elem.offset + 16, *rotation)
+    flat_scale_shear = scale_shear[0] + scale_shear[1] + scale_shear[2]
+    struct.pack_into("<9f", buf, elem.offset + 32, *flat_scale_shear)
+
+
 def patch_model(sector_data: list[bytearray], root_elements: list[gf.Element], gltf_json: dict, bin_data: bytes,
                  touched_sectors: set[int]) -> None:
     models_field = field(root_elements, "Models")
@@ -92,23 +188,30 @@ def patch_model(sector_data: list[bytearray], root_elements: list[gf.Element], g
         )
 
         gltf_node_by_name = {n.get("name"): i for i, n in enumerate(gltf_json["nodes"]) if "name" in n}
+        skin = gltf_json["skins"][0] if gltf_json.get("skins") else None
+        joint_position = {node_idx: i for i, node_idx in enumerate(skin["joints"])} if skin else {}
+        inverse_bind_matrices = (
+            read_accessor(gltf_json, bin_data, skin["inverseBindMatrices"]) if skin else []
+        )
+
         for bone in bone_records:
             name = field(bone, "Name").value
             node_idx = gltf_node_by_name.get(name)
             if node_idx is None:
                 continue
             matrix = gltf_json["nodes"][node_idx].get("matrix")
-            if matrix is None:
-                continue
-            transform_elem = field(bone, "Transform")
-            # Transform is a single 'transform' leaf (flags+translation+rotation+
-            # scale_shear, 68 bytes) -- only translation is cheaply/safely patchable
-            # from a plain 4x4 matrix without a full matrix->TRS decomposition.
-            # Patch just the translation (bytes 4..16 within the Transform block);
-            # rotation/scale edits need a follow-up decomposition step, not done here.
-            tx, ty, tz = matrix[12], matrix[13], matrix[14]
-            struct.pack_into("<3f", sector_data[transform_elem.data_sector_id], transform_elem.offset + 4, tx, ty, tz)
-            touched_sectors.add(transform_elem.data_sector_id)
+            if matrix is not None:
+                translation, rotation, scale_shear = decompose_matrix4_colmajor(matrix)
+                transform_elem = field(bone, "Transform")
+                _patch_transform(sector_data, transform_elem, translation, rotation, scale_shear)
+                touched_sectors.add(transform_elem.data_sector_id)
+
+            joint_idx = joint_position.get(node_idx)
+            if joint_idx is not None and joint_idx < len(inverse_bind_matrices):
+                ibm_elem = field(bone, "InverseWorldTransform")
+                ibm = inverse_bind_matrices[joint_idx]
+                struct.pack_into("<16f", sector_data[ibm_elem.data_sector_id], ibm_elem.offset, *ibm)
+                touched_sectors.add(ibm_elem.data_sector_id)
 
         mesh_bindings_field = field(model_fields, "MeshBindings")
         for mb_record in _group_repeated_records(mesh_bindings_field.value, ["Mesh"]):
