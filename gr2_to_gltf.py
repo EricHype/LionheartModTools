@@ -1,10 +1,12 @@
 """Export a Lionheart `.gr2` character model to glTF 2.0 (mesh + skeleton + basic
 materials) so it can be opened and edited in Blender.
 
-Hand-rolled glTF writer (json + struct only, no new dependencies -- consistent with
-how gr2_format.py itself was built) covering just the subset of glTF needed here: one
-skinned mesh, split into per-material primitives, materials referencing external image
-files resolved by filename against the game's real asset tree. See
+Hand-rolled glTF writer (json + struct/zlib/base64 only, no new dependencies --
+consistent with how gr2_format.py itself was built) covering just the subset of glTF
+needed here: one skinned mesh, split into per-material primitives, materials with
+textures decoded directly from the .gr2's own embedded pixel data (Textures[].Images[]
+.MIPLevels[].Pixels -- raw uncompressed RGB/RGBA, self-described the same way as
+everything else in this format) and re-encoded as PNG data URIs. See
 docs/gr2-format.md's round-trip plan for the confirmed field mapping this relies on.
 
 Known limitation, deliberately not handled here: no coordinate-system conversion is
@@ -16,13 +18,16 @@ Usage: python gr2_to_gltf.py <file.gr2> <output.gltf>
 """
 from __future__ import annotations
 
+import base64
 import json
 import math
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 import gr2_format as gf
+from binktc0_decode import decode_binktc0
 
 # glTF component type / accessor type constants
 FLOAT = 5126
@@ -30,11 +35,6 @@ UNSIGNED_SHORT = 5123
 UNSIGNED_INT = 5125
 ARRAY_BUFFER = 34962
 ELEMENT_ARRAY_BUFFER = 34963
-
-GAME_RESOURCES_ROOT = (
-    r"C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader"
-    r"\data\Resources"
-)
 
 
 # ---------------------------------------------------------------------------
@@ -97,18 +97,93 @@ def transform_to_matrix4_colmajor(transform_value: dict) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# Texture resolution: FromFileName is a dead dev-machine path
-# (e.g. C:\Icewind Art\Monsters\WereRat\wererat.tga). Resolve by filename only
-# against the game's real, loose Resources tree (same directory-walk approach
-# scripts/validate_gr2.py uses).
+# Texture decoding: `Texture.FromFileName` is a dead dev-machine path (e.g.
+# C:\Icewind Art\Monsters\WereRat\wererat.tga) -- the game ships no loose source
+# textures matching it at all. The real pixel data lives embedded in the .gr2
+# itself: Texture.{Width,Height,Encoding,Layout,Images[].MIPLevels[].Pixels},
+# self-described the same way as everything else in this format.
+#
+# Confirmed by sampling 230 textures across 60 real character models: every
+# single one uses Encoding=3 (Granny's `GrannyBinkTextureEncoding`, the
+# "BinkTC0" wavelet+arithmetic-coded still-image format -- see
+# docs/bink-texture-format.md; NOT the unrelated Bink video codec despite the
+# name), never Encoding=1 (`GrannyRawTextureEncoding`, plain uncompressed bytes
+# matching `Layout`). Both are handled here now, via binktc0_decode.py for
+# Encoding=3. When *authoring new* texture content there's no need to match
+# Encoding=3 either -- writing Encoding=1 (raw) remains a legitimate,
+# presumably-loadable alternative this format explicitly supports, and this
+# same extractor reads that back too.
+# Re-encoded as a minimal hand-rolled PNG (zlib for the DEFLATE stream, no
+# filtering beyond "none" per scanline) and embedded as a glTF data URI --
+# avoids a second output file and an external imaging library dependency.
 # ---------------------------------------------------------------------------
 
-def build_texture_index(resources_root: Path) -> dict[str, Path]:
-    index: dict[str, Path] = {}
-    for ext in ("*.tga", "*.dds", "*.bmp", "*.png"):
-        for p in resources_root.rglob(ext):
-            index.setdefault(p.name.lower(), p)
-    return index
+def _png_encode(width: int, height: int, pixels: bytes, bytes_per_pixel: int) -> bytes:
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    color_type = {3: 2, 4: 6, 1: 0}.get(bytes_per_pixel, 2)  # 2=RGB, 6=RGBA, 0=greyscale
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
+    stride = width * bytes_per_pixel
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)  # filter type: none
+        raw += pixels[y * stride:(y + 1) * stride]
+    idat = zlib.compress(bytes(raw), 6)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+
+
+def _extract_texture_png(texture_fields: list[gf.Element]) -> bytes | None:
+    """texture_fields is the field list of a resolved Texture element (Width, Height,
+    Encoding, Layout, Images, ...). Returns PNG bytes, or None if no pixel data is
+    present or the pixel data can't be decoded."""
+    width_e = field(texture_fields, "Width")
+    height_e = field(texture_fields, "Height")
+    images_e = field(texture_fields, "Images")
+    if width_e is None or height_e is None or images_e is None or not images_e.value:
+        return None
+
+    bytes_per_pixel = 3
+    layout_e = field(texture_fields, "Layout")
+    if layout_e is not None and isinstance(layout_e.value, list):
+        bpp_e = field(layout_e.value, "BytesPerPixel")
+        if bpp_e is not None:
+            bytes_per_pixel = bpp_e.value
+
+    # Images/MIPLevels are 'reference' kind (single instance) -- .value IS that
+    # instance's own field list directly, not a list of per-item field lists.
+    mip_levels_e = field(images_e.value, "MIPLevels")
+    if mip_levels_e is None or not isinstance(mip_levels_e.value, list):
+        return None
+    pixels_e = field(mip_levels_e.value, "Pixels")
+    if pixels_e is None or not pixels_e.value:
+        return None
+
+    width, height = width_e.value, height_e.value
+    raw = bytes(e.value for e in pixels_e.value)
+
+    encoding_e = field(texture_fields, "Encoding")
+    encoding = encoding_e.value if encoding_e is not None else 1
+
+    if encoding == 3:  # GrannyBinkTextureEncoding ("BinkTC0") -- see docs/bink-texture-format.md
+        # decode_binktc0 divides width/height by 16 internally (4 wavelet levels);
+        # the real codec pads to a multiple of 16 before compressing, so anything
+        # that isn't one here is a texture shape this decoder doesn't handle yet.
+        if width % 16 != 0 or height % 16 != 0:
+            return None
+        try:
+            pixels = decode_binktc0(width, height, raw, has_alpha=(bytes_per_pixel == 4))
+        except Exception:
+            return None
+        return _png_encode(width, height, pixels, 4 if bytes_per_pixel == 4 else 3)
+
+    if encoding == 1:  # GrannyRawTextureEncoding -- plain uncompressed bytes matching Layout
+        expected = width * height * bytes_per_pixel
+        if len(raw) < expected:
+            return None
+        return _png_encode(width, height, raw[:expected], bytes_per_pixel)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -167,14 +242,15 @@ class GltfBuilder:
         self.accessors.append({"bufferView": bv, "componentType": FLOAT, "count": len(matrices), "type": "MAT4"})
         return idx
 
-    def get_or_add_material(self, texture_path: Path | None) -> int:
-        key = str(texture_path) if texture_path else "__none__"
+    def get_or_add_material(self, texture_key: str | None, png_bytes: bytes | None) -> int:
+        key = texture_key or "__none__"
         if key in self._material_cache:
             return self._material_cache[key]
         material: dict = {"pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0}}
-        if texture_path is not None:
+        if png_bytes is not None:
             img_idx = len(self.images)
-            self.images.append({"uri": texture_path.as_uri()})
+            data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+            self.images.append({"uri": data_uri})
             tex_idx = len(self.textures)
             self.textures.append({"source": img_idx})
             material["pbrMetallicRoughness"]["baseColorTexture"] = {"index": tex_idx}
@@ -245,11 +321,13 @@ def export_skeleton(builder: GltfBuilder, bones: list[list[gf.Element]]) -> tupl
 # Mesh -> glTF mesh/primitives
 # ---------------------------------------------------------------------------
 
-def _resolve_texture_path(material_fields: list[gf.Element], texture_index: dict[str, Path]) -> Path | None:
-    """Material -> Maps (repeated Usage/Map records) -> Map.Texture.FromFileName,
-    preferring the 'Diffuse Color' map if present. FromFileName is a dead
-    dev-machine path (e.g. C:\\Icewind Art\\...\\wererat.tga); resolve by basename
-    against the real, loose Resources tree."""
+def _resolve_texture_fields(material_fields: list[gf.Element]) -> list[gf.Element] | None:
+    """Material -> Maps (repeated Usage/Map records) -> Map.Texture, preferring the
+    'Diffuse Color' map if present. Returns the resolved Texture element's own field
+    list (Width/Height/Layout/Images/...), which _extract_texture_png reads directly
+    -- FromFileName is only used here as a display/cache key, not a filesystem path
+    (it's a dead dev-machine path; the real pixels are embedded, see
+    _extract_texture_png)."""
     maps_field = field(material_fields, "Maps")
     if maps_field is None or not maps_field.value:
         return None
@@ -264,14 +342,11 @@ def _resolve_texture_path(material_fields: list[gf.Element], texture_index: dict
     texture_fields = field(map_obj.value, "Texture")
     if texture_fields is None:
         return None
-    from_file_name = field(texture_fields.value, "FromFileName")
-    if from_file_name is None or not from_file_name.value:
-        return None
-    return texture_index.get(Path(from_file_name.value).name.lower())
+    return texture_fields.value
 
 
 def export_mesh(builder: GltfBuilder, mesh_elem: list[gf.Element], bone_name_to_joint: dict[str, int],
-                 joint_base: int, texture_index: dict[str, Path]) -> int:
+                 joint_base: int) -> int:
     vertex_data = field(mesh_elem, "PrimaryVertexData").value
     vertices = field(vertex_data, "Vertices").value  # list of lists-of-Elements (array_of_references)
 
@@ -326,10 +401,10 @@ def export_mesh(builder: GltfBuilder, mesh_elem: list[gf.Element], bone_name_to_
         _group_repeated_records(material_bindings_field.value, ["Material"])
         if material_bindings_field else []
     )
-    texture_paths: list[Path | None] = []
+    material_textures: list[list[gf.Element] | None] = []
     for rec in material_records:
         mat = field(rec, "Material")
-        texture_paths.append(_resolve_texture_path(mat.value, texture_index) if mat else None)
+        material_textures.append(_resolve_texture_fields(mat.value) if mat else None)
 
     primitives = []
     for g in groups:
@@ -338,11 +413,18 @@ def export_mesh(builder: GltfBuilder, mesh_elem: list[gf.Element], bone_name_to_
         tri_count = field(g, "TriCount").value
         idx_slice = indices_flat[tri_first * 3: (tri_first + tri_count) * 3]
         idx_acc = builder.add_accessor(idx_slice, UNSIGNED_INT, "SCALAR", ELEMENT_ARRAY_BUFFER)
-        tex_path = texture_paths[material_index] if 0 <= material_index < len(texture_paths) else None
+        tex_fields = material_textures[material_index] if 0 <= material_index < len(material_textures) else None
+        tex_key = None
+        png_bytes = None
+        if tex_fields is not None:
+            from_file_name = field(tex_fields, "FromFileName")
+            tex_key = from_file_name.value if from_file_name and from_file_name.value else None
+            png_bytes = _extract_texture_png(tex_fields)
+            tex_key = tex_key or (f"<embedded-{id(tex_fields)}>" if png_bytes else None)
         primitives.append({
             "attributes": attributes,
             "indices": idx_acc,
-            "material": builder.get_or_add_material(tex_path),
+            "material": builder.get_or_add_material(tex_key, png_bytes),
         })
 
     mesh_idx = len(builder.meshes)
@@ -354,13 +436,12 @@ def export_mesh(builder: GltfBuilder, mesh_elem: list[gf.Element], bone_name_to_
 # Top-level export
 # ---------------------------------------------------------------------------
 
-def export_model(gr2_path: str, out_path: str, resources_root: str = GAME_RESOURCES_ROOT) -> None:
+def export_model(gr2_path: str, out_path: str) -> None:
     gfile = gf.GrannyFile.load_from_file(gr2_path)
     models_field = field(gfile.root_elements, "Models")
     if models_field is None or not models_field.value:
         raise ValueError("no Models found in this .gr2 file")
 
-    texture_index = build_texture_index(Path(resources_root))
     builder = GltfBuilder()
 
     for model_fields in models_field.value:
@@ -381,7 +462,7 @@ def export_model(gr2_path: str, out_path: str, resources_root: str = GAME_RESOUR
         mesh_node_indices = []
         for mb_record in _group_repeated_records(mesh_bindings.value, ["Mesh"]):
             mesh_elem = field(mb_record, "Mesh").value
-            mesh_idx = export_mesh(builder, mesh_elem, bone_name_to_joint, joint_base, texture_index)
+            mesh_idx = export_mesh(builder, mesh_elem, bone_name_to_joint, joint_base)
             node_idx = len(builder.nodes)
             builder.nodes.append({"mesh": mesh_idx, "skin": skin_idx, "_root": True})
             mesh_node_indices.append(node_idx)

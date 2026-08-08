@@ -7,10 +7,13 @@ correct scale — for a *static, unanimated* edit. This also resolved the one op
 unknown from the original plan: a placeholder `crc32=0` in the patched file did **not**
 block loading — the game accepted it.
 
-**Whole-creature uniform scale specifically is not solved yet** — see "Whole-model
-uniform scale" below for three failed approaches and why, and `docs/gr2-format.md`'s
-`Curve2` section for the format-level discovery (animation curves are no longer opaque)
-that finally explains *why* and points at the real fix.
+**Whole-creature uniform scale turned out not to need `.gr2` patching at all** — see
+"Whole-model uniform scale" below: four increasingly elaborate `.gr2`-internal attempts
+were dead ends, and the likely real answer is a plain-text sidecar field the engine
+already uses (pending in-game confirmation). That detour is worth reading for the
+`Curve2` format discovery it produced (`docs/gr2-format.md`), which matters for real
+mesh/rigging/animation editing — the actual point of this pipeline — even though it
+wasn't the fix for uniform scale specifically.
 
 See `docs/gr2-format.md` for the underlying container/decompression format this all
 builds on. This doc covers the tools built on top of it.
@@ -87,6 +90,25 @@ builds on. This doc covers the tools built on top of it.
   rather than just per-axis scale length) and patching the full `Transform`, plus
   patching `InverseWorldTransform` from the glTF skin's `inverseBindMatrices`
   accessor. See "Known limitations" for what's still unverified about this fix.
+- **Existing game textures now show up in Blender — this used to be a real, understood
+  gap, now solved.** Textures are NOT separate loose or cached files at all
+  (`.frm16`/`.mdl16` under `data/Cache` turned out to be UI and terrain caches, and a
+  tiny path-index for models, respectively, unrelated to model textures). Real texture
+  pixel data is embedded directly in the `.gr2` itself
+  (`Textures[].Images[].MIPLevels[].Pixels`, self-describing like everything else).
+  Sampled 230 textures across 60 real character models and **every one** uses
+  `Encoding=3` (`GrannyBinkTextureEncoding` — a wavelet + adaptive-arithmetic-coded
+  still-image format internally called "BinkTC0", unrelated to the Bink *video* codec
+  despite the shared name prefix; see `docs/bink-texture-format.md` for the full format
+  writeup and the reference-decoder-verified port, `binktc0_decode.py`). `gr2_to_gltf.py`
+  now decodes both `Encoding=3` and the plain-raw `Encoding=1` case and embeds the result
+  as a PNG data URI. Verified against 40 random real textures (no crashes, no failures)
+  plus visual spot-checks; two apparently-blank results turned out to be genuine
+  flat-black placeholder textures in the game data (confirmed by running Granny's own
+  compiled reference decoder on the same bytes, not just assumed). Doesn't affect the
+  patch-back step either way (original `Material`/`Texture` references in an edited
+  `.gr2` are untouched by the patcher) — this was purely a Blender-viewing gap, now
+  closed.
 
 ## Whole-model uniform scale — three failed attempts, and why (debugging record)
 
@@ -149,27 +171,28 @@ different reason — worth keeping as a record so the same three don't get re-tr
    them), the skeleton's own `Transform` is not the runtime source of truth for bone
    position — don't scale it expecting the effect to stick.**
 
-**Where this leaves things**: the mathematically-correct piece of attempt 4 (vertex
-scaling + the Transform/IBM math) isn't wasted — it's just missing one more piece.
-`docs/gr2-format.md`'s `Curve2` section shows animation keyframe data is fully
-self-describing and individually patchable, same as everything else. The real fix is
-almost certainly: keep attempt 4's vertex+skeleton scaling, and *also* scale
-`PositionCurve.Controls` (in groups of 3, since dimension = `len(Controls)/len(Knots)`)
-by k across every animation file this creature actually uses — not yet attempted.
+**Likely the actual answer, pending in-game confirmation**: not by patching the `.gr2`
+at all. Every model has a sidecar `<ModelName>.MODEL.TXT` file (plain text, next to the
+`.GR2`) with a `Render Scaling` field, and it's not a dead value: base `WereRat.MODEL.TXT`
+has `Render Scaling=1`, `AlphaWereRat.MODEL.TXT` (a visibly bigger variant) has `1.15`,
+the PRIME boss variant has `1.5` — tracking their real in-game size tiers. Set to `2` on
+an otherwise completely unpatched `WereRat.MODEL.GR2` and built into `mods/wererat-2x-test`
+(swapped from the earlier `.gr2`-patching version) — **not yet confirmed in-game**. If it
+works, this makes attempts 1-4 above (and the `Curve2`-scaling follow-up) unnecessary
+**for pure uniform scaling specifically**; the `.gr2` curve/skeleton patching work isn't
+wasted regardless, since it's what actually enables editing mesh shape/rigging/animation
+content, which is the real goal this whole pipeline exists for — uniform scale was
+always just a convenient test case, not the point.
 
 ## Known limitations (real, not yet addressed)
 
-- **Whole-model uniform scale doesn't work yet for animated characters** — see "Whole-
-  model uniform scale" above. The vertex+skeleton math is verified correct; what's
-  missing is scaling the separate animation files' `PositionCurve` data too.
+- **Non-uniform skeleton edits** (reposing/reshaping individual bones, not just a single
+  global scale factor) still hit the same animation-curve-override problem attempt 4
+  found — `Render Scaling` only helps for a single uniform whole-model factor, not
+  per-bone changes. Not yet attempted; would need the `Curve2` patching path.
 - **Same topology only.** Adding/removing vertices or triangles isn't supported — the
   patcher errors out if vertex count changes. Real retopology support needs a general
   sector/fixup-table rebuild, not just byte patching.
-- **Texture linking is best-effort.** The game ships no loose source textures (only
-  compiled cache formats, same finding as this session's earlier FRM16 investigation),
-  so exported glTF meshes have no material image — Blender shows them untextured. This
-  doesn't affect the patch-back step (original `Material`/`Texture` references in the
-  `.gr2` are untouched by the patcher), only the Blender viewing/editing experience.
 - **`crc32` is written as a placeholder 0.** Empirically confirmed not to block loading
   for this test case, but not fully understood (e.g. whether it's validated under any
   other conditions). Worth real investigation if patched files start failing to load

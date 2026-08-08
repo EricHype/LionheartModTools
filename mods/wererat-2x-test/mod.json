@@ -4,8 +4,9 @@
   "name": "WereRat 2x Scale Test",
   "version": "0.1.0",
   "author": "vkays",
-  "description": "Test mod for the GR2 round-trip pipeline: scales the WereRat model 2x via scale_model.py, which scales vertex positions and every bone's local translation (leaving rotation/scale_shear untouched) then recomputes InverseWorldTransform from the patched hierarchy, all mathematically self-consistent. Purpose is to confirm this produces a proportioned 2x scale with no joint stretching, unlike the earlier vertex-only and InitialPlacement-only attempts.",
+  "description": "Test mod: tries the WereRat.MODEL.TXT 'Render Scaling' field (a sidecar metadata value already used by the game -- base WereRat=1, Alpha=1.15, PRIME boss=1.5, tracking their actual in-game size tiers) as a whole-model scale mechanism, set here to 2, with a completely unmodified/unpatched .gr2. If the engine honors it, this makes every earlier .gr2-internal patching approach unnecessary for uniform scaling.",
   "files": [
-    "Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.GR2"
+    "Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.GR2",
+    "Resources/Models3D/Enemies/Wererats/Models/Wererat/WereRat.MODEL.TXT"
   ]
 }
