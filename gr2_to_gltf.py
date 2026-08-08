@@ -59,6 +59,13 @@ def flat(array_element: gf.Element) -> list[float]:
     return [v for (_, v) in array_element.value]
 
 
+def ref_floats(reference_element: gf.Element) -> list[float]:
+    """A dynamic-array 'reference' Element (e.g. Curve2's Knots/Controls) has a list
+    of real Elements (one per item, kind='f32') as its value -- unlike a fixed-size
+    'array' Element (see `flat`), which stores (kind, value) tuples instead."""
+    return [e.value for e in reference_element.value]
+
+
 # ---------------------------------------------------------------------------
 # Minimal math: quaternion -> 3x3 rotation matrix, 3x3 * 3x3, compose to 4x4.
 # No numpy -- plain nested lists, row-major internally, serialized column-major
@@ -201,6 +208,7 @@ class GltfBuilder:
         self.images: list[dict] = []
         self.textures: list[dict] = []
         self.skins: list[dict] = []
+        self.animations: list[dict] = []
         self._material_cache: dict[str, int] = {}
 
     def _add_buffer_view(self, data: bytes, target: int | None) -> int:
@@ -270,6 +278,7 @@ class GltfBuilder:
             "images": self.images,
             "textures": self.textures,
             "skins": self.skins,
+            "animations": self.animations,
             "accessors": self.accessors,
             "bufferViews": self.buffer_views,
             "buffers": [{"uri": None, "byteLength": len(self.buffer)}],  # filled in on write
@@ -433,14 +442,109 @@ def export_mesh(builder: GltfBuilder, mesh_elem: list[gf.Element], bone_name_to_
 
 
 # ---------------------------------------------------------------------------
+# Animation (.ANIMATION.GR2) -> glTF animations[]
+#
+# Structure (see docs/gr2-format.md's "Curve2 / animation curve format" section):
+# root.Animations[] -> {Name, Duration, TimeStep, TrackGroups[]} -> TrackGroups[]
+# -> {Name, TransformTracks (a 'reference' whose .value is the SAME flat repeated-
+# record layout _group_repeated_records already handles) -> per-bone
+# {Name, PositionCurve, OrientationCurve, ScaleShearCurve}}. Each curve is
+# {Degree, Knots (keyframe times), Controls (flat values, `dimension` floats per
+# keyframe where dimension = len(Controls)/len(Knots) -- 3 for Position/ScaleShear,
+# 4 for Orientation quaternion, same xyzw order as bind-pose Transform.rotation).
+# An empty curve (no Knots) means that channel isn't animated on this clip -- the
+# bind-pose Transform value applies for the whole clip, so no glTF channel is
+# emitted for it (glTF nodes already carry the bind-pose matrix as their default).
+# ---------------------------------------------------------------------------
+
+def export_animation(builder: GltfBuilder, anim_path: str, bone_name_to_joint: dict[str, int],
+                      clip_name: str | None = None) -> None:
+    gfile = gf.GrannyFile.load_from_file(anim_path)
+    animations_field = field(gfile.root_elements, "Animations")
+    if animations_field is None or not animations_field.value:
+        return
+
+    for anim in animations_field.value:
+        name = clip_name or field(anim, "Name").value or Path(anim_path).stem
+        track_groups_field = field(anim, "TrackGroups")
+        if track_groups_field is None:
+            continue
+
+        samplers: list[dict] = []
+        channels: list[dict] = []
+
+        for tg in track_groups_field.value:
+            tt_field = field(tg, "TransformTracks")
+            if tt_field is None or not tt_field.value:
+                continue
+            for bone_track in _group_repeated_records(tt_field.value, ["Name"]):
+                bone_name = field(bone_track, "Name").value
+                joint_idx = bone_name_to_joint.get(bone_name)
+                if joint_idx is None:
+                    continue  # track for a bone not present in this model's skeleton
+
+                for curve_field_name, path, dim in (
+                    ("PositionCurve", "translation", 3),
+                    ("OrientationCurve", "rotation", 4),
+                    ("ScaleShearCurve", "scale", 3),
+                ):
+                    curve = field(bone_track, curve_field_name)
+                    if curve is None:
+                        continue
+                    knots_field = field(curve.value, "Knots")
+                    controls_field = field(curve.value, "Controls")
+                    if knots_field is None or not knots_field.value:
+                        continue  # not animated on this track -- bind pose stands
+                    knots = ref_floats(knots_field)
+                    controls = ref_floats(controls_field)
+                    if len(controls) != dim * len(knots):
+                        # Rare (seen on a handful of bones' ScaleShearCurve): a full
+                        # 9-float 3x3 scale_shear per keyframe (real shear present,
+                        # not just uniform scale) rather than the usual 3 floats --
+                        # glTF's "scale" channel only supports a VEC3 scale factor,
+                        # no shear. Skip rather than emit a mismatched sampler
+                        # (sampler input/output counts must match, or importers like
+                        # Blender's choke) -- the node's bind-pose scale_shear stands.
+                        continue
+                    values = [tuple(controls[i:i + dim]) for i in range(0, len(controls), dim)]
+
+                    time_acc = builder.add_accessor(knots, FLOAT, "SCALAR", with_minmax=True)
+                    value_acc = builder.add_accessor(values, FLOAT, "VEC4" if dim == 4 else "VEC3")
+                    degree = field(curve.value, "Degree").value
+                    sampler_idx = len(samplers)
+                    samplers.append({
+                        "input": time_acc,
+                        "output": value_acc,
+                        "interpolation": "STEP" if degree == 0 else "LINEAR",
+                    })
+                    channels.append({
+                        "sampler": sampler_idx,
+                        "target": {"node": joint_idx, "path": path},
+                    })
+
+        if channels:
+            builder.animations.append({"name": name, "samplers": samplers, "channels": channels})
+
+
+# ---------------------------------------------------------------------------
 # Top-level export
 # ---------------------------------------------------------------------------
 
-def export_model(gr2_path: str, out_path: str) -> None:
+def export_model(gr2_path: str, out_path: str, anim_paths: list[str] | None = None) -> None:
+    """anim_paths: explicit list of .ANIMATION.GR2 files to attach as glTF animation
+    clips. If None (the default), auto-discovers every *.ANIMATION.GR2 sibling of
+    gr2_path (that's how these files are laid out on disk -- e.g. Assassin.MODEL.GR2
+    sits next to Idle.ANIMATION.GR2, Walk.ANIMATION.GR2, ...). Pass [] to skip
+    animation export entirely."""
     gfile = gf.GrannyFile.load_from_file(gr2_path)
     models_field = field(gfile.root_elements, "Models")
     if models_field is None or not models_field.value:
         raise ValueError("no Models found in this .gr2 file")
+
+    if anim_paths is None:
+        anim_paths = sorted(str(p) for p in Path(gr2_path).parent.glob("*.ANIMATION.GR2"))
+        anim_paths += sorted(str(p) for p in Path(gr2_path).parent.glob("*.ANIMATION.gr2")
+                              if str(p) not in anim_paths)
 
     builder = GltfBuilder()
 
@@ -466,6 +570,13 @@ def export_model(gr2_path: str, out_path: str) -> None:
             node_idx = len(builder.nodes)
             builder.nodes.append({"mesh": mesh_idx, "skin": skin_idx, "_root": True})
             mesh_node_indices.append(node_idx)
+
+        for anim_path in anim_paths:
+            clip_name = Path(anim_path).name.split(".")[0]  # "Idle.ANIMATION.GR2" -> "Idle"
+            try:
+                export_animation(builder, anim_path, bone_name_to_joint, clip_name=clip_name)
+            except Exception as ex:
+                print(f"warning: skipping animation {anim_path}: {ex}", file=sys.stderr)
 
     gltf_json = builder.to_json()
     bin_path = Path(out_path).with_suffix(".bin")
