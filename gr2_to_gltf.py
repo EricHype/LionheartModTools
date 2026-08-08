@@ -530,21 +530,51 @@ def export_animation(builder: GltfBuilder, anim_path: str, bone_name_to_joint: d
 # Top-level export
 # ---------------------------------------------------------------------------
 
+def _discover_animation_paths(gr2_path: str) -> list[str]:
+    """Two layouts exist on disk for where a model's animations live (checked across
+    200 real MODEL.GR2 files): ~83% keep *.ANIMATION.GR2 siblings right next to the
+    model (e.g. Assassin.MODEL.GR2 next to Idle.ANIMATION.GR2, ...), but ~4% (e.g.
+    WereRat) instead keep only a couple of model-specific clips (Walk) alongside the
+    model and put the rest in a `Shared Animations` directory one level up, shared
+    across that model's variant folders -- confirmed by cross-referencing the
+    Characters/*.mdl16 manifest's animation path list against what's actually on disk
+    (see docs/adding-a-new-character.md). Check both."""
+    model_dir = Path(gr2_path).parent
+    seen: set[str] = set()
+    paths: list[str] = []
+    # The depth from the model file up to its "Shared Animations" sibling isn't
+    # consistent: WereRat.MODEL.GR2 lives at .../Wererats/Models/Wererat/, two levels
+    # below .../Wererats/Shared Animations/ (an extra "Models" layer), but
+    # BlackWolf.MODEL.GR2 lives at .../Wolves/Black Wolf/, only one level below
+    # .../Wolves/Shared Animations/ (no "Models" layer) -- walk up looking for it
+    # instead of assuming a fixed depth.
+    search_dirs = [model_dir]
+    ancestor = model_dir
+    for _ in range(3):
+        ancestor = ancestor.parent
+        search_dirs.append(ancestor / "Shared Animations")
+    for directory in search_dirs:
+        if not directory.is_dir():
+            continue
+        for pattern in ("*.ANIMATION.GR2", "*.ANIMATION.gr2"):
+            for p in sorted(directory.glob(pattern)):
+                if str(p) not in seen:
+                    seen.add(str(p))
+                    paths.append(str(p))
+    return paths
+
+
 def export_model(gr2_path: str, out_path: str, anim_paths: list[str] | None = None) -> None:
     """anim_paths: explicit list of .ANIMATION.GR2 files to attach as glTF animation
-    clips. If None (the default), auto-discovers every *.ANIMATION.GR2 sibling of
-    gr2_path (that's how these files are laid out on disk -- e.g. Assassin.MODEL.GR2
-    sits next to Idle.ANIMATION.GR2, Walk.ANIMATION.GR2, ...). Pass [] to skip
-    animation export entirely."""
+    clips. If None (the default), auto-discovers them -- see
+    _discover_animation_paths. Pass [] to skip animation export entirely."""
     gfile = gf.GrannyFile.load_from_file(gr2_path)
     models_field = field(gfile.root_elements, "Models")
     if models_field is None or not models_field.value:
         raise ValueError("no Models found in this .gr2 file")
 
     if anim_paths is None:
-        anim_paths = sorted(str(p) for p in Path(gr2_path).parent.glob("*.ANIMATION.GR2"))
-        anim_paths += sorted(str(p) for p in Path(gr2_path).parent.glob("*.ANIMATION.gr2")
-                              if str(p) not in anim_paths)
+        anim_paths = _discover_animation_paths(gr2_path)
 
     builder = GltfBuilder()
 
