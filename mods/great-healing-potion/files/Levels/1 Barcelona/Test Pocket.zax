@@ -524,7 +524,18 @@ CLayerSaveData
 					{
 						Action=Array
 						{
-							Item Count=2
+							Item Count=5
+							Action=CPlayAnimationAction
+							{
+								Animation=Opening
+								Random From Sequencial Set=0
+								Target Name=$Trigger
+								When Done=Stop on last frame
+								End Sequence Name=Idle
+								Delay Between Targets=0
+								Play In Reverse=0
+								AI To Interrupt=CSkeletonAI
+							}
 							Action=CActionGiveStandardInventoryItem
 							{
 								Who to give to=$instigator
@@ -546,6 +557,30 @@ CLayerSaveData
 								{
 									Item Count=1
 									Addition to add=Inventory/Inventory Additions/Miscellaneous/Potions/Great Healing
+								}
+							}
+							Action=CActionGiveStandardInventoryItem
+							{
+								Who to give to=$instigator
+								Delete Trigger=0
+								Notify Player=1
+								Inventory Item To Give=Inventory Items/Potion
+								Additions to add=Array
+								{
+									Item Count=1
+									Addition to add=Inventory/Inventory Additions/Miscellaneous/Potions/Superior Healing
+								}
+							}
+							Action=CActionGiveStandardInventoryItem
+							{
+								Who to give to=$instigator
+								Delete Trigger=0
+								Notify Player=1
+								Inventory Item To Give=Inventory Items/Potion
+								Additions to add=Array
+								{
+									Item Count=1
+									Addition to add=Inventory/Inventory Additions/Miscellaneous/Potions/Supreme Healing
 								}
 							}
 						}

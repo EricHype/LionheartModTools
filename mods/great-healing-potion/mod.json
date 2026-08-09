@@ -1,13 +1,17 @@
 {
   "mod_format_version": 1,
   "id": "great-healing-potion",
-  "name": "Great Healing Potion",
-  "version": "0.1.0",
+  "name": "Healing Potion Tiers",
+  "version": "0.2.0",
   "author": "vkays",
-  "description": "Adds a brand-new consumable item, Great Healing (Inventory/Inventory Additions/Miscellaneous/Potions/Great Healing), with its own newly-authored icon art (a gold/amber recolor of the potion flask, hand-decoded and re-encoded from the game's own sprite format via reverse-engineering -- see mdl16_format.py). Heals more than Extra Healing and removes critical hits. Requires the test-pocket mod to also be enabled (adds one more chest reward action to its Test Pocket.zax, on top of the necklace) -- open Lucia's chest in the Test Pocket to receive one.",
+  "description": "Adds three new consumable healing potions above vanilla's Extra Healing, each with its own recolored icon art (built with mdl16_format.recolor_icon_in_place -- confirmed working in-game): Great Healing (gold/amber), Superior Healing (blue/silver), and Supreme Healing (violet). Each heals more than the last and removes critical hits. Requires the test-pocket mod to also be enabled (adds three more chest reward actions to its Test Pocket.zax, on top of the necklace) -- open Lucia's chest in the Test Pocket to receive all three.",
   "files": [
     "Resources/Inventory/Inventory Additions/Miscellaneous/Potions/Great Healing.InventoryAddition",
+    "Resources/Inventory/Inventory Additions/Miscellaneous/Potions/Superior Healing.InventoryAddition",
+    "Resources/Inventory/Inventory Additions/Miscellaneous/Potions/Supreme Healing.InventoryAddition",
     "Cache/Models/Items/Inventory Images/Misc Items/Potion Great Healing.mdl16",
+    "Cache/Models/Items/Inventory Images/Misc Items/Potion Superior Healing.mdl16",
+    "Cache/Models/Items/Inventory Images/Misc Items/Potion Supreme Healing.mdl16",
     "Levels/1 Barcelona/Test Pocket.zax"
   ]
 }
