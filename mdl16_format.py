@@ -214,6 +214,17 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     engineered. Recoloring in place sidesteps needing to know it: reuse the original,
     already-correct structure, and only touch the color data.
 
+    Only operates on buffer 1. Decompiling the real per-pixel color getter
+    (FUN_0055ec80 in Lionheart.exe, see docs/mdl16-icon-format.md) confirmed buffer 4 is
+    logically a second color plane with buffer 5 as its parallel alpha mask, shown only
+    where buffer 1 decodes to 0 -- but buffer 4's ON-DISK bytes do NOT decode as a plain
+    continuous RLE16 stream the way buffer 1's do (tried on ShortSwordSpecial.mdl16: the
+    walk terminates almost immediately, and the same raw bytes look suspiciously like a
+    clean array of ascending u32 offsets rather than opcode data). The loader likely
+    builds buffer 4's row-lookup table by parsing its bytes differently than buffer 1's
+    -- never resolved. Recoloring buffer 4 is NOT implemented; leaving it untouched
+    (its original colors, wherever it's actually visible) is the current safe behavior.
+
     Limitation: this can only recolor an EXISTING icon (same silhouette/shape as the
     source), not author new shapes or dimensions. For this project's purposes (e.g. a
     reskinned "Great Healing" variant of the existing "Extra Healing" flask), that's
