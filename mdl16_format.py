@@ -15,7 +15,13 @@ What this module does, in order of how confident each piece is:
     by transforming its stored color values while leaving every opcode/run boundary
     byte-identical to the original. Confirmed correct in-game. Use this for any "same
     shape, different colors" icon (e.g. a reskinned item variant) -- see
-    docs/adding-a-new-item.md.
+    docs/adding-a-new-item.md. The color_transform callback can optionally take a
+    second (pixel_index) argument to vary behavior by position -- needed for source
+    icons where buffers 4/5 render something derived from buffer 1's exact original
+    values at specific positions (see docs/mdl16-icon-format.md's "Buffers 4+5" section
+    for a real example: recoloring a sword icon's top rows broke rendering three
+    different ways depending on what those rows were changed TO, and the only fix was
+    leaving them byte-identical to the source while recoloring everything else).
   - encode_icon_rle16() / encode_icon_raw(): build a brand-new icon from scratch (new
     shape/dimensions, not just recolored). NEITHER IS PROVEN WORKING IN-GAME. Both
     produce structurally valid files (round-trip correctly through this module's own
@@ -223,18 +229,35 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     buf1_off = header.data_offset
     buf1 = bytearray(data[buf1_off: buf1_off + header.buffer_sizes[0]])
 
+    # pixel_index is passed to color_transform as a second, OPTIONAL argument (tried
+    # first, falling back to the single-argument form) so a caller can key off position
+    # -- e.g. some real icons carry a small band of leftover/unrelated pixel data in
+    # buffer 1 that's disconnected from the actual silhouette (confirmed present in all
+    # three ShortSword tiers' opening rows: full-width, oddly multicolored, separated
+    # from the blade shape by a gap of fully transparent rows). It's invisible in the
+    # source palette but reads as a glaring artifact once forced to a new hue, so a
+    # position-aware transform can pass those pixels through unchanged.
+    import inspect
+    _wants_index = len(inspect.signature(color_transform).parameters) >= 2
+
+    def _apply(v, idx):
+        return color_transform(v, idx) if _wants_index else color_transform(v)
+
     i = 0
     n = len(buf1)
+    pixel_index = 0
     while i < n:
         ctrl = buf1[i]
         if ctrl & 0x80:
+            pixel_index += ctrl & 0x7F
             i += 1
         elif (ctrl & 0x40) == 0:
             count = ctrl & 0x3F
             if count == 0:
                 break
             v = struct.unpack_from("<H", buf1, i + 1)[0]
-            struct.pack_into("<H", buf1, i + 1, color_transform(v))
+            struct.pack_into("<H", buf1, i + 1, _apply(v, pixel_index))
+            pixel_index += count
             i += 3
         else:
             count = ctrl & 0x3F
@@ -243,7 +266,8 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
             for k in range(count):
                 off = i + 1 + k * 2
                 v = struct.unpack_from("<H", buf1, off)[0]
-                struct.pack_into("<H", buf1, off, color_transform(v))
+                struct.pack_into("<H", buf1, off, _apply(v, pixel_index + k))
+            pixel_index += count
             i += 1 + count * 2
 
     out = bytearray(data)

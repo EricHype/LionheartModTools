@@ -1,0 +1,270 @@
+CDamageHitOrMiss
+{
+	Attackers Hit Or Miss Value=CAdd
+	{
+		Operand1=CAdd
+		{
+			Operand1=CAdd
+			{
+				Operand1=CAdd
+				{
+					Operand1=CRandom
+					{
+						Operator=
+						Minimum=CConstant
+						{
+							Constant Value=0
+						}
+						Maximum=CConstant
+						{
+							Constant Value=100
+						}
+					}
+					Operator=
+					Operand2=CDivide
+					{
+						Operand1=CVariableSkill
+						{
+							Skill=Skills/Fighting/OneHandedMelee
+						}
+						Operator=
+						Operand2=CIfExpression
+						{
+							Condition=CIsLessThan
+							{
+								Operand1=CAttackSpeedUISliderExpression
+								{
+								}
+								Operator=
+								Operand2=CConstant
+								{
+									Constant Value=0.1
+								}
+							}
+							OperatorPart1=
+							Value if True =CConstant
+							{
+								Constant Value=0.45
+							}
+							OperatorPart2=
+							Value if False=CIfExpression
+							{
+								Condition=CIsLessThan
+								{
+									Operand1=CAttackSpeedUISliderExpression
+									{
+									}
+									Operator=
+									Operand2=CConstant
+									{
+										Constant Value=0.26
+									}
+								}
+								OperatorPart1=
+								Value if True =CConstant
+								{
+									Constant Value=0.55
+								}
+								OperatorPart2=
+								Value if False=CIfExpression
+								{
+									Condition=CIsLessThan
+									{
+										Operand1=CAttackSpeedUISliderExpression
+										{
+										}
+										Operator=
+										Operand2=CConstant
+										{
+											Constant Value=0.51
+										}
+									}
+									OperatorPart1=
+									Value if True =CConstant
+									{
+										Constant Value=0.6
+									}
+									OperatorPart2=
+									Value if False=CIfExpression
+									{
+										Condition=CIsLessThan
+										{
+											Operand1=CAttackSpeedUISliderExpression
+											{
+											}
+											Operator=
+											Operand2=CConstant
+											{
+												Constant Value=0.76
+											}
+										}
+										OperatorPart1=
+										Value if True =CConstant
+										{
+											Constant Value=0.7
+										}
+										OperatorPart2=
+										Value if False=CConstant
+										{
+											Constant Value=0.8
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				Operator=
+				Operand2=CVariableDerivedCharacterAttribute
+				{
+					Character Attribute=Derived Character Attributes/Fortune
+				}
+			}
+			Operator=
+			Operand2=CMeleeWeaponToHitPenalyForTergetedBodyPartExpression
+			{
+			}
+		}
+		Operator=
+		Operand2=CVariableDerivedCharacterAttribute
+		{
+			Character Attribute=Derived Character Attributes/Damage Related/Offensive/Bonus Chance to Hit
+		}
+	}
+	Defenders Hit Or Miss Value=CIfExpression
+	{
+		Condition=CUseCannedExpressionExpression
+		{
+			Canned Expression=Dialog/Requirements/Monster Races/Wererat IS
+		}
+		OperatorPart1=
+		Value if True =CMultiply
+		{
+			Operand1=CVariableDerivedCharacterAttribute
+			{
+				Character Attribute=Derived Character Attributes/(AC) Armor Class
+			}
+			Operator=
+			Operand2=CConstant
+			{
+				Constant Value=0.5
+			}
+		}
+		OperatorPart2=
+		Value if False=CVariableDerivedCharacterAttribute
+		{
+			Character Attribute=Derived Character Attributes/(AC) Armor Class
+		}
+	}
+	Try to hit again if we missed=CIfExpression
+	{
+		Condition=CIsLessThanOrEqual
+		{
+			Operand1=CRandom
+			{
+				Operator=
+				Minimum=CConstant
+				{
+					Constant Value=0
+				}
+				Maximum=CConstant
+				{
+					Constant Value=100
+				}
+			}
+			Operator=
+			Operand2=CConstant
+			{
+				Constant Value=5
+			}
+		}
+		OperatorPart1=
+		Value if True =CConstant
+		{
+			Constant Value=1
+		}
+		OperatorPart2=
+		Value if False=CConstant
+		{
+			Constant Value=0
+		}
+	}
+	Try to miss again if we hit=CIfExpression
+	{
+		Condition=CIsLessThanOrEqual
+		{
+			Operand1=CAdd
+			{
+				Operand1=CRandom
+				{
+					Operator=
+					Minimum=CConstant
+					{
+						Constant Value=0
+					}
+					Maximum=CConstant
+					{
+						Constant Value=100
+					}
+				}
+				Operator=
+				Operand2=CVariableDerivedCharacterAttribute
+				{
+					Character Attribute=Derived Character Attributes/Fortune
+				}
+			}
+			Operator=
+			Operand2=CExpressionScale
+			{
+				Input Value=CClampValue
+				{
+					Input Value=CVariableSkill
+					{
+						Skill=Skills/Fighting/Evasion
+					}
+					OperatorPart1=
+					Minimum Value=CConstant
+					{
+						Constant Value=1
+					}
+					OperatorPart2=
+					Maximum Value=CConstant
+					{
+						Constant Value=300
+					}
+				}
+				Input Minimum=CConstant
+				{
+					Constant Value=1
+				}
+				Input Maximum=CConstant
+				{
+					Constant Value=300
+				}
+				Output Minimum=CConstant
+				{
+					Constant Value=1
+				}
+				Output Maximum=CConstant
+				{
+					Constant Value=35
+				}
+			}
+		}
+		OperatorPart1=
+		Value if True =CConstant
+		{
+			Constant Value=1
+		}
+		OperatorPart2=
+		Value if False=CConstant
+		{
+			Constant Value=0
+		}
+	}
+	Extra Damage To Apply=CVariableDerivedCharacterAttribute
+	{
+		Character Attribute=Derived Character Attributes/MeleeDamage
+	}
+	Type=Melee
+}

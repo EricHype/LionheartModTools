@@ -1,0 +1,16 @@
+{
+  "mod_format_version": 1,
+  "id": "ratsbane-sword",
+  "name": "Ratsbane",
+  "version": "0.2.1",
+  "author": "vkays",
+  "description": "Lucia Wererat now drops a unique short sword, Ratsbane, when killed by the player. Ratsbane deals bonus disease damage against wererats and is genuinely easier to hit them with (not a flat damage bonus like the vanilla Goblin Slayer addition -- it replaces the sword's hit-or-miss formula with one that halves the defender's effective Armor Class specifically when the target is a wererat, leaving normal combat against everything else untouched). Drops as a real world pickup next to Lucia's body, not straight to inventory. Ships its own sickly-green recolored inventory icon (mdl16_format.recolor_icon_in_place) distinct from the vanilla Short Sword.",
+  "files": [
+    "Resources/Dialog/Requirements/Monster Races/Wererat IS.can",
+    "Resources/Damage Types/Damage Hit Or Miss/Special conditions/WereratBane.DamageHitOrMiss",
+    "Resources/Inventory/Inventory Additions/Weapons/Ratsbane.InventoryAddition",
+    "Resources/Inventory/Specific Item Cans/Weapons/Ratsbane Drop Action.can",
+    "Resources/Levels/1 Barcelona/Character Templates/Test Pocket/Lucia Wererat.can",
+    "Cache/Models/Items/Inventory Images/Weapons/Ratsbane.mdl16"
+  ]
+}

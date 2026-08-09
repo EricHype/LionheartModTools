@@ -67,6 +67,49 @@ the real render path apparently doesn't), but the fix is simple: always carry th
 original buffers 4/5 forward unchanged when only buffer 1 needs to change, which is
 exactly what a recolor needs anyway.
 
+### Buffers 4/5 can render content tied to buffer 1's *exact original values*, not just its shape
+
+Found while recoloring `ShortSwordSpecial.mdl16` (source icon for the `ratsbane-sword`
+mod's custom weapon art). All three vanilla `ShortSword` icon tiers (`ShortSword`,
+`ShortSwordBetter`, `ShortSwordSpecial`) have a small band at the very top of buffer 1
+(rows 0-1 of the decoded image) that decodes to a handful of chaotic, unrelated-looking
+opaque colors, separated from the actual blade silhouette by several fully-transparent
+rows -- easy to mistake for decode noise or leftover garbage, since it's small, sits
+disconnected from the rest of the art, and blends into the vanilla palette well enough
+that it's invisible in normal play.
+
+Recoloring that band (via `recolor_icon_in_place`, same technique used successfully on
+the three healing-potion icons) turned out to have real, *unpredictable* consequences,
+each attempt producing a different visible defect in-game:
+
+| buffer 1 rows 0-1 set to... | in-game result |
+|---|---|
+| recolored to the new hue (same treatment as the rest of the icon) | a band of rainbow-colored noise streaking out past the blade's silhouette |
+| fully transparent (value 0) | a small solid black bar + dotted shape rendered at the same position |
+| a flat, uniform fill of the new hue | the SAME bar shape, but much wider -- extending most of the way across the tooltip panel, well past the icon's own width |
+| byte-identical to the source (untouched) | **clean -- no artifact at all** |
+
+None of the buffer 1 bytes for the rest of the icon changed between these attempts, and
+buffers 4/5 (never touched by `recolor_icon_in_place`) were byte-identical across all
+four builds too -- confirming buffers 4/5 render *something* at that position that
+depends on buffer 1's stored values there, not just on buffer 1's shape/alpha. The
+rainbow result in particular rules out a simple alpha-driven overlay: our recolor
+forces every buffer-1 pixel to one fixed hue, so genuinely multi-hued output can only
+come from buffer 4/5 contributing its own color data, composited in some way (additive
+delta was the leading guess, based on the "flat fill = longer bar" progression, but this
+was never confirmed and no single theory explained all four outcomes). **The exact
+compositing logic was never reverse engineered** -- what *is* proven is the practical
+fix: leave whatever pixels fall in that band byte-for-byte identical to the source
+(`recolor_icon_in_place`'s `color_transform` callback can take an optional
+`pixel_index` second argument for exactly this -- pass through `v` unchanged for
+positions in the affected band, transform normally everywhere else).
+
+**If picking this up again**: worth checking whether every real weapon icon has this
+same disconnected top band (all three `ShortSword` tiers do), which row(s) it occupies
+for other weapon families, and whether `FUN_0055ec80`'s buffer-4/5 handling (see
+"Useful Ghidra addresses" below) can be read closely enough to derive the actual blend
+formula rather than continuing to guess from outcomes.
+
 ## Buffer 1's RLE-16bpp opcode grammar (flags & 6 == 4)
 
 One continuous stream of the following three opcode types, covering exactly

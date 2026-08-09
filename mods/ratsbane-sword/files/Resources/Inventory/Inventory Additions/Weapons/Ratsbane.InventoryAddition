@@ -1,0 +1,284 @@
+CInventoryAddition
+{
+	PlugIn Behaviors=Array
+	{
+		Item Count=2
+		PlugIn Behavior=CPlugInBehaviorDamage
+		{
+			Hit Or Miss=Damage Types/Damage Hit Or Miss/Special conditions/WereratBane
+			Cache Hit Or Miss Result=1
+			Hit Margin=0
+			Damages=Array
+			{
+				Item Count=1
+				Damage=CXRPGDamage
+				{
+					Damage Type=Damage Types/Slashing
+					Damage Amount=CAdd
+					{
+						Operand1=CRandom
+						{
+							Operator=
+							Minimum=CConstant
+							{
+								Constant Value=1
+							}
+							Maximum=CConstant
+							{
+								Constant Value=5
+							}
+						}
+						Operator=
+						Operand2=CAdd
+						{
+							Operand1=CIfExpression
+							{
+								Condition=CIsLessThan
+								{
+									Operand1=CVariableSkill
+									{
+										Skill=Skills/Fighting/OneHandedMelee
+									}
+									Operator=
+									Operand2=CConstant
+									{
+										Constant Value=50
+									}
+								}
+								OperatorPart1=
+								Value if True =CConstant
+								{
+									Constant Value=0
+								}
+								OperatorPart2=
+								Value if False=CIfExpression
+								{
+									Condition=CIsLessThan
+									{
+										Operand1=CVariableSkill
+										{
+											Skill=Skills/Fighting/OneHandedMelee
+										}
+										Operator=
+										Operand2=CConstant
+										{
+											Constant Value=100
+										}
+									}
+									OperatorPart1=
+									Value if True =CConstant
+									{
+										Constant Value=1
+									}
+									OperatorPart2=
+									Value if False=CIfExpression
+									{
+										Condition=CIsLessThan
+										{
+											Operand1=CVariableSkill
+											{
+												Skill=Skills/Fighting/OneHandedMelee
+											}
+											Operator=
+											Operand2=CConstant
+											{
+												Constant Value=150
+											}
+										}
+										OperatorPart1=
+										Value if True =CConstant
+										{
+											Constant Value=2
+										}
+										OperatorPart2=
+										Value if False=CIfExpression
+										{
+											Condition=CIsLessThan
+											{
+												Operand1=CVariableSkill
+												{
+													Skill=Skills/Fighting/OneHandedMelee
+												}
+												Operator=
+												Operand2=CConstant
+												{
+													Constant Value=200
+												}
+											}
+											OperatorPart1=
+											Value if True =CConstant
+											{
+												Constant Value=3
+											}
+											OperatorPart2=
+											Value if False=CIfExpression
+											{
+												Condition=CIsLessThan
+												{
+													Operand1=CVariableSkill
+													{
+														Skill=Skills/Fighting/OneHandedMelee
+													}
+													Operator=
+													Operand2=CConstant
+													{
+														Constant Value=250
+													}
+												}
+												OperatorPart1=
+												Value if True =CConstant
+												{
+													Constant Value=4
+												}
+												OperatorPart2=
+												Value if False=CIfExpression
+												{
+													Condition=CIsLessThan
+													{
+														Operand1=CVariableSkill
+														{
+															Skill=Skills/Fighting/OneHandedMelee
+														}
+														Operator=
+														Operand2=CConstant
+														{
+															Constant Value=300
+														}
+													}
+													OperatorPart1=
+													Value if True =CConstant
+													{
+														Constant Value=5
+													}
+													OperatorPart2=
+													Value if False=CConstant
+													{
+														Constant Value=6
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+							Operator=
+							Operand2=CIfExpression
+							{
+								Condition=CHasPerkExpression
+								{
+									Perks To Check For=Array
+									{
+										Item Count=1
+										Perk To Check For=Perks/One-Handed Weapon Specialization
+									}
+								}
+								OperatorPart1=
+								Value if True =CConstant
+								{
+									Constant Value=3
+								}
+								OperatorPart2=
+								Value if False=CConstant
+								{
+									Constant Value=0
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		PlugIn Behavior=CPlugInBehaviorStrikeAction
+		{
+			Strike Action=CIfExpressionAction
+			{
+				If Expression=CIsGreaterThan
+				{
+					Operand1=CExpressionHitMargin
+					{
+					}
+					Operator=
+					Operand2=CConstant
+					{
+						Constant Value=0
+					}
+				}
+				Character to get attributes from=$Instigator
+				Then=CIfAction
+				{
+					If=CCheckModelAction
+					{
+						Target Name=$trigger
+						Allowable Models=Array
+						{
+							Item Count=4
+							Model=Characters/Monsters/Wererat
+							Model=Characters/Monsters/Wererat variant
+							Model=Characters/Monsters/Wererat boss
+							Model=Characters/Monsters/Wererat PRIME
+						}
+					}
+					Then=CActionDoDamage
+					{
+						Character Doing Damage=$instigator
+						Character To Damage=$trigger
+						Defend Against=1
+						No Friendly Fire Check=0
+						Damages=Array
+						{
+							Item Count=1
+							Damage=CXRPGDamage
+							{
+								Damage Type=Damage Types/Disease
+								Damage Amount=CConstant
+								{
+									Constant Value=8
+								}
+							}
+						}
+					}
+					Else=
+					Return failure if the If failes=0
+				}
+				Else=
+			}
+		}
+	}
+	Value=CConstant
+	{
+		Constant Value=250
+	}
+	Is Magic=1
+	Encumbrance=0
+	On the ground=!Unknown Model
+	Requirements=Array
+	{
+		Item Count=0
+	}
+	Display Name=Ratsbane
+	Description=Forged to hunt the cursed, this blade cuts wererats with uncanny ease and bites deep with a wound that festers -- dealing an extra 8 points of disease damage and striking far more easily against them.
+	Item Grade=Special
+	Inventory Window=Items/Inventory Images/Weapons/Ratsbane
+	Minimum Value=250
+	Minimum Addition Ammount=0
+	Inbetween Value=250
+	Inbetween Addition Ammount=0
+	Maximum Value=250
+	Maximum Addition Ammount=0
+	Sample Value=0
+	Addition Ammount=0
+	Expressions=CNamedExpressionsArray
+	{
+		Expressions=Array
+		{
+			Array Count=0
+		}
+	}
+	Inventory Addition Group=Inventory/Inventory Addition Groups/Weapons/Melee Weapon Additions
+	Addition Rarity=Inventory Item Rarity/4 Very Rare
+	Replaces matching plugins=1
+	Additions Cannot Be Combined With=Array
+	{
+		Item Count=0
+	}
+}

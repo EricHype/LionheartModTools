@@ -1,0 +1,19 @@
+CCannedObject
+{
+	Object=CActionExpression
+	{
+		Action=CCheckModelAction
+		{
+			Target Name=$Trigger
+			Allowable Models=Array
+			{
+				Item Count=4
+				Model=Characters/Monsters/Wererat
+				Model=Characters/Monsters/Wererat variant
+				Model=Characters/Monsters/Wererat boss
+				Model=Characters/Monsters/Wererat PRIME
+			}
+		}
+	}
+	Use=Shared Global Instance
+}
