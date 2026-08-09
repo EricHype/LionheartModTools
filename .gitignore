@@ -3,3 +3,4 @@ __pycache__/
 .vanilla_unpacked/
 *.tmp
 exports/
+bugs/
