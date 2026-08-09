@@ -538,6 +538,16 @@ live `data/` folder or a previous build — this is what makes clean enable/disa
 possible. It validates the built archive (`testzip`, all `compress_type == 0`) before
 touching the live `data.dat`, and refuses to run while `Lionheart.exe` is open.
 
+**Gotcha: `build` reads from `<game-dir>\mods\installed\<id>\`, a copy `install` made —
+not from the mod source folder.** Editing a file inside a mod's own repo/source
+`files/` directory (e.g. iterating on a `.mdl16` icon or tweaking a `.can`) has **no
+effect** on the next `build` unless `install` is rerun first to refresh the installed
+copy (`shutil.copytree`, full overwrite). `build` succeeding and reporting a normal
+sync count gives no signal that this happened — it happily rebuilds from stale
+installed content. Rule of thumb while iterating on a mod already installed: `install`
+then `build`, every time a source file under `mods/<id>/files/` changes, not just the
+first time.
+
 ## CRITICAL: `<game-dir>\data\` is a loose mirror that SHADOWS `data.dat` — `build` must sync it
 
 This install has a **complete loose copy of data.dat's entire contents** at `<game-dir>\
