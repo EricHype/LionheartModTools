@@ -9,6 +9,11 @@ Registry lives inside the game directory:
     <game-dir>\\data.dat.vanilla.bak      pristine original, created once by `init`
     <game-dir>\\mods\\installed\\<id>\\    installed mod packages
     <game-dir>\\mods\\enabled.json        ordered list of enabled mod ids (last wins on conflict)
+    <game-dir>\\data\\                    loose mirror of data.dat's contents -- if present,
+                                          this SHADOWS data.dat for any path it contains, so
+                                          `build` also syncs every touched file here. See
+                                          SKILL.md's "Loose file mirror" section for why this
+                                          exists and how it was discovered.
 """
 from __future__ import annotations
 
@@ -36,6 +41,7 @@ def _game_paths(game_dir: str) -> dict:
         "installed_dir": game_dir / "mods" / "installed",
         "enabled_json": game_dir / "mods" / "enabled.json",
         "scratch_dir": game_dir / "mods" / ".build_scratch",
+        "loose_dir": game_dir / "data",
     }
 
 
@@ -249,6 +255,27 @@ def cmd_build(args: argparse.Namespace) -> None:
 
     import os
     os.replace(tmp_dat, paths["data_dat"])
+
+    # This install ships (or has accumulated) a COMPLETE loose mirror of data.dat's
+    # contents at <game-dir>\data\ -- confirmed by direct comparison, not assumption:
+    # every file the game reads loose (present since the original 2001 install, going
+    # by preserved timestamps) is read from there INSTEAD of data.dat, permanently
+    # shadowing it. Any path with no pre-existing loose copy gets one written the first
+    # time the game reads it via data.dat, which then shadows all FUTURE data.dat
+    # changes too. Net effect: rebuilding data.dat alone is silently ineffective for any
+    # path that already has (or ever gets) a loose copy -- see SKILL.md's "Loose file
+    # mirror" section. Sync every touched path here so `build` alone is sufficient.
+    if paths["loose_dir"].is_dir():
+        synced = 0
+        for rel in touched_by:
+            src = paths["scratch_dir"] / rel
+            dst = paths["loose_dir"] / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            synced += 1
+        if synced:
+            print(f"Synced {synced} touched file(s) into the loose mirror at {paths['loose_dir']}")
+
     shutil.rmtree(scratch)
     print(f"Built data.dat with {len(enabled)} mod(s) enabled: {', '.join(enabled) or '(none)'}")
 

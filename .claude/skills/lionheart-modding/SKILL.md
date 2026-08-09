@@ -538,16 +538,43 @@ live `data/` folder or a previous build — this is what makes clean enable/disa
 possible. It validates the built archive (`testzip`, all `compress_type == 0`) before
 touching the live `data.dat`, and refuses to run while `Lionheart.exe` is open.
 
-**Known open issue**: during development, `data.dat.vanilla.bak` (backed up on day one of
-a modding session) was found to differ from the live, hand-edited `data/` directory on
-~267 files that were never intentionally touched, for a reason that was never root-caused
-(GOG background verification/sync was suspected but not confirmed). `package`'s automated
-diff will surface all of these as "changed" if your `vanilla-dir` doesn't match your
-`edited-dir`'s true baseline — if `package` reports far more files than you actually
-touched, don't trust it blindly; spot-check a few unexpected entries, or fall back to
-hand-assembling `files/` + `mod.json` from the specific files you know you changed (as was
-done for the first Wolf Pelts for Quinn package). In-game testing confirmed the divergence
-itself wasn't functionally harmful, but its cause is still unknown.
+## CRITICAL: `<game-dir>\data\` is a loose mirror that SHADOWS `data.dat` — `build` must sync it
+
+This install has a **complete loose copy of data.dat's entire contents** at `<game-dir>\
+data\` (confirmed directly: file count matches data.dat's entry count almost exactly,
+~19000 files, and the vast majority carry the game's original 2001 dev-build timestamps —
+this is not a subset, it's effectively the whole archive, unpacked once and left in place).
+
+**The game reads from this loose tree in preference to `data.dat` whenever a loose file is
+present**, confirmed by direct observation: a `data.dat` rebuild — verified byte-correct via
+`zipfile.read()` immediately beforehand — produced **zero** in-game behavior change across
+five consecutive rebuild-and-test cycles, because the loose copy of the touched file was
+untouched and kept shadowing it. The moment the loose file was manually overwritten with
+the same content, the change took effect immediately. For paths with **no** pre-existing
+loose file (freshly-authored resources, e.g. a brand-new `.InventoryAddition`), the game
+appears to fall back to reading `data.dat` and then **writes its own loose copy** on that
+first read — which then shadows all *future* `data.dat` rebuilds the same way, so this
+isn't a one-time gap that closes itself; it recurs for every new resource the first time
+it's actually read in-game.
+
+This resolves the "Known open issue" that used to be documented here (a ~267-file,
+never-root-caused divergence between `data.dat.vanilla.bak` and the live `data\`
+directory): the *original* editing workflow documented above — "edit files directly in the
+unpacked `data\` directory, then repack" — always kept `data\` and `data.dat` in sync by
+construction, because `data.dat` was generated *from* `data\`. `modmanager.py build`
+doesn't do that — it unpacks fresh from `vanilla_bak` into an ephemeral scratch dir that's
+deleted after repacking, and until this was fixed, never touched `data\` at all. Both
+workflows are legitimate ways to end up with a working `data.dat`; only one of them also
+keeps the loose mirror in sync, and the game depends on that mirror, not on `data.dat`
+directly.
+
+**Fix, now built into `build`**: after a successful repack, `cmd_build` copies every file
+touched by an enabled mod from the scratch dir into `<game-dir>\data\` too (only if that
+directory exists), so `python modmanager.py build <game-dir>` alone is sufficient again —
+no separate manual sync step needed. If you ever bypass `modmanager.py` (hand-edit
+`data.dat` with `archive.py` directly, or write a resource via some other script), remember
+to `cp` the same file into `<game-dir>\data\<same relative path>` yourself, or the game
+will not see it no matter how many times you rebuild `data.dat`.
 
 ## Reverse-engineering tips (Ghidra/ReVa)
 
@@ -562,3 +589,14 @@ itself wasn't functionally harmful, but its cause is still unknown.
   conclusions from this alone as hypotheses to test in-game, not proven fixes. The
   canned-action-indirection fix above was only confirmed by actual in-game testing after
   the type-code theory failed to pan out.
+- **Check for existing community documentation before reverse-engineering a format from
+  scratch.** A small but real Lionheart modding community exists; `lionheart.eowyn.cz` is
+  a wiki documenting `.zax`/`.way`/`.frm16`/`.seq16` and partial `.mdl16` notes (blocks
+  direct `WebFetch`/`curl`, even with a browser user-agent and via web.archive.org — only
+  reachable through `WebSearch` result snippets, which is enough to extract real technical
+  detail with enough targeted queries). It independently confirmed most of the `.mdl16`
+  icon RLE reverse-engineering done via pure Ghidra analysis (see
+  `docs/mdl16-icon-format.md`), but was also wrong in one place for this project's
+  specific use case (a DWORD+LUT structure that turned out to describe a different FRM16
+  use case than item icons) — cross-check community docs against direct Ghidra/byte-level
+  evidence rather than trusting either alone.

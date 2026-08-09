@@ -364,10 +364,22 @@ def export_mesh(builder: GltfBuilder, mesh_elem: list[gf.Element], bone_name_to_
         positions.append(tuple(flat(field(v_fields, "Position"))))
         normals.append(tuple(flat(field(v_fields, "Normal"))))
         texcoords.append(tuple(flat(field(v_fields, "TextureCoordinates0"))))
-        # BoneWeights is stored on disk as 4 raw u8 bytes (0-255); glTF's WEIGHTS_0
-        # (componentType FLOAT here) expects normalized 0.0-1.0 floats.
-        weights.append(tuple(w / 255.0 for w in flat(field(v_fields, "BoneWeights"))))
-        joints_local.append(tuple(int(i) for i in flat(field(v_fields, "BoneIndices"))))
+        # Some static props (seen on several weapon meshes) use a simpler vertex
+        # format with no BoneWeights/BoneIndices at all -- rigidly bound to a single
+        # bone (the model's own root), not per-vertex skinned. Treat that as a full
+        # rigid weight to joint 0 rather than crashing; this keeps the mesh correctly
+        # positioned via its skeleton's sole bone without needing an unskinned
+        # (skin-less) primitive code path.
+        weights_field = field(v_fields, "BoneWeights")
+        indices_field = field(v_fields, "BoneIndices")
+        if weights_field is None or indices_field is None:
+            weights.append((1.0, 0.0, 0.0, 0.0))
+            joints_local.append((0, 0, 0, 0))
+        else:
+            # BoneWeights is stored on disk as 4 raw u8 bytes (0-255); glTF's
+            # WEIGHTS_0 (componentType FLOAT here) expects normalized 0.0-1.0 floats.
+            weights.append(tuple(w / 255.0 for w in flat(weights_field)))
+            joints_local.append(tuple(int(i) for i in flat(indices_field)))
 
     # Local BoneIndices are indices into THIS mesh's own BoneBindings list, not
     # directly into the skeleton -- resolve via BoneName. (BoneBindings is a
@@ -579,7 +591,11 @@ def export_model(gr2_path: str, out_path: str, anim_paths: list[str] | None = No
     builder = GltfBuilder()
 
     for model_fields in models_field.value:
-        skeleton = field(model_fields, "Skeleton").value
+        skeleton_field = field(model_fields, "Skeleton")
+        if skeleton_field is None or not skeleton_field.value:
+            raise ValueError(f"Model {field(model_fields, 'Name').value!r} has no Skeleton "
+                              f"(some props/gizmos are meshless or use a different rig scheme)")
+        skeleton = skeleton_field.value
         bones = [b.value for b in fields(skeleton, "Bones")]
         # Bones is a repeated-record 'reference' like BoneBindings -- but
         # gr2_format groups each record's fields flatly under one 'Bones' element
@@ -594,7 +610,7 @@ def export_model(gr2_path: str, out_path: str, anim_paths: list[str] | None = No
 
         mesh_bindings = field(model_fields, "MeshBindings")
         mesh_node_indices = []
-        for mb_record in _group_repeated_records(mesh_bindings.value, ["Mesh"]):
+        for mb_record in _group_repeated_records(mesh_bindings.value if mesh_bindings else [], ["Mesh"]):
             mesh_elem = field(mb_record, "Mesh").value
             mesh_idx = export_mesh(builder, mesh_elem, bone_name_to_joint, joint_base)
             node_idx = len(builder.nodes)
