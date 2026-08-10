@@ -13,13 +13,18 @@ official modding support or SDK for this game — this project exists to establi
 - **`archive.py`** — unpack/repack `data.dat`.
 - **`modmanager.py`** — package, install, enable/disable, and build mods as layered
   overlays on top of a pristine vanilla backup.
+- **`mdl16_format.py`** — read, recolor, and author inventory icon art (`.mdl16`/`.frm16`
+  2D sprites). Authoring genuinely new icon art works; see below.
+- **`gr2_format.py`** — the 3D character/model format (`.gr2`), with glTF round-tripping.
 - **`mods/`** — real, working mods built with this toolkit (see below).
-- **`docs/`** — reference material on specific game systems (e.g. the ending-branch
-  structure) that's useful context but not itself a modding how-to.
-- **`.claude/skills/lionheart-modding/SKILL.md`** — the actual modding reference: file
-  formats, gotchas, confirmed working patterns for adding NPCs/quests/dialogue/maps, and
-  the mistakes that cost real debugging time so you don't have to repeat them. Start here
-  if you want to build something new.
+- **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
+  the `.mdl16` icon format, the `.gr2` model format, and background on specific game
+  systems like the ending-branch structure.
+- **`.claude/skills/`** — the modding references, written as skills so an agent picks them
+  up automatically. `lionheart-modding` is the main one: file formats, gotchas, confirmed
+  working patterns for NPCs/quests/dialogue/maps, and the mistakes that cost real
+  debugging time so you don't repeat them. `adding-a-new-weapon` is a focused end-to-end
+  recipe. **Start with `lionheart-modding` if you want to build something new.**
 - **`examples/`** — worked-example scratch files from building the first quest, kept as a
   reference for the DialogTree-splicing pattern.
 
@@ -61,7 +66,7 @@ python archive.py repack "<game>\data" "<game>\data.dat" --compression store
 ```
 
 **`--compression store` is not optional.** The shipped exe's archive parser rejects
-anything else with a fatal error — see `SKILL.md` for why.
+anything else with a fatal error — see the `lionheart-modding` skill for why.
 
 ## Mods included
 
@@ -69,10 +74,14 @@ anything else with a fatal error — see `SKILL.md` for why.
 |---|---|
 | [`wolf-pelts-for-quinn`](mods/wolf-pelts-for-quinn/) | A new quest: Quinn the herbalist asks you to bring three wolf pelts to test for magical corruption. |
 | [`marco-the-pickpocket`](mods/marco-the-pickpocket/) | A new NPC near the Gate District blacksmith. Reacts to whether you have the Thief perk — either a warning about the streets at night, or a shop stocked with rogue-friendly gear. |
+| [`great-healing-potion`](mods/great-healing-potion/) | Three new healing potions above vanilla's Extra Healing, each with its own recolored icon. |
+| [`ratsbane-sword`](mods/ratsbane-sword/) | Lucia Wererat drops a unique short sword that deals bonus disease damage against wererats. |
+| [`bloodletter-scimitar`](mods/bloodletter-scimitar/) | A unique scimitar with a 30% chance on hit to inflict a bleeding wound. Ships the project's first genuinely new icon art. |
 | [`test-pocket`](mods/test-pocket/) | *(work in progress)* A brand-new standalone map, reachable through Quinn's shop, with its own NPC and a fetch quest that turns into a fight. |
 
 Each mod's own README has install notes and anything specific to that mod (e.g. save
-requirements for newly-added content — see below).
+requirements for newly-added content — see below). Some mods depend on another being
+installed and loaded first; their READMEs say so.
 
 ## A gotcha worth knowing before you install anything
 
@@ -81,13 +90,40 @@ that has already visited that level — the game locks in a level's entity list 
 time you ever enter it on a given save. Editing existing NPCs' dialogue *does* refresh on
 revisit; only brand-new entities are affected. If content from one of these mods doesn't
 show up, try a save that's never been to that specific area, or a new game. Full
-explanation and the mechanism behind it is in `SKILL.md`.
+explanation and the mechanism behind it is in the `lionheart-modding` skill.
+
+## Custom art
+
+Inventory icons (`.mdl16`/`.frm16`) are fully decoded, and you can author new ones:
+
+```python
+import mdl16_format as m
+out = m.build_icon_file(donor_bytes, width, height, rows)   # rows: (r,g,b,a) tuples
+m.verify_icon(out)      # always, before deploying
+```
+
+`recolor_icon_in_place()` is the cheaper path when an existing silhouette is already
+right. Either way run `verify_icon()` first — it re-parses the file the way the engine
+does, and a malformed icon crashes the game on opening the inventory screen.
+
+This took a while to get right. Each buffer carries an on-disk table of per-row byte
+offsets, and the engine decodes every row by seeking to `table[y]` and resetting its
+x-counter, so rows are strictly opcode-aligned and those offsets have to be exact. Full
+writeup, including the decompiled evidence and how the earlier attempts went wrong, is in
+[`docs/mdl16-icon-format.md`](docs/mdl16-icon-format.md).
+
+3D character models (`.gr2`) round-trip through glTF for editing in Blender — confirmed
+in-game for static mesh edits; animated edits aren't proven yet. See
+[`docs/gr2-format.md`](docs/gr2-format.md) and
+[`docs/gltf-roundtrip.md`](docs/gltf-roundtrip.md).
 
 ## Building your own mod
 
-1. Read `SKILL.md` — it covers the resource format, the DialogTree format, quest
-   mechanics, adding NPCs, adding maps, and the specific bugs/gotchas already found the
-   hard way.
+1. Read [`.claude/skills/lionheart-modding/SKILL.md`](.claude/skills/lionheart-modding/SKILL.md)
+   — it covers the resource format, the DialogTree format, quest mechanics, adding NPCs,
+   adding maps, and the specific bugs/gotchas already found the hard way. For a weapon
+   specifically, [`adding-a-new-weapon`](.claude/skills/adding-a-new-weapon/SKILL.md) is a
+   complete worked recipe.
 2. Unpack, edit, repack (see above), testing in-game as you go.
 3. Once it works, package it: create `mods/<your-mod-id>/mod.json` (see an existing mod
    for the schema) and copy only the files you actually changed into
