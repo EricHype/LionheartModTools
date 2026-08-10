@@ -14,24 +14,23 @@ quest (the same chest `great-healing-potion` already extends for the healing pot
 - **Base item**: `Inventory Items/Scimitar`, chosen over Long/Short Sword because it's
   the vanilla weapon type that actually matches a curved blade.
 
-## The icon: from-scratch art attempted, fell back to a recolor
+## The icon: the first genuinely new art in this project
 
-The original plan was genuinely new art (`new_artwork/sword_render_03.png`, a real
-render, not a recolor of an existing icon's shape) via `mdl16_format.encode_icon_rle16`.
-This surfaced a real, previously-undocumented requirement -- every real `.mdl16` file
-carries an on-disk per-row table that our encoder never generated, whose *absence*
-crashes the game on opening inventory and whose *exact content* (never fully reverse
-engineered, despite extensive investigation -- see `docs/mdl16-icon-format.md`'s "The
-on-disk per-row table" section) governs whether the icon renders correctly. After
-confirming the crash fix, testing many table-construction hypotheses against all 264
-real icons in the game, and tracing real (if incomplete) rendering code via Ghidra, the
-from-scratch icon still never rendered correctly in-game.
+The icon is built from `new_artwork/sword_render_03.png` -- a real render, not a recolor
+of an existing icon's silhouette. It is a 23x112 tight crop of the blade, encoded with
+`mdl16_format.encode_icon_rle16()` and wrapped by `build_icon_file()` using
+`Deed Silver Mine.mdl16` (a vanilla buffer-1-only icon) as the object-graph envelope.
 
-**Shipped icon**: a crimson `recolor_icon_in_place()` recolor of the vanilla
-`Scimitar.mdl16` icon instead -- the same proven-safe technique used for every other
-item in this project. The weapon and its mechanic are completely unaffected by any of
-this; only the art fell back to the safe path. `new_artwork/sword_render_03.png` and the
-full investigation remain available for a future attempt.
+From-scratch art was blocked for a long time by the `.mdl16` per-row offset table. That
+is now solved -- the table is a literal byte index and rows are opcode-aligned; see
+`docs/mdl16-icon-format.md`, "The per-row offset table". Regenerating this icon:
+
+```
+python -c "import mdl16_format as M; ..."   # see that doc's "Building a new icon" section
+```
+
+Always run `mdl16_format.verify_icon()` on the result before deploying -- it re-parses
+the file with the engine's own algorithm and catches every failure mode found so far.
 
 ## Requires
 
@@ -45,7 +44,7 @@ added, so it needs to load after and win the "last mod wins" conflict).
    `great-healing-potion` is already installed/enabled)
 2. `python modmanager.py build <game-dir>`
 3. In-game: reach the Test Pocket, open Lucia's chest.
-4. Check: the chest gives a scimitar named "Bloodletter" alongside the necklace and
-   three potions, with a crimson-recolored curved-blade icon. Equip it and land a few
-   hits on an enemy to confirm the bleed effect procs (watch for repeated small damage
-   ticks after a hit).
+4. Check: the chest gives a scimitar displayed as "Scimitar of Bloodletting" alongside
+   the necklace and three potions, showing the custom blade icon (whole sword, centered,
+   not clipped). Equip it and land a few hits on an enemy to confirm the bleed effect
+   procs (watch for repeated small damage ticks after a hit).

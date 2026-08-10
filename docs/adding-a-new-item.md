@@ -3,10 +3,9 @@
 Same split as characters (see `docs/adding-a-new-character.md`): a **game-logic
 identity** (name, stats, on-use effect, value) and a **visual appearance** (world
 pickup model, inventory icon). This doc covers items specifically. The `.mdl16`
-2D-sprite icon codec is now decoded (see `mdl16_format.py`) — reusing an existing icon
-(Recipe A) is still the zero-effort path, but recoloring an existing icon for a genuine
-new-look variant is now also proven working (Recipe B); only authoring a wholly new
-icon *shape* remains unsolved.
+2D-sprite icon codec is fully decoded (see `mdl16_format.py`) — reusing an existing icon
+(Recipe A) is the zero-effort path, recoloring one is Recipe B, and authoring genuinely
+new icon art is Recipe C. All three are proven in-game.
 
 ## The two resource types, and which one you want
 
@@ -98,38 +97,38 @@ new_icon_bytes = m.recolor_icon_in_place(source, color_transform)
 
 This produces a same-shape, different-palette icon (confirmed rendering correctly
 in-game — a gold-recolored "Great Healing" variant of the "Extra Healing" flask). It
-cannot change the icon's silhouette or dimensions — for that, see the still-unsolved
-gap noted below.
+cannot change the icon's silhouette or dimensions — for that, see Recipe C.
 
-## Custom icon art — recoloring works, building new shapes doesn't (yet)
+## Recipe C — new item, genuinely new icon art
 
-Update: the `.mdl16`/`CStandAloneFrame` 2D sprite codec (also backs `.frm16` UI icon
-caches — same format) is now decoded, and one real write path is proven working
-in-game; see `mdl16_format.py` for both.
+For a silhouette that doesn't exist in the game yet. Confirmed in-game with
+`mods/bloodletter-scimitar/` (a sword icon built from a render).
 
-- **Recoloring an existing icon: proven, production-ready.**
-  `mdl16_format.recolor_icon_in_place()` walks a real icon's existing RLE opcode
-  stream and transforms only the stored color values (skip-runs untouched, repeat/
-  literal-run values passed through a caller-supplied `color_transform`), leaving
-  every run boundary and the file's overall length byte-identical to the source.
-  Confirmed correct rendering in-game (a gold-recolored "Great Healing" variant of the
-  real "Extra Healing" flask icon). Use this for any "same shape, new palette" item
-  variant — the common case for a reskinned potion/scroll/etc.
-- **Authoring a genuinely new icon shape (not just recolored): still unsolved.**
-  Two different "build an RLE stream from scratch" encoders
-  (`encode_icon_rle16`, `encode_icon_raw`) were built and both round-trip correctly
-  through this project's own decoder, but neither renders correctly in-game — every
-  attempt came out visually corrupted despite the opcode grammar itself being
-  independently confirmed correct (that's what proved `recolor_icon_in_place` safe).
-  Comparing a real file's opcode stream against `encode_icon_rle16`'s output for the
-  same image showed the real encoder uses roughly half as many opcodes, much longer
-  runs, and almost never uses the "repeat" opcode (1 use in a real 62-row icon vs. 114
-  from an eager from-scratch encoder) — some run-selection heuristic the real encoder
-  follows was never fully reverse engineered. Not a blocker for reskinning an existing
-  item (the common case); still a real gap for a wholly novel icon silhouette.
-- **A genuinely new world-pickup 3D/2D representation**, same status as new icon
-  shapes above (recoloring the existing one would work the same way; a new shape
-  wouldn't yet).
+```python
+import mdl16_format as m, zipfile
+
+with zipfile.ZipFile(r"<game-dir>\data.dat") as zf:
+    donor = zf.read("Cache/Models/Items/Inventory Images/Quest Items/-Deed Silver Mine.mdl16")
+
+# rows: `height` lists of `width` (r, g, b, a) tuples; a < 128 means transparent
+out = m.build_icon_file(donor, width, height, rows, hotspot_x=width//2, hotspot_y=height//2)
+m.verify_icon(out)      # ALWAYS, before deploying -- a malformed icon crashes the game
+```
+
+- Crop tight to the art's bounding box with a couple of pixels of margin. The slot
+  aspect-fits the icon, so a mostly-empty canvas just renders smaller.
+- Colors quantize to RGB565 (≤8/255 per-channel error).
+- The donor supplies the serialized object-graph envelope, which this module doesn't
+  synthesize. It must be a **buffer-1-only** vanilla icon (`Deed Silver Mine` or
+  `Lava Troll Hide` — the only two); `build_icon_file` enforces this. Its embedded
+  model-path string doesn't matter, the game resolves by filesystem path.
+
+This was blocked for a long time by the format's per-row offset table. It is solved —
+see `docs/mdl16-icon-format.md`, "The per-row offset table" — and `verify_icon()` checks
+every failure mode that showed up along the way.
+
+**A genuinely new world-pickup model** (`On the ground=`) is a different, 3D format and
+is not covered by any of this; reuse an existing one, or recolor it the same way.
 
 ## Testing gotchas
 

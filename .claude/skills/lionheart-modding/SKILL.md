@@ -18,6 +18,9 @@ intuitive and cost many test cycles to pin down.
 - `archive.py` — unpack/repack `data.dat`.
 - `modmanager.py` — package, install, and build mods as lightweight overlays (see
   "Packaging & distributing mods" below). Reuses `archive.py`'s unpack/repack directly.
+- `mdl16_format.py` — read, recolor, and author inventory icon art (`.mdl16`/`.frm16`).
+  See `docs/mdl16-icon-format.md`, and the `adding-a-new-weapon` skill for a worked
+  end-to-end example.
 - `examples/` — worked-example scratch files from building the Wolf Pelts for Quinn quest
   (not general-purpose, but useful as reference for the DialogTree splice pattern).
 
@@ -606,7 +609,8 @@ will not see it no matter how many times you rebuild `data.dat`.
   reachable through `WebSearch` result snippets, which is enough to extract real technical
   detail with enough targeted queries). It independently confirmed most of the `.mdl16`
   icon RLE reverse-engineering done via pure Ghidra analysis (see
-  `docs/mdl16-icon-format.md`), but was also wrong in one place for this project's
-  specific use case (a DWORD+LUT structure that turned out to describe a different FRM16
-  use case than item icons) — cross-check community docs against direct Ghidra/byte-level
-  evidence rather than trusting either alone.
+  `docs/mdl16-icon-format.md`). It also appeared to be wrong in one place — a DWORD+LUT
+  structure we measured as absent from item icons — but the wiki was right and our
+  measurement was the thing that was broken; that mistake cost a long investigation.
+  Cross-check both ways: when community docs and your own byte-level reading disagree,
+  suspect your reading too, not just theirs.

@@ -8,41 +8,26 @@ modding an item's icon. Distinct from .gr2/gr2_format.py -- this is the unrelate
 icon/sprite format used by inventory windows and world pickups, not 3D character
 models.
 
-What this module does, in order of how confident each piece is:
+What this module does:
   - decode_icon(): read any real game icon into plain RGBA pixels, for viewing/editing.
-    Fully proven -- cross-validated against multiple real files.
-  - recolor_icon_in_place(): PROVEN, PRODUCTION-READY. Recolors an existing real icon
-    by transforming its stored color values while leaving every opcode/run boundary
-    byte-identical to the original. Confirmed correct in-game. Use this for any "same
-    shape, different colors" icon (e.g. a reskinned item variant) -- see
-    docs/adding-a-new-item.md. The color_transform callback can optionally take a
-    second (pixel_index) argument to vary behavior by position -- needed for source
-    icons where buffers 4/5 render something derived from buffer 1's exact original
-    values at specific positions (see docs/mdl16-icon-format.md's "Buffers 4+5" section
-    for a real example: recoloring a sword icon's top rows broke rendering three
-    different ways depending on what those rows were changed TO, and the only fix was
-    leaving them byte-identical to the source while recoloring everything else).
-  - encode_icon_rle16() / encode_icon_raw(): build a brand-new icon from scratch (new
-    shape/dimensions, not just recolored). NEITHER IS PROVEN WORKING IN-GAME. Both
-    produce structurally valid files (round-trip correctly through this module's own
-    decoder, and encode_icon_raw is at least accepted by the format's GetPixel/hit-test
-    dispatch), but real in-game rendering came out corrupted every time despite
-    extensive iteration -- the real encoder is applying some run-selection heuristic
-    (which opcode to pick, how long to make each run, whether runs cross row
-    boundaries) that was never fully reverse engineered; see encode_icon_rle16's
-    docstring for the specific comparison that pinned this down. Treat these as
-    experimental starting points for future work, not something to ship from.
+  - recolor_icon_in_place(): recolor an existing real icon by transforming its stored
+    color values while leaving every opcode/run boundary byte-identical to the original.
+    Confirmed correct in-game. Use this for any "same shape, different colors" icon --
+    see docs/adding-a-new-item.md. The color_transform callback can optionally take a
+    second (pixel_index) argument to vary behavior by position.
+  - encode_icon_rle16() + build_icon_file(): author a brand-new icon (new shape and
+    dimensions, not just recolored), and verify_icon() to check it before deploying.
+  - encode_icon_raw(): the uncompressed mode. CONFIRMED TO CRASH THE GAME; no shipped
+    asset uses it. Reference only.
 
-    A SEPARATE, LARGER blocker was found investigating this further (the Bloodletter
-    mod attempt): every real icon carries an on-disk per-row table appended after
-    buffer 1, which this module does not generate. Its absence crashes the game on
-    opening inventory; its exact content (never fully reverse engineered despite an
-    extensive investigation -- statistical analysis against all 264 real icons in the
-    game, and a partial Ghidra trace of the real scale-to-fit render pipeline) governs
-    whether the icon actually renders correctly. See docs/mdl16-icon-format.md's "The
-    on-disk per-row table" section for the full writeup, including which formulas were
-    tried, why the investigation concluded the remaining gap is an unlocated consuming
-    function rather than a further-refinable formula, and where to resume.
+THE THING THAT USED TO BREAK FROM-SCRATCH ICONS, and the one rule to not get wrong:
+every buffer carries an on-disk table of `height` u32 row offsets, and the engine
+decodes each row by seeking to table[y] and resetting its x-counter to zero. So rows are
+strictly opcode-aligned (no run may cross a row boundary) and table[y] must be
+byte-exact. Earlier versions of this module encoded one continuous stream and tried to
+reconstruct the offsets afterwards, which is why every from-scratch icon rendered
+correctly for a few rows and then fell apart. See docs/mdl16-icon-format.md, "The
+per-row offset table".
 
 File layout, byte offsets relative to the leading magic byte '2' (0x32) -- this magic
 byte sits embedded inside a larger serialized object graph (Lionheart's generic
@@ -62,13 +47,14 @@ reflection/cache format), not necessarily at file offset 0:
     16..35 five buffer sizes, u32 LE each (buffers 1-5). Only buffer 1 (main color)
            and, for the RLE-16bpp mode, buffers 4+5 (a highlight/overlay plane) are
            populated by real assets; buffers 2/3 are unused in every sample seen.
-    36..   buffer 1's raw bytes (size = first u32 above), followed immediately by any
-           other populated buffers in order (2, 3, 4, 5)
+    36..   for each populated buffer, in order: a u32 holding that buffer's own declared
+           size (counted inside it), then each row's opcodes, then -- outside the
+           declared size -- a u32 table[height] of row offsets from the buffer's start.
+           Then 8 zero bytes at EOF.
 
-Buffer 1 pixel encoding for RLE-16bpp mode (flags & 6 == 4), decoded as one continuous
-opcode stream covering exactly width*height pixels in row-major order (NOT restarted
-per row -- the per-row byte table the loader builds is for the game's own random-access
-GetPixel/hit-test path, not needed for a full sequential decode):
+Buffer 1 pixel encoding for RLE-16bpp mode (flags & 6 == 4). Each row is decoded
+independently, starting at table[y] and covering exactly `width` pixels; no run crosses
+a row boundary:
     ctrl byte with bit 7 set   : skip run,    (ctrl & 0x7f) pixels of value 0 (empty)
     ctrl byte with bit 6 clear : short run,   (ctrl & 0x3f) pixels of ONE repeated u16
                                  value (2 more bytes follow the control byte)
@@ -119,14 +105,42 @@ def find_header(data: bytes) -> IconHeader | None:
 
 
 def _rgb565_to_rgb888(v: int) -> tuple[int, int, int]:
+    # Bit replication, so that _rgb888_to_rgb565 is an exact inverse. (An earlier
+    # `c * 255 // max` form was NOT invertible -- e.g. r5=1 -> 8 -> back to 0 -- which
+    # silently shifted colors on every decode/re-encode round-trip.)
     r5 = (v >> 11) & 0x1F
     g6 = (v >> 5) & 0x3F
     b5 = v & 0x1F
-    return (r5 * 255 // 31, g6 * 255 // 63, b5 * 255 // 31)
+    return ((r5 << 3) | (r5 >> 2), (g6 << 2) | (g6 >> 4), (b5 << 3) | (b5 >> 2))
 
 
-def _decode_rle16_plane(buf: bytes, total_pixels: int) -> list[int]:
-    """Decode a continuous RLE-16bpp opcode stream into `total_pixels` u16 values.
+def read_row_table(data: bytes, header: IconHeader, buffer_index: int = 0) -> list[int]:
+    """Read a buffer's on-disk per-row offset table: `height` u32 values sitting
+    immediately after that buffer's declared bytes.
+
+    `table[y]` is the byte offset, relative to the START of the buffer (not the file), of
+    row y's first opcode. `table[0]` is always 4, because every buffer begins with a
+    4-byte u32 holding its own declared size before row 0's opcodes start.
+
+    This is exactly the array the game loads into the object and that GetColorAt
+    (FUN_0055ec80) indexes per row -- see decode_plane_rows.
+    """
+    off = header.data_offset + sum(header.buffer_sizes[:buffer_index + 1])
+    end = off + header.height * 4
+    if end > len(data):
+        raise ValueError(f"row table for buffer {buffer_index + 1} runs past end of file")
+    return list(struct.unpack_from(f"<{header.height}I", data, off))
+
+
+def decode_row(buf: bytes, start: int, width: int) -> tuple[list[int], int]:
+    """Decode exactly `width` pixels of one row, starting at byte `start` of `buf`.
+
+    Returns (u16 RGB565 values, bytes consumed). Mirrors GetColorAt's RLE-16bpp loop
+    (FUN_0055ec80 at 0x0055ec80) exactly: it seeks to rowtable[y], resets its x-counter
+    to 0, and walks opcodes until x reaches the image width. Rows are therefore strictly
+    opcode-aligned -- no run may cross a row boundary. Verified against all 264 vanilla
+    inventory icons: every row decodes to exactly `width` pixels and consumes exactly
+    `table[y+1] - table[y]` bytes.
 
     Opcode grammar (confirmed against Lionheart's own disassembly AND independently
     against the community-documented FRM16 format at lionheart.eowyn.cz -- both agree):
@@ -135,8 +149,10 @@ def _decode_rle16_plane(buf: bytes, total_pixels: int) -> list[int]:
       bit7=0, bit6=0  : repeat-run,  bits0-5 = repetitions of the ONE 16bpp pixel following
     """
     out: list[int] = []
-    i = 0
-    while len(out) < total_pixels and i < len(buf):
+    i = start
+    while len(out) < width:
+        if i >= len(buf):
+            raise ValueError(f"row starting at {start} ran off the end of the buffer")
         ctrl = buf[i]
         if ctrl & 0x80:
             count = ctrl & 0x7F
@@ -145,20 +161,25 @@ def _decode_rle16_plane(buf: bytes, total_pixels: int) -> list[int]:
         elif (ctrl & 0x40) == 0:
             count = ctrl & 0x3F
             if count == 0:
-                break
-            val = struct.unpack_from("<H", buf, i + 1)[0]
-            out.extend([val] * count)
+                raise ValueError(f"zero-length repeat-run at byte {i}")
+            out.extend([struct.unpack_from("<H", buf, i + 1)[0]] * count)
             i += 3
         else:
             count = ctrl & 0x3F
             if count == 0:
-                break
-            vals = struct.unpack_from(f"<{count}H", buf, i + 1)
-            out.extend(vals)
+                raise ValueError(f"zero-length literal-run at byte {i}")
+            out.extend(struct.unpack_from(f"<{count}H", buf, i + 1))
             i += 1 + count * 2
-    out = out[:total_pixels]
-    out.extend([0] * (total_pixels - len(out)))
-    return out
+    if len(out) != width:
+        raise ValueError(f"row starting at {start} overran the row: {len(out)} > {width} px")
+    return out, i - start
+
+
+def decode_plane_rows(buf: bytes, table: list[int], width: int, height: int) -> list[list[int]]:
+    """Decode a whole plane row-by-row via its on-disk offset table, the way the engine
+    does. Returns `height` lists of `width` u16 RGB565 values.
+    """
+    return [decode_row(buf, table[y], width)[0] for y in range(height)]
 
 
 def decode_icon(data: bytes, header: IconHeader | None = None) -> dict:
@@ -178,16 +199,17 @@ def decode_icon(data: bytes, header: IconHeader | None = None) -> dict:
     w, h = header.width, header.height
     buf1_size = header.buffer_sizes[0]
     buf1 = data[header.data_offset: header.data_offset + buf1_size]
-    # Continuous decode from byte 0 -- no leading DWORD, no trailing lookup table (a
-    # community-documented FRM16 structure with both was tried; empirically checking a
-    # real item icon's own bytes showed it doesn't apply here, and our own writer
-    # doesn't emit either). Decode just stops once w*h pixels are produced.
-    values = _decode_rle16_plane(buf1, w * h)
+    # Decode row-by-row from the on-disk offset table, exactly as the engine does. An
+    # earlier version decoded continuously from byte 0, which misparsed the 4-byte size
+    # prefix at the head of the buffer as opcodes -- that produced a wrong result on
+    # 264/264 real icons (subtly enough to pass visual inspection, but it is what
+    # manufactured the phantom "chaotic band" in the ShortSword icons' top rows).
+    values = decode_plane_rows(buf1, read_row_table(data, header), w, h)
     rows = []
     for y in range(h):
         row = []
         for x in range(w):
-            v = values[y * w + x]
+            v = values[y][x]
             if v == 0:
                 row.append((0, 0, 0, 0))
             else:
@@ -202,7 +224,7 @@ def decode_icon(data: bytes, header: IconHeader | None = None) -> dict:
 
 
 def _rgb888_to_rgb565(r: int, g: int, b: int) -> int:
-    return ((r * 31 // 255) << 11) | ((g * 63 // 255) << 5) | (b * 31 // 255)
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
 
 def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | None = None) -> bytes:
@@ -213,33 +235,16 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     file length are left byte-for-byte identical to the input -- only the 2-byte color
     values change.
 
-    THIS IS THE PROVEN, PRODUCTION-READY WAY TO RECOLOR AN ICON. A general "build a
-    valid RLE stream from an arbitrary new image" encoder (see encode_icon_rle16) was
-    attempted extensively and never got a clean render in-game, despite the opcode
-    grammar itself being independently confirmed correct (by this exact function).
-    Comparing a real file's opcode stream against encode_icon_rle16's output for the
-    same image showed the real encoder uses ~half as many, much longer runs (e.g. one
-    62-row icon: 187 real opcodes vs. 343 from encode_icon_rle16, with repeat-run used
-    once in the real file vs. 114 times from an eager from-scratch encoder) -- the real
-    encoder is applying some run-selection heuristic that was never fully reverse
-    engineered. Recoloring in place sidesteps needing to know it: reuse the original,
-    already-correct structure, and only touch the color data.
+    This is the cheapest way to give an item distinct art when the existing silhouette
+    is already right: reuse the original file's structure, touch only the color data, so
+    nothing about row alignment or the offset table can go wrong. To author a NEW shape
+    or new dimensions, use encode_icon_rle16() + build_icon_file() instead.
 
-    Only operates on buffer 1. Decompiling the real per-pixel color getter
-    (FUN_0055ec80 in Lionheart.exe, see docs/mdl16-icon-format.md) confirmed buffer 4 is
-    logically a second color plane with buffer 5 as its parallel alpha mask, shown only
-    where buffer 1 decodes to 0 -- but buffer 4's ON-DISK bytes do NOT decode as a plain
-    continuous RLE16 stream the way buffer 1's do (tried on ShortSwordSpecial.mdl16: the
-    walk terminates almost immediately, and the same raw bytes look suspiciously like a
-    clean array of ascending u32 offsets rather than opcode data). The loader likely
-    builds buffer 4's row-lookup table by parsing its bytes differently than buffer 1's
-    -- never resolved. Recoloring buffer 4 is NOT implemented; leaving it untouched
-    (its original colors, wherever it's actually visible) is the current safe behavior.
-
-    Limitation: this can only recolor an EXISTING icon (same silhouette/shape as the
-    source), not author new shapes or dimensions. For this project's purposes (e.g. a
-    reskinned "Great Healing" variant of the existing "Extra Healing" flask), that's
-    exactly what's needed.
+    Only operates on buffer 1. Buffer 4 (a second color plane, with buffer 5 as its
+    parallel alpha mask, consulted only where buffer 1 decodes to 0 -- see
+    docs/mdl16-icon-format.md) is left untouched. Its on-disk layout is now understood
+    and mirrors buffer 1's, so extending this to buffer 4 would be mechanical, but no
+    icon this project has recolored has needed it.
     """
     header = header or find_header(data)
     if header is None:
@@ -251,46 +256,44 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     buf1_off = header.data_offset
     buf1 = bytearray(data[buf1_off: buf1_off + header.buffer_sizes[0]])
 
-    # pixel_index is passed to color_transform as a second, OPTIONAL argument (tried
-    # first, falling back to the single-argument form) so a caller can key off position
-    # -- e.g. some real icons carry a small band of leftover/unrelated pixel data in
-    # buffer 1 that's disconnected from the actual silhouette (confirmed present in all
-    # three ShortSword tiers' opening rows: full-width, oddly multicolored, separated
-    # from the blade shape by a gap of fully transparent rows). It's invisible in the
-    # source palette but reads as a glaring artifact once forced to a new hue, so a
-    # position-aware transform can pass those pixels through unchanged.
+    # pixel_index (y*width + x) is passed to color_transform as a second, OPTIONAL
+    # argument (tried first, falling back to the single-argument form) so a caller can
+    # vary the recolor by position -- a gradient, or repainting only part of the
+    # silhouette. It used to also be needed to work around the ShortSword "artifact
+    # rows"; that was this function corrupting the buffer's size prefix, and is fixed.
     import inspect
     _wants_index = len(inspect.signature(color_transform).parameters) >= 2
 
     def _apply(v, idx):
         return color_transform(v, idx) if _wants_index else color_transform(v)
 
-    i = 0
-    n = len(buf1)
-    pixel_index = 0
-    while i < n:
-        ctrl = buf1[i]
-        if ctrl & 0x80:
-            pixel_index += ctrl & 0x7F
-            i += 1
-        elif (ctrl & 0x40) == 0:
-            count = ctrl & 0x3F
-            if count == 0:
-                break
-            v = struct.unpack_from("<H", buf1, i + 1)[0]
-            struct.pack_into("<H", buf1, i + 1, _apply(v, pixel_index))
-            pixel_index += count
-            i += 3
-        else:
-            count = ctrl & 0x3F
-            if count == 0:
-                break
-            for k in range(count):
-                off = i + 1 + k * 2
-                v = struct.unpack_from("<H", buf1, off)[0]
-                struct.pack_into("<H", buf1, off, _apply(v, pixel_index + k))
-            pixel_index += count
-            i += 1 + count * 2
+    # Walk each row from its own table offset rather than continuously from byte 0. That
+    # makes it structurally impossible to touch the 4-byte size prefix or to drift out of
+    # opcode phase -- both of which the old continuous walker did on every real file.
+    table = read_row_table(data, header)
+    width = header.width
+    for y in range(header.height):
+        i = table[y]
+        x = 0
+        while x < width:
+            ctrl = buf1[i]
+            if ctrl & 0x80:
+                x += ctrl & 0x7F
+                i += 1
+            elif (ctrl & 0x40) == 0:
+                count = ctrl & 0x3F
+                v = struct.unpack_from("<H", buf1, i + 1)[0]
+                struct.pack_into("<H", buf1, i + 1, _apply(v, y * width + x))
+                x += count
+                i += 3
+            else:
+                count = ctrl & 0x3F
+                for k in range(count):
+                    off = i + 1 + k * 2
+                    v = struct.unpack_from("<H", buf1, off)[0]
+                    struct.pack_into("<H", buf1, off, _apply(v, y * width + x + k))
+                x += count
+                i += 1 + count * 2
 
     out = bytearray(data)
     out[buf1_off: buf1_off + header.buffer_sizes[0]] = buf1
@@ -332,28 +335,22 @@ def encode_icon_raw(width: int, height: int, rows: list[list[tuple[int, int, int
     return header + bytes(pixels)
 
 
-def _encode_rle16_plane(values: list[int]) -> bytes:
-    """Inverse of _decode_rle16_plane -- encodes a flat list of u16 RGB565 values (0 =
-    transparent) into a continuous RLE-16bpp opcode stream, using all three opcode
-    types. Confirmed correct at the opcode level by a much stronger test than any
-    round-trip: editing ONLY the 2-byte color values inside a real shipped icon's
-    EXISTING literal-run opcodes, leaving every control byte and run boundary
-    byte-identical to the original, rendered perfectly in-game. That isolates the bug
-    that plagued earlier attempts to the STRUCTURE this function chooses when building
-    a stream from scratch (particularly forcing every row to start a fresh opcode,
-    which the real encoder evidently doesn't do -- the untouched original has runs
-    crossing row boundaries freely and works fine), not to opcode semantics.
+def _encode_rle16_row(values: list[int]) -> bytes:
+    """Encode ONE row of u16 RGB565 values (0 = transparent) into an RLE-16bpp opcode
+    stream covering exactly `len(values)` pixels.
+
+    Rows are encoded independently and no run crosses a row boundary -- that is a hard
+    requirement of the format, not a stylistic choice: the engine seeks to rowtable[y]
+    and decodes each row from a reset x-counter (see decode_row). Getting this wrong is
+    what broke every previous from-scratch icon attempt.
     """
     # Repeat-run threshold: a real reference file (Potion Extra Healing, 41x62) uses
     # repeat-run exactly ONCE in its entire 187-opcode stream (length 11), while
     # literal-run is used 62 times (avg length 23.1) -- the real encoder overwhelmingly
     # prefers long literal-runs and treats repeat-run as an edge case for unusually long
-    # flat color fields, not a general-purpose tool for any 2+ repeated pixels. An
-    # earlier version of this function used repeat-run for any run >=2, producing 114
-    # repeat-runs vs. the real file's 1 -- confirmed via direct comparison to be far more
-    # fragmented than real files. Requiring a much longer run before preferring
-    # repeat-run over folding the pixels into the surrounding literal-run matches the
-    # real statistics far more closely (see docs/mdl16-icon-format.md).
+    # flat color fields. Matching that keeps our output shaped like real files. It is
+    # only cosmetic now: with per-row addressing the engine cannot care which opcode mix
+    # a row uses, as long as the row's pixel count and byte length are exact.
     REPEAT_THRESHOLD = 12
 
     out = bytearray()
@@ -394,30 +391,41 @@ def _encode_rle16_plane(values: list[int]) -> bytes:
 
 def encode_icon_rle16(width: int, height: int, rows: list[list[tuple[int, int, int, int]]],
                        hotspot_x: int = 0, hotspot_y: int = 0) -> bytes:
-    """Build a standalone .mdl16-style buffer for a new icon using the format's real
-    RLE-16bpp mode (flags & 6 == 4, bpp bits = 0x40) -- the mode every actual shipped
-    icon uses. Encodes buffer 1 only (the main color plane); buffers 2-5 are left empty
-    (size 0), matching a plain fully-opaque-or-transparent icon with no secondary
-    highlight/alpha overlay.
+    """Build the 36-byte header + buffer 1 + its row table for a new icon, using the
+    format's real RLE-16bpp mode (flags & 6 == 4, bpp bits = 0x40) -- the mode every
+    actual shipped icon uses. Encodes buffer 1 only (the main color plane); buffers 2-5
+    are left empty, matching the two vanilla icons that ship that way (Deed Silver Mine,
+    Lava Troll Hide) -- no secondary highlight/alpha overlay.
 
-    Buffer 1 layout: pure continuous RLE pixel data across the WHOLE image (width*height
-    pixels), with NO artificial row-boundary constraint -- a run is free to cross from
-    the end of one row into the start of the next, exactly like the real, already-
-    shipped icon this was validated against (see _encode_rle16_plane's docstring for
-    the in-place-edit test that proved this). No leading size DWORD, no trailing
-    lookup table (both tried, based on community FRM16 documentation that turned out to
-    describe a different use case than item icons; neither helped).
+    Buffer 1 layout, matching all 264 vanilla icons exactly:
+        u32   buffer 1's own declared size (counted inside that size)
+        rows  each row's opcodes, exactly `width` pixels, no run crossing a row boundary
+    followed immediately (outside the declared size) by:
+        u32   table[height], table[y] = byte offset of row y's opcodes from buffer start
 
-    Produces just the 36-byte header + buffer1 payload, same caveats as
-    encode_icon_raw() re: not being a full standalone cache-file object graph -- splice
-    this over the pixel section of a copy of a real .mdl16/.frm16 file.
+    Use build_icon_file() to wrap this into a complete, loadable file.
     """
-    values = []
+    if len(rows) != height or any(len(r) != width for r in rows):
+        raise ValueError(f"rows must be {height} lists of {width} pixels")
+
+    row_blobs = []
     for y in range(height):
-        for x in range(width):
-            r, g, b, a = rows[y][x]
-            values.append(_rgb888_to_rgb565(r, g, b) if a >= 128 else 0)
-    buf1 = _encode_rle16_plane(values)
+        values = []
+        for r, g, b, a in rows[y]:
+            v = _rgb888_to_rgb565(r, g, b) if a >= 128 else 0
+            # 0 is the format's "transparent" sentinel, so nudge a legitimately opaque
+            # near-black pixel off it rather than punching a hole in the art.
+            if v == 0 and a >= 128:
+                v = 1
+            values.append(v)
+        row_blobs.append(_encode_rle16_row(values))
+
+    table = []
+    off = 4  # row 0 starts just past buffer 1's own size u32
+    for blob in row_blobs:
+        table.append(off)
+        off += len(blob)
+    buf1 = struct.pack("<I", off) + b"".join(row_blobs)
 
     flags = 4 | 0x40  # mode 4 (RLE) | bpp 0x40 (16bpp)
     sizes = (len(buf1), 0, 0, 0, 0)
@@ -425,4 +433,80 @@ def encode_icon_rle16(width: int, height: int, rows: list[list[tuple[int, int, i
         "<BBhhHHHI5I",
         MAGIC, 0x10, hotspot_x, hotspot_y, width, height, 0, flags, *sizes,
     )
-    return header + buf1
+    return header + buf1 + struct.pack(f"<{height}I", *table)
+
+
+def build_icon_file(donor: bytes, width: int, height: int,
+                    rows: list[list[tuple[int, int, int, int]]],
+                    hotspot_x: int = 0, hotspot_y: int = 0) -> bytes:
+    """Assemble a complete, loadable .mdl16 file for brand-new art.
+
+    The pixel data sits inside a larger serialized object-graph envelope (Lionheart's
+    generic reflection/cache format) that this module does not synthesize, so a real
+    file is used as the envelope: everything before its magic byte is kept verbatim,
+    everything from the magic byte on is replaced. The 8 zero bytes every real icon ends
+    with are preserved. The donor's embedded model-path string is left as-is -- proven
+    harmless, since the game locates the file by its filesystem path (every icon this
+    project has shipped is a copied envelope).
+
+    Pass a donor that ships with buffer 1 ONLY -- `Deed Silver Mine.mdl16` or
+    `Lava Troll Hide.mdl16` -- so the envelope isn't describing buffers 4/5 that the new
+    file won't have.
+    """
+    dh = find_header(donor)
+    if dh is None:
+        raise ValueError("donor has no CStandAloneFrame header")
+    if dh.buffer_sizes[1:] != (0, 0, 0, 0):
+        raise ValueError(
+            "donor must be a buffer-1-only icon (try 'Deed Silver Mine.mdl16'); "
+            f"got buffer sizes {dh.buffer_sizes}"
+        )
+    body = encode_icon_rle16(width, height, rows, hotspot_x, hotspot_y)
+    return donor[:dh.offset] + body + b"\x00" * 8
+
+
+def verify_icon(data: bytes) -> dict:
+    """Re-parse a .mdl16 file the way the engine does and assert it is well-formed.
+
+    Raises ValueError on anything the engine would choke on; otherwise returns the
+    decoded pixel rows plus some stats. Run this on any generated icon BEFORE deploying
+    -- in-game verification is slow, and every failure mode found so far shows up here.
+    """
+    header = find_header(data)
+    if header is None:
+        raise ValueError("no CStandAloneFrame header found")
+    if header.flags & 6 != 4:
+        raise ValueError(f"not RLE-16bpp: flags={header.flags:#x}")
+    w, h = header.width, header.height
+    buf1_size = header.buffer_sizes[0]
+    buf1 = data[header.data_offset: header.data_offset + buf1_size]
+
+    declared = struct.unpack_from("<I", buf1, 0)[0]
+    if declared != buf1_size:
+        raise ValueError(f"buffer 1 size prefix {declared} != declared size {buf1_size}")
+
+    table = read_row_table(data, header)
+    if table[0] != 4:
+        raise ValueError(f"table[0] must be 4 (past the size prefix), got {table[0]}")
+
+    values = []
+    for y in range(h):
+        row, used = decode_row(buf1, table[y], w)
+        expected_end = table[y + 1] if y + 1 < h else buf1_size
+        if table[y] + used != expected_end:
+            raise ValueError(
+                f"row {y} consumed {used} bytes ending at {table[y] + used}, "
+                f"but the next row starts at {expected_end}"
+            )
+        values.append(row)
+
+    populated = sum(1 for s in header.buffer_sizes if s)
+    expected_len = header.data_offset + sum(header.buffer_sizes) + populated * h * 4 + 8
+    if expected_len != len(data):
+        raise ValueError(f"file size {len(data)} != expected {expected_len}")
+
+    return {
+        "width": w, "height": h, "rows": values,
+        "buf1_size": buf1_size,
+        "opaque_pixels": sum(1 for r in values for v in r if v),
+    }

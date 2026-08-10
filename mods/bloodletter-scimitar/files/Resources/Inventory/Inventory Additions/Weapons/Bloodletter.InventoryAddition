@@ -100,7 +100,7 @@ CInventoryAddition
 	{
 		Item Count=0
 	}
-	Display Name=Bloodletter
+	Display Name=Bloodletting
 	Description=This curved blade is honed to open wounds that won't close -- successful strikes have a %i[chancetobleed]% chance to cause the target to bleed for %i[min] - %i[max] Slashing damage every 5 seconds for 15 seconds.
 	Item Grade=Special
 	Inventory Window=Items/Inventory Images/Weapons/Bloodletter
