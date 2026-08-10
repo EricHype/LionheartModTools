@@ -418,6 +418,10 @@ appending blocks, with no count to keep in sync.
   `MinDistBetweenWayPoints=20` / `MaxDistToConnect=39`, so waypoints are generated at
   load. Nothing to bake. `CWayPointsPolygon` appears 1-7 times per map as a supplementary
   hint and is not required.
+- **Enemy pathfinding around hand-placed obstacles works, confirmed in-game.** A hostile
+  NPC routed correctly around props added to a hand-authored map with no nav data of any
+  kind authored for them. Placing a `Collideable=1` entity is genuinely all there is to
+  it — you do not need to add waypoints, polygons, or anything else alongside it.
 
 ### Environment models are sprites, and the letter suffix is the rotation
 
