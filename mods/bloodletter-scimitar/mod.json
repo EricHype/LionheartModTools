@@ -1,0 +1,13 @@
+{
+  "mod_format_version": 1,
+  "id": "bloodletter-scimitar",
+  "name": "Bloodletter",
+  "version": "0.2.0",
+  "author": "vkays",
+  "description": "Adds a unique scimitar, Bloodletter, found in Lucia's chest during the Test Pocket quest. On a successful hit, has a 30% chance to inflict a bleeding wound (2-4 Slashing damage every 5 seconds for 15 seconds). Ships a crimson recolor_icon_in_place recolor of the vanilla Scimitar icon -- a from-scratch custom render was attempted first and surfaced real new findings about the mdl16 format (see docs/mdl16-icon-format.md) but never rendered correctly in-game, so the art fell back to the proven-safe recolor technique.",
+  "files": [
+    "Resources/Inventory/Inventory Additions/Weapons/Bloodletter.InventoryAddition",
+    "Levels/1 Barcelona/Test Pocket.zax",
+    "Cache/Models/Items/Inventory Images/Weapons/Bloodletter.mdl16"
+  ]
+}

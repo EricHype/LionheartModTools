@@ -33,6 +33,17 @@ What this module does, in order of how confident each piece is:
     docstring for the specific comparison that pinned this down. Treat these as
     experimental starting points for future work, not something to ship from.
 
+    A SEPARATE, LARGER blocker was found investigating this further (the Bloodletter
+    mod attempt): every real icon carries an on-disk per-row table appended after
+    buffer 1, which this module does not generate. Its absence crashes the game on
+    opening inventory; its exact content (never fully reverse engineered despite an
+    extensive investigation -- statistical analysis against all 264 real icons in the
+    game, and a partial Ghidra trace of the real scale-to-fit render pipeline) governs
+    whether the icon actually renders correctly. See docs/mdl16-icon-format.md's "The
+    on-disk per-row table" section for the full writeup, including which formulas were
+    tried, why the investigation concluded the remaining gap is an unlocated consuming
+    function rather than a further-refinable formula, and where to resume.
+
 File layout, byte offsets relative to the leading magic byte '2' (0x32) -- this magic
 byte sits embedded inside a larger serialized object graph (Lionheart's generic
 reflection/cache format), not necessarily at file offset 0:
@@ -333,6 +344,18 @@ def _encode_rle16_plane(values: list[int]) -> bytes:
     which the real encoder evidently doesn't do -- the untouched original has runs
     crossing row boundaries freely and works fine), not to opcode semantics.
     """
+    # Repeat-run threshold: a real reference file (Potion Extra Healing, 41x62) uses
+    # repeat-run exactly ONCE in its entire 187-opcode stream (length 11), while
+    # literal-run is used 62 times (avg length 23.1) -- the real encoder overwhelmingly
+    # prefers long literal-runs and treats repeat-run as an edge case for unusually long
+    # flat color fields, not a general-purpose tool for any 2+ repeated pixels. An
+    # earlier version of this function used repeat-run for any run >=2, producing 114
+    # repeat-runs vs. the real file's 1 -- confirmed via direct comparison to be far more
+    # fragmented than real files. Requiring a much longer run before preferring
+    # repeat-run over folding the pixels into the surrounding literal-run matches the
+    # real statistics far more closely (see docs/mdl16-icon-format.md).
+    REPEAT_THRESHOLD = 12
+
     out = bytearray()
     i = 0
     n = len(values)
@@ -347,7 +370,7 @@ def _encode_rle16_plane(values: list[int]) -> bytes:
         run_end = i + 1
         while run_end < n and values[run_end] == values[i] and (run_end - i) < 63:
             run_end += 1
-        if run_end - i >= 2:
+        if run_end - i >= REPEAT_THRESHOLD:
             out.append(run_end - i)  # bits 6,7 clear -> repeat-run
             out += struct.pack("<H", values[i])
             i = run_end
@@ -358,7 +381,7 @@ def _encode_rle16_plane(values: list[int]) -> bytes:
                 k = j
                 while k < n and values[k] == values[j] and (k - j) < 63:
                     k += 1
-                if k - j >= 2:
+                if k - j >= REPEAT_THRESHOLD:
                     break
             j += 1
         count = j - i

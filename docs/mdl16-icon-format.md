@@ -107,6 +107,17 @@ directly-walkable opcode stream, with the real per-pixel data organized differen
 does not attempt to recolor buffer 4 (see `recolor_icon_in_place`'s docstring) --
 its original colors are left as-is wherever it's actually visible.
 
+**UPDATE (Bloodletter investigation, see "The on-disk per-row table" section far below):**
+that "clean ascending sequence" IS a per-row offset table -- but it's **buffer 1's own**
+trailing table, not buffer 4 at all. Every real icon has one of these appended
+immediately after buffer 1's declared bytes, before buffer 4 (or EOF, if there's no
+buffer 4) starts. This means the "buffer 4" bytes inspected above were almost certainly
+this table, and real buffer 4 -- if `ShortSwordSpecial` has any -- starts *further out*
+than `buf1_end`, offset by this table's size. The "buffers 4/5 empirically confirmed
+INACTIVE" conclusion two sections below was reached using this same wrong offset and
+should be treated as **unconfirmed, not settled** -- it was never re-tested with the
+corrected buffer 4 position. Re-verifying is a reasonable place to pick this up.
+
 ### Buffers 4/5 empirically confirmed INACTIVE for `ShortSwordSpecial.mdl16` -- the real artifact cause is still unknown
 
 Found while recoloring `ShortSwordSpecial.mdl16` (source icon for the `ratsbane-sword`
@@ -179,11 +190,24 @@ quantizes to exactly 0 to the nearest nonzero value.
 
 Runs are **not** bounded by row width and are **not** padded to any fixed per-row byte
 budget -- a single skip-run in a real file was seen spanning 111 pixels (2.7 rows) in
-one continuous opcode. The loader does build an in-memory `table[row] = row*width`
-array (`FUN_0055d0a0`), which looked at first like a per-row byte-offset table for
-random access, but re-decoding a real file using that formula as a row-start byte
-offset produced garbage -- that table is either used for something other than general
-rendering, or not used by the main render path at all. Don't rely on it.
+one continuous opcode.
+
+**Two different "row tables" exist and must not be confused** (fully sorted out during
+the Bloodletter investigation, see that section below for the full story):
+
+1. An **in-memory** `table[row] = row*width` array, freshly computed at load time by
+   `FUN_0055d0a0` and stored at object offset `0x18`. This is what `GetColorAt`
+   (`0x0055ec80`) actually reads (confirmed: its row-table getter at vtable offset
+   `0xd4` is a one-line function that just returns this field). It's a *naive* formula
+   -- `row*width` as a byte offset only lines up with a real RLE row's true start by
+   coincidence -- confirmed still wrong when tested against real files. This is what
+   the original note below ("re-decoding using that formula produced garbage") was
+   about, and that finding still stands: don't try to use `row*width` as a real byte
+   offset for anything.
+2. An **on-disk** per-row table, physically present in every real `.mdl16` file,
+   appended immediately after buffer 1's declared bytes. This is a completely different
+   structure from #1, is NOT what `GetColorAt` reads, and its consumer was never
+   located. See "The on-disk per-row table" section below.
 
 ## Where the two sources (Ghidra vs. community wiki) disagreed
 
@@ -201,6 +225,145 @@ LUT were implemented at various points during this investigation and neither imp
 actively make things worse by inflating buffer 1's declared length). **Item icons: no
 DWORD, no LUT needed** -- pure continuous RLE data is sufficient, matching what
 `recolor_icon_in_place` and `decode_icon` both assume.
+
+## The on-disk per-row table (blocks from-scratch icons; extensively investigated, not solved)
+
+Found while building `Bloodletter.mdl16`, a genuinely new (not recolored) icon for the
+`bloodletter-scimitar` mod. Every real `.mdl16` file has a table of `u32` values
+appended immediately after buffer 1's *declared* bytes (before buffer 4, if any, or EOF
+otherwise) that `encode_icon_rle16()` never generated. **Omitting it causes a hard crash
+on opening the inventory screen** -- confirmed directly: a from-scratch icon with no
+trailing table crashed the game; adding any plausible-shaped table (even an
+approximately-right one) fixed the crash. Its *presence and size* matter for avoiding
+the crash; its *exact content* separately matters for correct rendering (see below).
+
+### What's confirmed about its structure
+
+- **Size: exactly `height` `u32` entries** (not `height+2` -- an early, wrong assumption
+  based on where the values *stopped looking sensible*, which turned out to be reading
+  into the start of the next buffer's real data, not padding).
+- **Entry 0 is always the constant `4`**, completely independent of image content --
+  confirmed across every file checked. Not a real per-row value; almost certainly a
+  format marker/header of some kind.
+- **Confirmed via `Lionheart.exe` decompilation that this table can be read directly
+  from disk**, not always computed. `FUN_0055d0a0` (the loader) has two branches gated
+  by a flag at `param_1+0x1c`:
+  - Flag clear: builds each buffer's row table by computing `row*width` in memory (the
+    same naive in-memory table `GetColorAt` uses, see above) -- **does not touch any
+    on-disk trailing bytes at all**.
+  - Flag set: for **each populated buffer**, calls a read helper (`FUN_00554870`)
+    *twice* -- once for the buffer's own declared-size data, immediately followed by a
+    second read of exactly `height*4` bytes, stored directly into that buffer's
+    row-table field. **This is the on-disk table, read verbatim, no computation.** Real
+    shipped assets almost certainly load through this branch (why else would the
+    table exist and matter for crash-avoidance?), which also implies **each populated
+    buffer gets its own row table** immediately after its own data -- i.e. buffer 1's
+    table, then buffer 4's own data, then buffer 4's own table, then buffer 5's, in
+    sequence. (Never fully re-verified against a real buffer-4-populated file after
+    this was worked out -- see the correction note on buffer 4 above.)
+
+### What was tried to reconstruct entries 1..height-1, and the results
+
+Every hypothesis was checked two ways: (a) statically, comparing predicted values
+against all 264 real icons' actual on-disk tables (cheap, no live-testing), and (b)
+live, deploying a candidate into `Bloodletter.mdl16` and checking in-game.
+
+| Hypothesis | Static match (264 files) | Live result |
+|---|---|---|
+| Cumulative byte offset per row (sequential RLE walk, `table[row] = ` byte position where cumulative pixel count first reaches `row*width`) | 221/264 files at 0% match, mean 2.6% | Off-center, blade tip visible top-left, rest cut off/blank -- **the least-broken result found** |
+| `table[row] = row*width` (matching the in-memory formula) | ~0% (same as long-established finding) | Not separately live-tested (statically ruled out first) |
+| Per-row (non-cumulative) opcode count | 256/263 files at 0% match | Not live-tested (statically ruled out first) |
+| All-zero table (same size, no content) | N/A | No crash, but icon renders **completely blank** |
+| Plain linear interpolation (no RLE awareness at all, `table[i] = i * buf1_size/height`) | N/A (not RLE-based) | Multicolor streaks escaping *outside* the icon's own frame -- worse than the byte-offset attempt |
+| A real, correct table from a same-dimension **different** icon (`LongSwordSpecial`, also 84x121) | N/A -- valid data, wrong image | Same kind of escaping multicolor streaks as linear interpolation |
+| Byte-offset walk **with an index shift** (`table[i]` corresponds to `row_ends[i+1]`, one row off from the naive mapping) plus a same-row correction (`+1` byte when an opcode lands exactly on a row boundary, no overshoot) | 5/263 files at 100%, 12 at >90%, overall mean 9.55% (up from 2.6%) | **Same qualitative failure as the original byte-offset attempt** -- visually indistinguishable from the very first "off-center, cut off" result despite being a measurably better formula |
+
+The last row is the most important negative result: a formula change that produces
+*real, verified* improvement on the static metric (0 vs. 5 perfect real-file matches)
+produced **no visible change whatsoever** in the live render. That, plus the all-zero
+and wrong-real-table tests producing qualitatively different failure modes (blank vs.
+streaking) from the byte-offset attempts (contained, not blank, not streaking), argues
+that **byte-offset-shaped tables are landing on real, validly-parsed opcode boundaries
+throughout** (avoiding garbling) but something beyond this table's precision determines
+*how much of the image actually gets drawn*.
+
+Also tested and ruled out as confounds:
+- **Buffer 1 padding**: worried the naive in-memory `row*width` table (see above) could
+  read past buffer 1's real allocated size for later rows in a large icon (confirmed:
+  for Bloodletter, `row*width` at row 30 already exceeds buffer 1's entire declared
+  size). Padded buffer 1 with harmless trailing skip-run opcodes so it comfortably
+  exceeds `width*height` bytes. **Zero visible change** versus the unpadded version
+  with the same table -- ruled out as the cause of the visible corruption (though kept
+  in the shipped attempts regardless, since it's cheap insurance against a real
+  out-of-bounds read class of bug).
+- **Opcode complexity/count**: a modern rendered PNG source produces far more, shorter
+  opcodes than typical hand-authored game art (fewer long flat runs). Hypothesized the
+  table-building formula's accuracy degrades with opcode density, and that simplifying
+  the source art (blur + aggressive posterization, cutting opcode count from ~239 to
+  104) would let the formula stay accurate further into the image. **Did not resolve
+  the issue** -- same qualitative failure (smaller, cleaner artifact, but breaking down
+  at roughly the same proportional point), disproving opcode density as the dominant
+  factor.
+- **Icon width / display clipping**: the consistent "first part correct, rest
+  missing/streaked" pattern was briefly suspected to be UI clipping (icon too wide for
+  its slot) rather than a data problem, especially since real width alone didn't seem to
+  matter (`LongSwordSpecial`, also 84 wide, is a normal working file). Rebuilt the art
+  at 40px wide (typical sword-icon width) -- **the same qualitative failure persisted**
+  at the smaller size (half the blade, positioned at the left edge, streaks on the
+  right), which also gave a coherent explanation for why the artifact looks
+  left-shifted rather than corrupted-in-place: the source art is a diagonal blade whose
+  early (correctly-rendered) rows happen to contain its left-leaning tip, while its
+  later (broken) rows would have contained the wider, more rightward hilt/crossguard --
+  so a row-dependent breakdown reads visually as "correct content clustered at the
+  left" even though the whole canvas is honestly centered.
+
+### The rendering pipeline that (probably) consumes this table
+
+Traced via Ghidra, starting from `CCharacterInventoryWindow` (confirmed real class,
+destructor string at `0x00706438`, vtable `0x006b27b8` -- though that specific vtable
+turned out to be a widely-shared generic base, not useful on its own) down to its
+per-equipment-slot widget constructor (`FUN_0050cd70`, called once per slot with
+`(x, y, w, h, name, flag)` -- e.g. `FUN_0050cd70(this, 0x38, 0x17f, 0x22, 0x20,
+s_Weapon, 0)`), whose "set displayed item" method (`FUN_0050cf20`) calls
+`FUN_0060aea0(source_icon, slot_w, slot_h, dest_field)`:
+
+- `FUN_0060aea0` queries the source icon's width/height via two vtable calls
+  (confirmed, via direct decompilation, to be **trivial field reads** -- offsets `0x12`
+  and `0x14` respectively, no row-table dependency at all), computes an
+  aspect-preserving fit scale (`min(slot_w/src_w, slot_h/src_h)`), constructs a fresh
+  destination `CStandAloneFrame`-family object (`FUN_0055c730`, confirmed a real
+  constructor: zeroes header-shaped fields, sets a *different* vtable, `0x006d09a8`,
+  than plain file-loaded icons use), computes centering offsets, then calls a virtual
+  method at offset `0x114` on the destination passing the source, a rect, and the
+  offsets.
+- Offset `0x114` on the destination's vtable resolves to `FUN_0055CC60`, which turned
+  out to be a **generic "invoke optional completion callback" dispatcher** (calls
+  through `*param_4+8`, a delegate-object pattern used all over this codebase) -- not
+  the actual pixel copy.
+- Offset `0x7c` (called right after constructing the destination, and also directly
+  earlier in `FUN_0060aea0`) resolves to `FUN_0055CD70`, which -- based on the object's
+  bit-depth flags -- calls a `memset`-shaped helper (`FUN_004beff0(buf1_ptr, 0,
+  width*height*bpp)`) to zero a **raw, uncompressed** destination pixel buffer. This
+  confirms the destination is NOT RLE -- the scale-to-fit operation converts the
+  source into a raw pixel copy -- but the actual per-pixel *sampling* of the source
+  (which would be the natural place for the on-disk table to matter) was never located;
+  it's presumably behind yet another layer of virtual dispatch not reached in this
+  session.
+
+This is this genuinely traced, real code -- not guessed -- but the investigation ran out
+of time before finding the exact function that reads the on-disk table. **If picking
+this up again**, the highest-value next step is finishing this trace (find what
+actually reads pixels from the source during the scale-to-fit copy) rather than more
+statistical guessing at the table's construction formula -- the formula search is
+likely close to its ceiling without that ground truth, per the "measurably better
+formula, zero visible difference" result above.
+
+### Outcome
+
+`Bloodletter` shipped with a `recolor_icon_in_place()`-based recolor of the existing
+`Scimitar.mdl16` icon (proven-safe technique, same as every other item this session)
+rather than the from-scratch render. The mechanic (bleed-on-hit) and the weapon itself
+are unaffected by any of this.
 
 ## Why "build from scratch" doesn't work yet
 
@@ -290,3 +453,27 @@ vtable offset `0xf0` (GetColorAt's slot, 60) across candidate caller functions.
   (`FUN_00618fd0`), not a per-icon draw call. Most likely some other always-present
   singleton UI element (cursor, loading spinner, etc.) that happens to reuse
   `CStandAloneFrame`'s interface for an unrelated purpose -- not inventory icons.
+- `0x0055d0a0` -- (the loader, already listed above) also contains a **second branch**,
+  gated by a flag at `param_1+0x1c`, that reads each buffer's on-disk trailing row table
+  directly via `FUN_00554870` rather than computing `row*width` -- see "The on-disk
+  per-row table" section above. This is the strongest evidence that on-disk table is
+  real and meaningfully consumed by *something*, even though that consumer was never
+  located.
+- `0x00706438` -- string `"~CCharacterInventoryWindow"`, referenced only from
+  `FUN_00509ea0` (that class's destructor). Real, confirmed inventory window class.
+  Its own vtable (`0x006b27b8`, set first in the destructor) turned out to be a
+  **widely-shared generic base** used by dozens of unrelated classes across the whole
+  engine, not useful for isolating inventory-specific behavior on its own.
+- `0x0050bfc0` -- `CCharacterInventoryWindow`'s constructor/setup method (confirmed via
+  a literal `"Close Inventory Button"` string reference inside it). Builds the
+  equipment-slot widgets one at a time via repeated calls to `FUN_0050cd70(this, x, y,
+  w, h, name_string, flag)` -- e.g. `(0x38, 0x17f, 0x22, 0x20, "Weapon", 0)` for the
+  weapon slot. This is the real, confirmed starting point for tracing how an equipped
+  item's icon gets displayed (see "The rendering pipeline" in the on-disk table section
+  above for the rest of the chain).
+- `0x0060aea0` -- the scale-to-fit icon copy function (source icon, slot width, slot
+  height, destination field) called from the equipment slot's "set displayed item"
+  method (`FUN_0050cf20`). Confirmed to read the source's width/height via trivial
+  field-offset getters (no row-table involvement), compute an aspect-fit scale, and
+  construct a fresh raw-pixel-buffer destination object -- see the on-disk table
+  section above for the full trace and where it currently dead-ends.
