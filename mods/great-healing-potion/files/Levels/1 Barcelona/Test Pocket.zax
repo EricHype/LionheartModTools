@@ -1846,6 +1846,10 @@ CLayerSaveData
 					{
 						Item Count=0
 					}
+					After Action=CGoToCombatAction
+					{
+						Enemy Name=$Instigator
+					}
 					New Facing Angle=0
 					Angle Variation=0
 				}

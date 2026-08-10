@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -210,51 +211,99 @@ def cmd_reorder(args: argparse.Namespace) -> None:
     print("New load order:", " -> ".join(new_order))
 
 
-def cmd_build(args: argparse.Namespace) -> None:
-    paths = _game_paths(args.game_dir)
-    if not paths["vanilla_bak"].exists():
-        raise SystemExit("No vanilla backup found -- run `init` first")
-    if _is_game_running():
-        raise SystemExit("Lionheart.exe is running -- close the game before building")
+def _collect_touched(paths: dict, enabled: list, scratch=None, announce: bool = True) -> dict:
+    """Map every mod-provided relative path to the mod that wins it (last in load order).
 
-    enabled = _read_enabled(paths)
-    if not enabled:
-        print("No mods enabled -- build will just restore vanilla data.dat")
-
-    scratch = paths["scratch_dir"]
-    if scratch.exists():
-        shutil.rmtree(scratch)
-    archive.unpack(str(paths["vanilla_bak"]), str(scratch))
-
+    When `scratch` is given, also copies each file into the scratch tree. Split out so a
+    resumed build can recompute the same file list without repacking.
+    """
     touched_by: dict[str, str] = {}
     for mod_id in enabled:
         mod_dir = paths["installed_dir"] / mod_id
         manifest = json.loads((mod_dir / "mod.json").read_text(encoding="utf-8"))
         files_dir = mod_dir / "files"
         for rel in manifest["files"]:
-            src = files_dir / rel
-            dst = scratch / rel
-            if rel in touched_by:
+            if rel in touched_by and announce:
                 print(f"CONFLICT: {rel!r} touched by both {touched_by[rel]!r} and {mod_id!r} "
                       f"-- {mod_id!r} wins (later in load order)")
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            if scratch is not None:
+                dst = scratch / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(files_dir / rel, dst)
             touched_by[rel] = mod_id
+    return touched_by
 
-    tmp_dat = str(paths["data_dat"]) + ".build.tmp"
-    archive.repack(str(scratch), tmp_dat, compression="store")
 
+def _validate_archive(tmp_dat: str) -> None:
     with zipfile.ZipFile(tmp_dat) as zf:
         bad = zf.testzip()
         methods = {zf.getinfo(n).compress_type for n in zf.namelist()}
     if bad is not None or methods != {0}:
         raise SystemExit(
             f"Built archive failed validation (testzip={bad!r}, compress_types={methods}) -- "
-            f"leaving existing data.dat untouched. Scratch dir left at {scratch} for inspection."
+            f"leaving existing data.dat untouched."
         )
 
-    import os
-    os.replace(tmp_dat, paths["data_dat"])
+
+def _pending_build_is_usable(paths: dict, tmp_dat: str) -> bool:
+    """True if a leftover .build.tmp is a complete archive that is still current.
+
+    A build that repacked successfully but failed to swap (the game was reopened during
+    the several minutes of repacking, locking data.dat) leaves a perfectly good archive
+    behind. Reusing it turns "close the game and rerun" into a rename instead of another
+    full repack. Conservative: any mod content newer than the archive means it is stale,
+    so fall through to a normal rebuild.
+    """
+    tmp = Path(tmp_dat)
+    if not tmp.exists():
+        return False
+    try:
+        _validate_archive(tmp_dat)
+    except (SystemExit, zipfile.BadZipFile, OSError):
+        # A build killed partway through leaves a truncated file that is not a readable
+        # archive at all (BadZipFile), not merely one that fails validation.
+        print(f"Discarding incomplete {tmp.name} from an interrupted run.")
+        tmp.unlink(missing_ok=True)
+        return False
+    built = tmp.stat().st_mtime
+    newer = [paths["vanilla_bak"]]
+    if paths["enabled_json"].exists():
+        newer.append(paths["enabled_json"])
+    for p in paths["installed_dir"].rglob("*"):
+        if p.is_file():
+            newer.append(p)
+    stale = [p for p in newer if p.stat().st_mtime > built]
+    if stale:
+        print(f"Ignoring leftover {tmp.name}: {len(stale)} file(s) changed since it was built.")
+        return False
+    return True
+
+
+def _finalize_build(paths: dict, tmp_dat: str, touched_by: dict, scratch=None) -> None:
+    """Swap the built archive into place and sync the loose mirror.
+
+    The game must not be running: data.dat is locked while it is open, and os.replace
+    fails with WinError 5. That check happens here, immediately before the swap, rather
+    than only at the start of the build -- a repack takes minutes, which is ample time to
+    launch the game and lose the whole run.
+    """
+    if _is_game_running():
+        raise SystemExit(
+            f"Lionheart.exe is running -- cannot replace data.dat while the game has it open.\n"
+            f"The finished archive is kept at {tmp_dat}\n"
+            f"Close the game and rerun `build`; it will finish from that file without repacking."
+        )
+    try:
+        os.replace(tmp_dat, paths["data_dat"])
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Could not replace data.dat ({exc.strerror}).\n"
+            f"Something still has it open -- usually Lionheart.exe, sometimes an antivirus "
+            f"scan or an open archive viewer.\n"
+            f"The finished archive is kept at {tmp_dat}\n"
+            f"Close whatever holds the file and rerun `build`; it will finish from that file "
+            f"without repacking."
+        ) from None
 
     # This install ships (or has accumulated) a COMPLETE loose mirror of data.dat's
     # contents at <game-dir>\data\ -- confirmed by direct comparison, not assumption:
@@ -267,14 +316,55 @@ def cmd_build(args: argparse.Namespace) -> None:
     # mirror" section. Sync every touched path here so `build` alone is sufficient.
     if paths["loose_dir"].is_dir():
         synced = 0
-        for rel in touched_by:
-            src = paths["scratch_dir"] / rel
-            dst = paths["loose_dir"] / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            synced += 1
+        with zipfile.ZipFile(paths["data_dat"]) as zf:
+            for rel in touched_by:
+                dst = paths["loose_dir"] / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if scratch is not None and (scratch / rel).exists():
+                    shutil.copy2(scratch / rel, dst)
+                else:
+                    # Resumed build: the scratch tree is long gone, so take the bytes
+                    # from the archive we just installed.
+                    dst.write_bytes(zf.read(rel))
+                synced += 1
         if synced:
             print(f"Synced {synced} touched file(s) into the loose mirror at {paths['loose_dir']}")
+
+
+def cmd_build(args: argparse.Namespace) -> None:
+    paths = _game_paths(args.game_dir)
+    if not paths["vanilla_bak"].exists():
+        raise SystemExit("No vanilla backup found -- run `init` first")
+    if _is_game_running():
+        raise SystemExit("Lionheart.exe is running -- close the game before building")
+
+    enabled = _read_enabled(paths)
+    if not enabled:
+        print("No mods enabled -- build will just restore vanilla data.dat")
+
+    tmp_dat = str(paths["data_dat"]) + ".build.tmp"
+    if _pending_build_is_usable(paths, tmp_dat):
+        print("Found a complete archive from an interrupted build -- finishing it "
+              "(no repack needed).")
+        touched_by = _collect_touched(paths, enabled, scratch=None, announce=False)
+        _finalize_build(paths, tmp_dat, touched_by, scratch=None)
+        print(f"Built data.dat with {len(enabled)} mod(s) enabled: {', '.join(enabled) or '(none)'}")
+        return
+
+    scratch = paths["scratch_dir"]
+    if scratch.exists():
+        shutil.rmtree(scratch)
+    archive.unpack(str(paths["vanilla_bak"]), str(scratch))
+
+    touched_by = _collect_touched(paths, enabled, scratch=scratch)
+
+    archive.repack(str(scratch), tmp_dat, compression="store")
+    try:
+        _validate_archive(tmp_dat)
+    except SystemExit as exc:
+        raise SystemExit(f"{exc} Scratch dir left at {scratch} for inspection.") from None
+
+    _finalize_build(paths, tmp_dat, touched_by, scratch=scratch)
 
     shutil.rmtree(scratch)
     print(f"Built data.dat with {len(enabled)} mod(s) enabled: {', '.join(enabled) or '(none)'}")

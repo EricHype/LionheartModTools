@@ -658,6 +658,15 @@ live `data/` folder or a previous build — this is what makes clean enable/disa
 possible. It validates the built archive (`testzip`, all `compress_type == 0`) before
 touching the live `data.dat`, and refuses to run while `Lionheart.exe` is open.
 
+**Don't play while a build runs.** A repack of this archive takes minutes, and the very
+last step replaces `data.dat` — which fails with `WinError 5` if the game has it open by
+then. `build` checks for `Lionheart.exe` at the start *and* immediately before the swap,
+but launching the game mid-build still costs you the swap. When that happens the finished
+archive is kept as `data.dat.build.tmp` and rerunning `build` finishes from it in seconds
+instead of repacking; a build killed partway leaves an unreadable file, which `build`
+detects and discards. Either way, don't hand-rename `.build.tmp` over `data.dat` — the
+loose mirror (below) still needs syncing, and only `build` does that.
+
 **Gotcha: `build` reads from `<game-dir>\mods\installed\<id>\`, a copy `install` made —
 not from the mod source folder.** Editing a file inside a mod's own repo/source
 `files/` directory (e.g. iterating on a `.mdl16` icon or tweaking a `.can`) has **no
