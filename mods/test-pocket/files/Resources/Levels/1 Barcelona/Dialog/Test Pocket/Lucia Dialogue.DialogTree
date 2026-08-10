@@ -58,7 +58,7 @@ Custom Action=CMultipleActionsAction
 {
 Action=Array
 {
-Item Count=3
+Item Count=4
 Action=CSpawnEffectAction
 {
 Explosion Model=Special Effects/Transformation
@@ -101,6 +101,16 @@ Delay Between Activations=0
 Warp Behavior=
 }
 Delay=1.2
+Plus or Minus=0
+Forget Trigger=0
+}
+Action=CDelayAction
+{
+Next Action=CGoToCombatAction
+{
+Enemy Name=$Instigator
+}
+Delay=1.5
 Plus or Minus=0
 Forget Trigger=0
 }

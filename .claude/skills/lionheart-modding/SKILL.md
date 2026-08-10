@@ -363,6 +363,119 @@ apparently doesn't, at least not for anything we've hand-authored. **Prefer real
 model-based doors over invisible trigger zones for any new interactive exit**, even though
 zones are the pattern the shipped game itself uses everywhere.
 
+**One concrete lead, not yet tested**: every real map carries 1-7 `Level Part=CWayPointsPolygon`
+entries (a `Polygon=x, y, x, y, ...` list, `Insertion Priority=Primary`) and a map cloned
+from the scratch template has **none**. That is a real, text-level difference — unlike the
+"invisible baked data" theory above, it is something you can just add. If polygon-hover
+zones are ever worth another attempt, add a `CWayPointsPolygon` covering the area first.
+Note this is *not* needed for ordinary collision (see the next section), only a candidate
+explanation for the interaction-zone failure.
+
+## Walls, obstacles, and collision
+
+There is **no collision layer and no nav mesh to author**. A wall, rock, tree, or crate is
+a plain `Level Part=CEntityBase` under `Tree List=CSortList2D`, identical in shape to any
+other entity, with a model and three flags:
+
+```
+Level Part=CEntityBase
+{
+    Name=
+    Child List=
+    Visible=1
+    Collideable=1
+    Half Height=0            <- 1 = low cover, 0 = full blocker (set the other to 1)
+    Full Height=1
+    Tries To Collide=0
+    Has Hit Points=0
+    Stationary=1
+    Active=1
+    Is Temporarily Excluded=0
+    Is Marked For Deletion=0
+    Activity=Array { Item Count=0 }
+    Category=
+    Team Number=Nutral
+    Used In=QuestMode
+    Current Target=
+    Publisher=
+    Model=Environments/Rethgorad/Town/Fence/Fence A
+    Position X=120
+    Position Y=160
+    Rendering Height=0
+    Rendering Height Float=0
+    Cur Sequence=Idle
+}
+```
+
+Gate District has 1048 of these and nothing else. `Tree List=CSortList2D` has **no
+`Item Count=`** — entries are just repeated `Level Part=` keys, so adding entities means
+appending blocks, with no count to keep in sync.
+
+- **Collision comes from the model, not from authored geometry.** Only 10
+  `Properties.txt` files exist in the entire game and exactly one has a non-empty
+  `Bounds Poly=`, so per-object collision polygons are the rare exception, not the rule.
+- **`CWayPointMap` is empty in every map**, real ones included — it holds only
+  `MinDistBetweenWayPoints=20` / `MaxDistToConnect=39`, so waypoints are generated at
+  load. Nothing to bake. `CWayPointsPolygon` appears 1-7 times per map as a supplementary
+  hint and is not required.
+
+### Environment models are sprites, and the letter suffix is the rotation
+
+`Environments/.../Wall 01 A` through `Wall 01 H` are eight pre-rendered facings of the
+same asset — `.mdl16` sprites, the same format as inventory icons (`mdl16_format.py`,
+`docs/mdl16-icon-format.md`). **There is no rotation field**; you pick the facing by
+choosing the letter, and the letter also determines which direction a run tiles in.
+
+### Not every asset is built to tile — check before building a wall out of one
+
+Scanning all 201 shipped `.zax` files for runs of 4+ identical models on a constant step
+vector: **the `Fence` set never forms a run.** Only two 3-piece fence chains exist in the
+entire game. Fences are scatter decoration, not wall segments, and laying them end-to-end
+produces a visible jog at every joint. Assets that genuinely tile, with their measured
+step vectors:
+
+| model | run | step | direction |
+|---|---|---|---|
+| `Mountain/Inside/Walls/Wall 01 A` | 8+ | `(124, -7)` | +X, north face |
+| `Mountain/Inside/Walls/Wall 01 E` | 10 | `(121, -7)` | +X, south face |
+| `Mountain/Inside/Walls/Wall 01 C` | **21** | `(10, 88)` | +Y, east face |
+| `Mountain/Inside/Walls/Wall 01 G` | 12 | `(11, 86)` | +Y, west face |
+| `Druid Grove/Walls/StrateWall/StrateWall A` | 6 | `(145, 28)` | outdoor variant |
+| `Outpost/Transformed Region/Walls/Wall 02/Wall 02 B` | 7 | `(63, -53)` | |
+
+`Wall 01 A/C/E/G` is a complete four-sided set: A north, C east, E south, G west
+(derived by comparing each variant's centroid against the centroid of all pieces in
+`06 Chamber of Torment.zax`).
+
+**The perpendicular component is not noise.** `(124, -7)`, not `(124, 0)` — the sprite
+depicts a run tilted a few degrees off the world axis, and flattening that to zero
+rotates every piece slightly against the run, which reads in-game as "the pieces don't
+quite line up". Use the measured vector exactly.
+
+To find the step vector for any asset, look for **collinear chains**, not
+nearest-neighbour pairs — scattered decoration produces plenty of plausible-looking pair
+offsets that are not tiling vectors. And **exclude your own map from the corpus**: a
+deployed work-in-progress sitting in `<game>/data/Levels/` will happily "confirm"
+whatever spacing you already guessed.
+
+### Sprite footprint decides clearance, and some props are enormous
+
+World units are roughly 1:1 with sprite pixels, so read the footprint straight off the
+sprite header before placing anything:
+
+```python
+h = mdl16_format.find_header(open(path,"rb").read());  print(h.width, h.height)
+```
+
+`Rethgorad/Town/Rock/Rock B..F` are **311-338 px wide**; `Chests/Chest2` is **74**. A
+chest placed 166 units from a rock ends up *inside* it — the rock's half-width alone is
+169. Trees are 215-229, `Trees/Tree3` 152, carts ~100-166, benches/cannonballs ~55.
+
+Worth gating placement on an assertion rather than discovering it in-game: for every prop,
+require `distance >= own_half_width + other_half_width + margin` against all walls, all
+other props, and every entity the player must reach (chest, NPC, door, spawn). That check
+caught two bad layouts here before either reached a build.
+
 ## Quest mechanics
 
 - `Resources/.../<Name>.Quest.txt`: `CQuestDefinition { Name=..., States=Array {...},
