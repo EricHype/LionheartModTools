@@ -424,7 +424,7 @@ CCannedObject
 				Gender=Male
 				Head=0
 				Hue Remapper=Player Data/Hue Remappers/!None
-				Race=Levels/Sewers/Character Templates/Weak sewer entrance wererat
+				Race=Races/Enemies/Sewers/Wererat Boss
 				Mana Available=0
 				NumSecondsToRebroadcastFollow=0
 				Experience Points=0
