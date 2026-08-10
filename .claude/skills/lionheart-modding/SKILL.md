@@ -219,6 +219,53 @@ Action=CIfAction
 }
 ```
 
+### Making a spawned NPC actually attack the player
+
+An enemy template alone is **not** enough. A wererat spawned from a template that is
+byte-identical to a shipped hostile one (verified by diff — only the display name and a
+drop differed) still just stood there and only fought back once struck. Enemies that are
+placed and active from map load aggro on their own; one spawned mid-game by a
+script-activated generator does not.
+
+The fix goes on the **generator**, in its `After Action` slot, between
+`Canned AIs to Add` and `New Facing Angle`:
+
+```
+After Action=CGoToCombatAction
+{
+    Enemy Name=$Instigator
+}
+```
+
+**`Enemy Name` is the character being *made* hostile — not the character it will
+attack.** This reads backwards and is the whole trap. The engine's own description
+string for the action (at `0x006f4648` in `Lionheart.exe`) spells it out:
+
+> Makes an enemy character go into combat mode by setting his target type to player and
+> player friends, changing his interaction specifier type to "getCloseThenFIght",
+> removing the interaction specifier action, and sending a "GoToCombat" message to him.
+> [...] assuming the enemy already has a skeleton AI but no target type and already has
+> an interaction specifier of a type other than fight.
+
+So it needs no reference to the player at all — it flips the enemy into player-targeting
+mode and strips whatever talk/trigger interaction specifier was keeping it passive
+(ours had `Interaction Type=Interaction Specifiers/GetCloseThenTriggerAndFight`).
+
+**Placement is what makes `$Instigator` mean the right thing.** In a generator's
+`After Action`, `$Instigator` resolves to the entity just spawned — correct. Putting the
+same action in the DialogTree reply that triggers the transformation does *nothing*:
+there `$Instigator` is the player, so it tries to put the player into combat mode, and
+the enemy does not exist yet anyway. Confirmed in-game both ways. Copy the vanilla
+`Gate Guard Near Temple Gen` in `Levels/1 Barcelona/Gate District.zax` — a script-
+activated spawner using exactly this.
+
+Dead ends ruled out while chasing this, so they aren't re-explored: `Team Number` is
+vestigial (**every** entity in the game is `Nutral` — 753 `.can` files, 74k `.zax`
+occurrences); `CSetTargetAction` is only ever used NPC-vs-NPC with literal names, never
+against the player; and the map-level `Max Allowed To Roam Anywhere` that our scratch-
+cloned map lacks defaults to `1` anyway (per its registration in the decompiled
+`CLayerSaveData` field table), matching what real maps write.
+
 ### Finding an existing NPC's DialogTree
 
 To find an NPC's actual DialogTree, search the relevant `Levels\<Area>\*.zax` files for
@@ -479,6 +526,17 @@ Worth gating placement on an assertion rather than discovering it in-game: for e
 require `distance >= own_half_width + other_half_width + margin` against all walls, all
 other props, and every entity the player must reach (chest, NPC, door, spawn). That check
 caught two bad layouts here before either reached a build.
+
+### Corners need explicit closure
+
+The four edges of a rectangular arena use slightly different step vectors
+(`(124,-7)` north vs `(121,-7)` south, `(10,88)` east vs `(11,86)` west), so opposing
+edges are not parallel and the accumulated drift leaves a gap at whichever corner is
+furthest from the origin. Run the south and east edges one piece *through* the corner,
+and assert it: every corner must have a piece from both adjoining edges within one
+pitch. Confirmed closed in-game. For a much larger arena the drift grows and running one
+piece long stops being enough — compute each edge from its own corner rather than
+chaining them.
 
 ## Quest mechanics
 
