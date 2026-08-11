@@ -195,16 +195,58 @@ Ground truth now exists: `bugs/Screen Shot 05.TGA` versus
 `exports/renders/gd_gate_area.png` (same crop, world x1500-2500 y1900-2650, Main Gate at
 2150,2401). Comparing those two is the fastest way to judge any future hypothesis.
 
-Remaining leads, in order of expected value:
+### What the Ghidra dig established
 
-1. **The `CPlasmaTileMap` render path in `Lionheart.exe`** — not yet located. Known
-   breadcrumbs: field parser at `0x005e9860`, `Blending` registers at class offset
-   `0x103c` (default 0.25f), class size `0x2dfc`, class-name string at `0x00715650`,
-   `CPlasmaTileMap::Client_RecieveSynch` at `0x00715728`. The 11KB object is large enough
-   to hold a generated per-tile index array, which would confirm selection happens at
-   load rather than being authored.
-2. **Whether the light overlay carries it.** It is 3 bytes/vertex and assumed to be pure
-   RGB, but only the neutral value 128 was verified; a channel could be doing double duty.
+`CPlasmaTileMap` was traced in some depth. The texture-selection logic was **not** found,
+but the surrounding structure is now mapped, which should make a future attempt much
+cheaper.
+
+**Object layout** (class size `0x2dfc`, vtable `0x006da568`, descriptor `DAT_00807ca4`):
+
+| offset | contents |
+|---|---|
+| `0x1038` | texture list (count via vtable `+0x88`, item N via `+0x04`) |
+| `0x103c` | `Blending` float, default 0.25 |
+| `0x2c80` `0x2cc0` `0x2d00` `0x2d40` | four `CStandAloneFrame` data planes |
+| `0x2d80` `0x2d81` | fog-enabled / lighting-enabled flags |
+| `0x2dac` `0x2db0` | tile size in pixels |
+| `0x2db4` `0x2db8` | grid cols / rows |
+| `0x2dec` | destination surface |
+
+**Only three data layers deserialize** (confirmed in `FUN_005e9c90`): elevation at 1
+byte/cell, light overlay at 3 bytes/cell, fog at 1 byte/cell. There is definitively no
+texture-index plane in the file *or* in the loaded object.
+
+**The tile pipeline that was found is lighting and fog, not texturing:**
+
+```
+FUN_005ebb70   tile loop over visible grid cells
+  -> FUN_005eba30   per-tile lighting: fetch 4 corner colours; flat-shade if all equal
+                    (0x808080 = neutral, skip), else Gouraud via FUN_005eac20
+    -> FUN_005ebdd0 fog overlay, gated on the 0x2d81 flag; also 4-corner, with a
+                    "uniform and < 0x40" early-out
+      -> FUN_005ebf10 fixed-point span rasteriser, applies the colour LUT
+```
+
+The constructor (`FUN_005e8c40`) builds a 64K-entry RGB565 colour-grading LUT at
+`DAT_007e7c88` (saturation/contrast constants `DAT_00715248` / `DAT_0071524c`) which that
+rasteriser consumes. All of this runs *over* ground that has already been textured
+somewhere else. That "somewhere else" is the remaining gap.
+
+Useful side effect: lighting is per-tile Gouraud between four corner colours, which is
+what the renderer's bilinear light modulation already approximates. That part is right.
+
+**Also disproven: the raw elevation byte is not a texture index either.** Herbalist map
+declares `Num Textures=2` but has elevation values up to 61, and only 12% of Gate
+District's cells hold a value below its texture count.
+
+### Where to pick this up
+
+1. Find the ground *texturing* pass. It is not `FUN_005ebb70`. Likely candidates: a
+   composite built once at load into the surface at `0x2dec`, or a separate pass in the
+   world renderer that runs before the lighting loop.
+2. **Whether the light overlay carries it.** It is 3 bytes/vertex and assumed pure RGB,
+   but only the neutral value 128 was verified; a channel could be doing double duty.
 3. Accepting single-texture ground indefinitely. For a placement editor this costs
    little, and a from-scratch map uses `Num Textures=1` where the render is already
    exact.
