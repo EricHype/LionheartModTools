@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsItem, QDockWidget, QWidget, QVBoxLayout, QFormLayout,
     QLineEdit, QDoubleSpinBox, QCheckBox, QListWidget, QListWidgetItem, QTreeWidget,
     QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
+    QGraphicsSimpleTextItem,
     QDialogButtonBox,
 )
 
@@ -115,17 +116,44 @@ def render_terrain_pixmap(doc: MapDocument, data_root: Path) -> QPixmap:
 # ---------------------------------------------------------------------------
 
 class EntityItem(QGraphicsPixmapItem):
-    """A placed scenery sprite. Wraps an `Entity`; dragging writes back on release."""
+    """A placed entity. Wraps an `Entity`; dragging writes back on release.
 
-    def __init__(self, entity, pixmap: QPixmap, info, window: "MainWindow"):
+    Covers both plain scenery and the non-scenery entities that give a map its meaning --
+    spawn points, doors, generators, chests. Those are drawn faded with a name label so
+    they read as reference rather than decoration, because you place props *relative* to
+    them: the chest-inside-a-rock bug came from not being able to see the chest.
+    """
+
+    def __init__(self, entity, pixmap: QPixmap, info, window: "MainWindow",
+                 *, marker: bool = False):
         super().__init__(pixmap)
         self.entity = entity
         self.info = info
         self.window = window
+        self.marker = marker
         self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
         self.setPos(entity.x - info.hotspot_x, entity.y - info.hotspot_y)
         self.setZValue(entity.y)
-        self.setVisible((entity.node.get("Visible") or "1") != "0")
+        if marker:
+            # Editor/* placeholders carry Visible=0 because the game must not draw them.
+            # In the editor they are exactly what we DO want to see, so ignore that flag
+            # for markers and distinguish them by opacity + label instead.
+            self.setOpacity(0.75)
+            self.setVisible(True)
+            label = QGraphicsSimpleTextItem(entity.name or entity.model.rsplit("/", 1)[-1],
+                                            self)
+            label.setBrush(QBrush(QColor(255, 235, 140)))
+            font = label.font()
+            font.setPointSizeF(max(7.0, font.pointSizeF()))
+            font.setBold(True)
+            label.setFont(font)
+            # Keep the caption legible however far the view is zoomed out.
+            label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            label.setPos(pixmap.width() / 2, -4)
+            self._label = label
+        else:
+            self.setVisible((entity.node.get("Visible") or "1") != "0")
+            self._label = None
         self._press_pos = None
 
     def mousePressEvent(self, event):
@@ -475,18 +503,18 @@ class MainWindow(QMainWindow):
         self.pixmap_cache[model] = pm
         return pm
 
-    def create_item(self, entity) -> EntityItem | None:
+    def create_item(self, entity, *, marker: bool = False) -> EntityItem | None:
         info = self.cat.info(entity.model)
         pm = self.make_pixmap(entity.model)
         if info is None or pm is None:
             return None
-        return EntityItem(entity, pm, info, self)
+        return EntityItem(entity, pm, info, self, marker=marker)
 
     def _populate_scene(self):
         for ent in self.doc.entities():
-            if not ent.is_scenery():
-                continue
-            item = self.create_item(ent)
+            if not ent.model:
+                continue            # no art to draw and no position that means anything
+            item = self.create_item(ent, marker=not ent.is_scenery())
             if item is None:
                 continue
             self.scene.addItem(item)
@@ -609,6 +637,14 @@ class MainWindow(QMainWindow):
         actual = view_menu.addAction("&Actual Size (100%)")
         actual.setShortcut(QKeySequence("Ctrl+1"))
         actual.triggered.connect(self.view.zoom_reset)
+        view_menu.addSeparator()
+        self.markers_action = view_menu.addAction("Show &Markers")
+        self.markers_action.setCheckable(True)
+        self.markers_action.setChecked(True)
+        self.markers_action.setShortcut(QKeySequence("M"))
+        self.markers_action.setStatusTip(
+            "Show spawn points, doors, generators and other non-scenery entities")
+        self.markers_action.toggled.connect(self.on_markers_toggled)
 
         self.statusBar()
         self.zoom_label = QLabel()
@@ -895,6 +931,15 @@ class MainWindow(QMainWindow):
 
     def report_zoom(self, scale: float) -> None:
         self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
+
+    def on_markers_toggled(self, shown: bool) -> None:
+        n = 0
+        for item in self.entity_items.values():
+            if item.marker:
+                item.setVisible(shown)
+                n += 1
+        self.statusBar().showMessage(
+            f"{'Showing' if shown else 'Hiding'} {n} marker(s).", 4000)
 
     # -- eyedropper ------------------------------------------------------
 
