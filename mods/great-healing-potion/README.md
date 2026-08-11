@@ -23,8 +23,9 @@ built with `mdl16_format.recolor_icon_in_place()` -- decodes the real icon's
 compressed sprite data (reverse-engineered this session, see
 `docs/mdl16-icon-format.md`), transforms only the stored color values, and leaves the
 original RLE opcode structure byte-identical. Confirmed rendering correctly in-game.
-Building a wholly new icon *shape* from scratch remains unsolved (see that doc) --
-these only needed a recolor, which is why they work.
+A recolor is all these needed. Authoring a wholly new icon *shape* was unsolved when
+this mod was written but has since been cracked -- see `docs/mdl16-icon-format.md` and
+`mods/bloodletter-scimitar/`.
 
 ## Requires
 
@@ -57,12 +58,12 @@ project's own tooling (both now fixed):
    loose file is present. `modmanager.py build` never touched it, silently making
    rebuilds invisible to the running game. Now fixed -- `build` auto-syncs it.
 2. **The `.mdl16` icon RLE codec**: fully decoded, and a production-ready in-place
-   recolor path is proven (used for all three potions here). Building a brand-new
-   icon's RLE stream from scratch is still unsolved -- every attempt round-tripped
-   correctly through this project's own decoder but rendered corrupted in-game,
-   because the real encoder follows some run-selection heuristic (which opcode to
-   pick, how long to make each run) that wasn't reverse engineered. Recoloring an
-   existing icon sidesteps needing to know it.
+   recolor path is proven (used for all three potions here). At the time, building a
+   brand-new icon from scratch was an open problem -- every attempt round-tripped
+   correctly through this project's own decoder but rendered corrupted in-game. That
+   has since been solved: the cause was the per-row offset table, not a run-selection
+   heuristic as suspected here. See `docs/mdl16-icon-format.md`. A recolor is still the
+   cheaper path when the silhouette is already right, which is the case for these.
 
 Extending from one potion to three was comparatively trivial once the pipeline was
 proven -- clone the `.InventoryAddition`, recolor the icon with a different hue, add

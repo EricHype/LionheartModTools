@@ -6,11 +6,16 @@ quest (the same chest `great-healing-potion` already extends for the healing pot
 ## Mechanics
 
 - **Bleed on hit**: `CPlugInBehaviorStrikeAction` checks for a successful hit
-  (`CExpressionHitMargin > 0`), then has a 30% chance (`CIfExpression` wrapping a
-  `CRandom` roll, same pattern as the vanilla `Vampirism` weapon addition) to apply a
-  `CXRPGDamageOverTime` effect: 2-4 Slashing damage every 5 seconds for 15 seconds
-  (3 ticks). Base weapon damage/hit-or-miss is completely untouched -- this addition
-  only adds the strike behavior, it doesn't replace anything on the base `Scimitar`.
+  (`CExpressionHitMargin > 0`), then a nested `CIfExpressionAction` rolls a 30% chance
+  (same shape as the vanilla `Double Biter` weapon addition) to apply a
+  `CXRPGDamageOverTime`: 2-4 Slashing damage every 5 seconds for 15 seconds (3 ticks).
+  Base weapon damage/hit-or-miss is completely untouched -- this addition only adds the
+  strike behavior, it doesn't replace anything on the base `Scimitar`.
+
+  **`Damage Amount` is the total across the effect, not per tick**, so the value is
+  `CMultiply(CRandom(min,max), 3)` for 3 ticks. Passing the per-tick figure raw makes the
+  effect apply and deal nothing, which looks exactly like the proc never firing -- see the
+  `adding-a-new-weapon` skill. In-game the engine reports a hit as "slashing infection".
 - **Base item**: `Inventory Items/Scimitar`, chosen over Long/Short Sword because it's
   the vanilla weapon type that actually matches a curved blade.
 

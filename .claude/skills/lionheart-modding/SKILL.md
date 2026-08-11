@@ -135,6 +135,7 @@ Four pieces, all confirmed working end-to-end via Marco the Pickpocket:
    `Resources/Levels/<Area>/Character Templates/<Folder>/<Name>.can` — copy a
    similar-complexity existing citizen/NPC template rather than building from scratch.
    Nothing in this file references dialogue or the level at all (see point 3).
+   **Check the clone's `Race=` before shipping it** — see below.
 2. **DialogTree(s)**: `Resources/Levels/<Area>/Dialog/<Folder>/<Name> Dialogue.DialogTree`
    (see the DialogTree format section above). Use **separate files per branch** (e.g. one
    for "has perk", one for "doesn't") rather than trying to gate replies within a single
@@ -149,6 +150,34 @@ Four pieces, all confirmed working end-to-end via Marco the Pickpocket:
    field of the merchant entity>, After Closed Action=}` — confirmed via both the Herbalist's
    and Blacksmith's shops. Don't fire it directly from an interaction-level `CIfAction`; it
    belongs on a reply, after some dialogue.
+
+### `Race=` is where a character's stats come from — check it after cloning
+
+An NPC's HP, AC and skills come from its `Race=` pointing at a `CRaceWithPresets` file
+under `Resources/Races/...`, e.g. `Races/Enemies/Sewers/Wererat Boss` (150 HP) — the
+wererat line alone runs from Minion at 15 HP to PRIME super at 295. `Character Level` is
+**not** the lever: 472 of 476 monster cans are level 1.
+
+**Four vanilla templates have a `Race=` that points at a character template instead of a
+real `.Race`, and specifically at themselves** — a dangling self-reference, so they
+inherit no presets at all:
+
+```
+Weak sewer entrance wererat      -> Levels/Sewers/Character Templates/Weak sewer entrance wererat
+Weak sewer entrance wererat top  -> (same shape)
+Weak sewer entrance theif4sword  -> (same shape)
+Weak sewer entrance theif4sword top
+```
+
+724 templates point at a real `Races/` entry; only those 4 don't. Cloning one carries the
+bug in, and the symptom is an enemy that dies in a couple of hits for no visible reason.
+Hit by this with Lucia. Either clone a different template, or repoint `Race=` at a real
+race after cloning.
+
+Repointing is safe for model-based checks: anti-<creature> weapon bonuses use
+`CCheckModelAction` against `Characters/Monsters/...` **models**, not races, so changing
+race does not break them (verified for Ratsbane). Note that a tougher race also raises
+melee skill — Wererat Boss hits at 45 vs the weak variant's 8.
 
 ### The spawner: use `CGeneratorAI`, not `CSimpleGeneratorForCannedEntitiesAI`
 
@@ -330,14 +359,23 @@ just hidden behind a flag — only the inert menu-label string survived. There i
 patch; re-enabling the menu item would do nothing since no code anywhere consumes that
 keypress. Don't re-attempt this investigation — it's settled.
 
-Dynamic debugging (attaching x32dbg to the running game) was also tried as part of this
-and is **not practical** in this environment: the game runs exclusive-fullscreen, and a
-paused/attached debugger prevents Windows from switching away from it, causing hangs that
-require killing the debugger (which also kills the debuggee, since Windows kills a
-debuggee by default when its debugger exits without a clean detach). No windowed-mode
-option exists in-game or in the bundled `dxcfg.exe` to work around this. If a similar
-question comes up again, prefer static analysis (Ghidra/ReVa) over live debugging for this
-particular game.
+Dynamic debugging (attaching x32dbg to the running game) was tried as part of this and
+hung: a paused/attached debugger prevented Windows from switching away from the game,
+requiring the debugger to be killed (which also kills the debuggee, since Windows kills a
+debuggee by default when its debugger exits without a clean detach).
+
+**The stated reason for that — "no windowed mode exists" — was wrong**, and this note
+used to say so. The GOG release does not use the game's own DirectDraw path at all: it
+ships a wrapper (`ddraw.dll`, ~1.5MB, not the system one) configured by `dxcfg.ini` beside
+the exe, with a `dxcfg.exe` GUI. Its `presentation=` key takes `windowed` or `fullscreen`
+(confirmed against the strings in both binaries), and this install was in fact running
+**windowed** the whole time — which is also why the Windows taskbar was drawn over the
+game until it was set to `fullscreen`.
+
+So windowed mode is one config line away, and the hang has some other cause. Static
+analysis (Ghidra/ReVa) has answered every question put to it so far and remains the
+default, but if live debugging ever looks necessary, retest it rather than treating it as
+ruled out.
 
 **The actual practical workflow: staging saves.** Walk to the threshold of whatever area
 you're about to add content to once, save there, and reuse that save for every subsequent
