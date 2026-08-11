@@ -222,18 +222,49 @@ def decode_plane_rows(buf: bytes, table: list[int], width: int, height: int) -> 
 def decode_icon(data: bytes, header: IconHeader | None = None) -> dict:
     """Decode a .mdl16/.frm16 icon's main color plane into RGBA pixel rows.
 
-    Only supports the RLE-16bpp mode (flags & 6 == 4) that every real inventory icon
-    in the game uses. Returns a dict with width/height/hotspot and `rows`: a list of
-    `height` lists of `width` (r,g,b,a) tuples, row-major, top to bottom.
+    Supports two modes: RLE-16bpp (flags & 6 == 4), used by every real inventory icon,
+    and raw/uncompressed 16bpp (flags & 6 == 0 and flags & 0x1e0 == 0x40), used by every
+    ground texture under Cache/Textures/**.frm16. Returns a dict with width/height/hotspot
+    and `rows`: a list of `height` lists of `width` (r,g,b,a) tuples, row-major, top to
+    bottom.
     """
     header = header or find_header(data)
     if header is None:
         raise ValueError("no CStandAloneFrame header found in data")
+    w, h = header.width, header.height
+
+    if header.flags & 6 == 0 and header.flags & 0x1E0 == 0x40:
+        # Raw, uncompressed 16bpp: buffer 1 is exactly width*height*2 bytes of
+        # little-endian RGB565, row-major, no row table and no opcode stream -- just
+        # unpack it. Every pixel is opaque; unlike the RLE path, 0 does NOT mean
+        # transparent here (these are ground tiles, not sprites with cutouts).
+        buf1_size = header.buffer_sizes[0]
+        expected = w * h * 2
+        if buf1_size < expected:
+            raise ValueError(
+                f"raw-16bpp buffer 1 too small: {buf1_size} bytes, need {expected} for {w}x{h}"
+            )
+        buf1 = data[header.data_offset: header.data_offset + expected]
+        values = struct.unpack_from(f"<{w * h}H", buf1)
+        rows = []
+        for y in range(h):
+            row = []
+            base = y * w
+            for x in range(w):
+                r, g, b = _rgb565_to_rgb888(values[base + x])
+                row.append((r, g, b, 255))
+            rows.append(row)
+        return {
+            "width": w, "height": h,
+            "hotspot_x": header.hotspot_x, "hotspot_y": header.hotspot_y,
+            "rows": rows,
+        }
+
     if header.flags & 6 != 4:
         raise NotImplementedError(
-            f"only RLE-16bpp icons (flags&6==4) are supported; got flags={header.flags:#x}"
+            f"only RLE-16bpp (flags&6==4) and raw-16bpp (flags&6==0, flags&0x1e0==0x40) "
+            f"icons are supported; got flags={header.flags:#x}"
         )
-    w, h = header.width, header.height
     buf1_size = header.buffer_sizes[0]
     buf1 = data[header.data_offset: header.data_offset + buf1_size]
     # Decode row-by-row from the on-disk offset table, exactly as the engine does. An

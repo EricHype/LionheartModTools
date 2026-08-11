@@ -1,6 +1,6 @@
-"""Phase 0 map renderer for Lionheart .zax files.
+"""Phase 0(.5) map renderer for Lionheart .zax files.
 
-A single command: `.zax` in, PNG out. No UI, no terrain, no third-party libraries.
+A single command: `.zax` in, PNG out. No UI, no third-party libraries.
 
 Renders the "Tree List" scenery of a map from directly overhead using the game's own
 Environments/* sprite art (decoded via mdl16_format.decode_icon), painter's-algorithm
@@ -9,13 +9,15 @@ sorted by Position Y, placed with:
     screen_x = entity.Position X - sprite.hotspot_x   (hotspot exactly as stored)
     screen_y = entity.Position Y - sprite.hotspot_y
 
-See docs/map-editor-design.md, "The rendering model" and "Phase 0", for the full spec
-this implements. This module does not redesign anything from that doc.
+Underneath that, `Plasma Ground=CPlasmaTileMap` terrain is tiled from `Texture 0` and
+modulated by the `Light Overlay` vertex-colour grid (bilinear). See
+docs/map-editor-design.md, "The rendering model", "Phase 0" and "Terrain", for the full
+spec this implements. This module does not redesign anything from that doc. Multi-texture
+selection and elevation are explicitly out of scope for this step (see the doc).
 
 Usage:
-    python zax_render.py "<path to .zax>" out.png [--scale 0.5]
+    python zax_render.py "<path to .zax>" out.png [--scale 0.5] [--no-terrain]
 
-Terrain (CPlasmaTileMap) is explicitly out of scope -- the background is a flat colour.
 No third-party libraries: the PNG is hand-written with stdlib zlib + struct.
 """
 from __future__ import annotations
@@ -31,7 +33,7 @@ from pathlib import Path
 from resource_format import ResourceNode, parse_resource_text
 from mdl16_format import decode_icon, find_header
 
-# Flat dark background colour (RGBA). Terrain is explicitly out of scope.
+# Flat dark background colour (RGBA). Used when terrain is disabled/unavailable.
 BACKGROUND = (24, 22, 28, 255)
 
 
@@ -109,6 +111,13 @@ class Canvas:
                 pixels[idx + 2] = b
                 pixels[idx + 3] = a
 
+    def fill_row(self, y: int, row_rgba: bytes) -> None:
+        """Overwrite one full scanline with `row_rgba` (width*4 bytes). Used by terrain
+        rendering, which produces one opaque row at a time."""
+        stride = self.width * 4
+        base = y * stride
+        self.pixels[base: base + stride] = row_rgba
+
     def downsample(self, scale: float) -> tuple[int, int, bytearray]:
         """Nearest-neighbour resample. scale==1.0 returns the buffer unchanged."""
         if scale == 1.0:
@@ -129,6 +138,163 @@ class Canvas:
                 oi = out_row_base + ox * 4
                 out[oi: oi + 4] = src[si: si + 4]
         return new_w, new_h, out
+
+
+# ---------------------------------------------------------------------------
+# Terrain (Plasma Ground = CPlasmaTileMap)
+# ---------------------------------------------------------------------------
+#
+# See docs/map-editor-design.md, "Terrain". Two data sources:
+#   - `Texture 0` (and `Texture 1..N-1`, unused here -- multi-texture selection is an
+#     open question and out of scope): a 128x128 raw-16bpp ground tile, tiled across the
+#     whole canvas with wraparound.
+#   - `Light Overlay Row N`: 3 bytes (R,G,B) per grid vertex, on a
+#     `Width/64 + 1` by `Height/64 + 1` vertex grid; 128 is neutral. Modulates the tiled
+#     texture: out = clamp(texel * light / 128), bilinearly interpolated between
+#     vertices so there's no visible blockiness at 64px cell boundaries.
+# Elevation (`Elevations Row N`) is recorded in the design doc as an open question and is
+# deliberately not read here.
+
+GRID_CELL = 64  # world units between adjacent Light Overlay / Elevation vertices
+
+
+def texture_path_for_name(data_root: Path, name: str) -> Path:
+    # Texture names use forward slashes for subdirectories, e.g. "Rethgorad/grnd3".
+    return data_root / "Cache" / "Textures" / (name + ".frm16")
+
+
+def load_ground_texture(data_root: Path, name: str) -> dict | None:
+    """Decode a ground texture (raw-16bpp .frm16) to the same dict shape as
+    mdl16_format.decode_icon. Returns None on any load/decode failure."""
+    try:
+        data = texture_path_for_name(data_root, name).read_bytes()
+    except OSError:
+        return None
+    try:
+        return decode_icon(data)
+    except Exception:
+        return None
+
+
+def parse_light_grid(node: ResourceNode, grid_cols: int, grid_rows: int):
+    """Parse `Light Overlay Row 0..grid_rows-1` into a grid_rows x grid_cols list of
+    (r,g,b) tuples. Returns None if any row is missing, mismatched in length, or not
+    valid hex -- modulation is then skipped rather than the render failing."""
+    grid = []
+    for ry in range(grid_rows):
+        raw = node.get(f"Light Overlay Row {ry}")
+        if not isinstance(raw, str):
+            return None
+        hexstr = raw.strip()
+        if len(hexstr) != grid_cols * 6:  # 3 bytes/vertex, 2 hex chars/byte
+            return None
+        try:
+            b = bytes.fromhex(hexstr)
+        except ValueError:
+            return None
+        grid.append([(b[3 * c], b[3 * c + 1], b[3 * c + 2]) for c in range(grid_cols)])
+    return grid
+
+
+def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode) -> dict:
+    """Tile `Texture 0` across the whole canvas, modulated by the light overlay
+    (bilinear between grid vertices), writing directly into `canvas`. Meant to run
+    before any entity sprites are blitted, so terrain ends up underneath them.
+
+    Returns a summary dict: texture name, grid dimensions, whether light modulation
+    was applied, and a `note` on anything that fell back.
+    """
+    summary = {
+        "texture": None, "grid_cols": None, "grid_rows": None,
+        "light_modulation": False, "note": None,
+    }
+
+    tex_name = plasma_node.get("Texture 0")
+    if not tex_name:
+        summary["note"] = "no 'Texture 0' field on Plasma Ground"
+        return summary
+    summary["texture"] = tex_name
+
+    texture = load_ground_texture(data_root, tex_name)
+    if texture is None:
+        summary["note"] = f"failed to load/decode texture {tex_name!r}"
+        return summary
+
+    tex_w, tex_h = texture["width"], texture["height"]
+    # Split into separate per-channel row arrays (plain ints, not (r,g,b,a) tuples) --
+    # avoids per-pixel tuple indexing in the hot loop below.
+    tex_r_rows = [[px[0] for px in row] for row in texture["rows"]]
+    tex_g_rows = [[px[1] for px in row] for row in texture["rows"]]
+    tex_b_rows = [[px[2] for px in row] for row in texture["rows"]]
+
+    width, height = canvas.width, canvas.height
+    grid_cols = width // GRID_CELL + 1
+    grid_rows = height // GRID_CELL + 1
+    summary["grid_cols"] = grid_cols
+    summary["grid_rows"] = grid_rows
+
+    light_grid = parse_light_grid(plasma_node, grid_cols, grid_rows)
+    if light_grid is None:
+        summary["note"] = "Light Overlay missing or dimensions didn't match the grid; modulation skipped"
+    summary["light_modulation"] = light_grid is not None
+
+    FX = [i / GRID_CELL for i in range(GRID_CELL)]  # bilinear x-weights, reused every cell
+    stride = width * 4
+    alpha_row = b"\xff" * width
+
+    for y in range(height):
+        ty = y % tex_h
+        reps = -(-width // tex_w)  # ceil division
+        tiled_r = (tex_r_rows[ty] * reps)[:width]
+        tiled_g = (tex_g_rows[ty] * reps)[:width]
+        tiled_b = (tex_b_rows[ty] * reps)[:width]
+
+        if light_grid is not None:
+            ry0 = min(y // GRID_CELL, grid_rows - 2)
+            fy = (y - ry0 * GRID_CELL) / GRID_CELL
+            top = light_grid[ry0]
+            bottom = light_grid[ry0 + 1]
+
+            lr_row = [0.0] * width
+            lg_row = [0.0] * width
+            lb_row = [0.0] * width
+            for cx in range(grid_cols - 1):
+                x0 = cx * GRID_CELL
+                x1 = min(x0 + GRID_CELL, width)
+                n = x1 - x0
+                tl_r, tl_g, tl_b = top[cx]
+                tr_r, tr_g, tr_b = top[cx + 1]
+                bl_r, bl_g, bl_b = bottom[cx]
+                br_r, br_g, br_b = bottom[cx + 1]
+                # vertical lerp at the two vertex columns bounding this cell
+                l_r = tl_r + (bl_r - tl_r) * fy
+                l_g = tl_g + (bl_g - tl_g) * fy
+                l_b = tl_b + (bl_b - tl_b) * fy
+                r_r = tr_r + (br_r - tr_r) * fy
+                r_g = tr_g + (br_g - tr_g) * fy
+                r_b = tr_b + (br_b - tr_b) * fy
+                d_r, d_g, d_b = r_r - l_r, r_g - l_g, r_b - l_b
+                fx_slice = FX if n == GRID_CELL else FX[:n]
+                # horizontal lerp across the cell's width
+                lr_row[x0:x1] = [l_r + d_r * fx for fx in fx_slice]
+                lg_row[x0:x1] = [l_g + d_g * fx for fx in fx_slice]
+                lb_row[x0:x1] = [l_b + d_b * fx for fx in fx_slice]
+
+            row_bytes = bytearray(stride)
+            row_bytes[0::4] = bytes(min(255, int(t * l / 128)) for t, l in zip(tiled_r, lr_row))
+            row_bytes[1::4] = bytes(min(255, int(t * l / 128)) for t, l in zip(tiled_g, lg_row))
+            row_bytes[2::4] = bytes(min(255, int(t * l / 128)) for t, l in zip(tiled_b, lb_row))
+            row_bytes[3::4] = alpha_row
+        else:
+            row_bytes = bytearray(stride)
+            row_bytes[0::4] = bytes(tiled_r)
+            row_bytes[1::4] = bytes(tiled_g)
+            row_bytes[2::4] = bytes(tiled_b)
+            row_bytes[3::4] = alpha_row
+
+        canvas.fill_row(y, row_bytes)
+
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -158,10 +324,14 @@ def sprite_path_for_model(data_root: Path, model: str) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render a Lionheart .zax map to a PNG (phase 0, no terrain).")
+    parser = argparse.ArgumentParser(description="Render a Lionheart .zax map to a PNG.")
     parser.add_argument("zax_path", help="path to the .zax map file")
     parser.add_argument("out_png", help="output PNG path")
     parser.add_argument("--scale", type=float, default=1.0, help="downsample factor for the output PNG (default 1.0)")
+    parser.add_argument(
+        "--no-terrain", action="store_true",
+        help="skip Plasma Ground terrain rendering; reproduces phase-0 flat-background output",
+    )
     parser.add_argument(
         "--data-root",
         default=r"C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader\data",
@@ -183,6 +353,14 @@ def main() -> int:
     canvas_height = int(float(height_raw))
 
     canvas = Canvas(canvas_width, canvas_height, BACKGROUND)
+
+    terrain_summary = None
+    if not args.no_terrain:
+        plasma_node = root.get("Plasma Ground")
+        if isinstance(plasma_node, ResourceNode):
+            terrain_summary = render_terrain(canvas, data_root, plasma_node)
+        else:
+            terrain_summary = {"note": "no 'Plasma Ground' node on the map root"}
 
     # sprite cache: model path -> decoded icon dict, or None for a load that failed
     sprite_cache: dict[str, dict | None] = {}
@@ -273,6 +451,20 @@ def main() -> int:
     for reason, count in sorted(skip_reasons.items(), key=lambda kv: -kv[1]):
         print(f"  - {reason}: {count}")
     print(f"distinct sprites loaded: {distinct_sprites_loaded}")
+    if args.no_terrain:
+        print("terrain: disabled (--no-terrain)")
+    elif terrain_summary is None:
+        print("terrain: (unexpected) not rendered")
+    elif terrain_summary.get("texture") is None:
+        print(f"terrain: not rendered ({terrain_summary['note']})")
+    else:
+        print(
+            f"terrain: texture={terrain_summary['texture']!r}, "
+            f"grid={terrain_summary['grid_cols']}x{terrain_summary['grid_rows']}, "
+            f"light modulation={'yes' if terrain_summary['light_modulation'] else 'no'}"
+        )
+        if terrain_summary["note"]:
+            print(f"  note: {terrain_summary['note']}")
     print(f"elapsed: {elapsed:.2f}s")
     print(f"output dimensions: {out_w}x{out_h}  (canvas {canvas_width}x{canvas_height}, scale {args.scale})")
     print(f"wrote {args.out_png}")
