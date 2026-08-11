@@ -219,12 +219,67 @@ class PaletteTree(QTreeWidget):
 # ---------------------------------------------------------------------------
 
 class MapView(QGraphicsView):
+    # A 4096x960 map does not fit on screen at 1:1, so zooming out far enough to see the
+    # whole thing matters more here than zooming in. Lower bound is generous for that.
+    MIN_SCALE = 0.05
+    MAX_SCALE = 8.0
+    ZOOM_STEP = 1.25
+
     def __init__(self, scene: QGraphicsScene, window: "MainWindow"):
         super().__init__(scene)
         self.window = window
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setAcceptDrops(True)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+
+    # -- zoom ------------------------------------------------------------
+
+    def current_scale(self) -> float:
+        return self.transform().m11()
+
+    def zoom_by(self, factor: float, anchor_under_mouse: bool = True) -> None:
+        """Multiply the zoom, clamped. Keeping the point under the cursor fixed is what
+        makes wheel zoom feel right; keyboard zoom anchors on the view centre instead."""
+        target = self.current_scale() * factor
+        if target < self.MIN_SCALE:
+            factor = self.MIN_SCALE / self.current_scale()
+        elif target > self.MAX_SCALE:
+            factor = self.MAX_SCALE / self.current_scale()
+        if abs(factor - 1.0) < 1e-9:
+            return
+        old_anchor = self.transformationAnchor()
+        if not anchor_under_mouse:
+            self.setTransformationAnchor(QGraphicsView.AnchorViewCenter)
+        self.scale(factor, factor)
+        self.setTransformationAnchor(old_anchor)
+        self.window.report_zoom(self.current_scale())
+
+    def zoom_in(self):
+        self.zoom_by(self.ZOOM_STEP, anchor_under_mouse=False)
+
+    def zoom_out(self):
+        self.zoom_by(1 / self.ZOOM_STEP, anchor_under_mouse=False)
+
+    def zoom_reset(self):
+        self.resetTransform()
+        self.window.report_zoom(self.current_scale())
+
+    def zoom_fit(self):
+        """Fit the whole map in the view -- the default on open for a wide map."""
+        rect = self.scene().sceneRect()
+        if rect.isEmpty():
+            return
+        self.fitInView(rect, Qt.KeepAspectRatio)
+        self.window.report_zoom(self.current_scale())
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            self.zoom_by(self.ZOOM_STEP if delta > 0 else 1 / self.ZOOM_STEP)
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.window.selected_palette_model:
@@ -438,7 +493,23 @@ class MainWindow(QMainWindow):
         delete_action.setShortcut(QKeySequence(Qt.Key_Delete))
         delete_action.triggered.connect(self.delete_selected)
 
+        view_menu = self.menuBar().addMenu("&View")
+        zoom_in = view_menu.addAction("Zoom &In")
+        zoom_in.setShortcuts([QKeySequence.ZoomIn, QKeySequence("Ctrl+=")])
+        zoom_in.triggered.connect(self.view.zoom_in)
+        zoom_out = view_menu.addAction("Zoom &Out")
+        zoom_out.setShortcuts([QKeySequence.ZoomOut, QKeySequence("Ctrl+-")])
+        zoom_out.triggered.connect(self.view.zoom_out)
+        fit = view_menu.addAction("&Fit Map in Window")
+        fit.setShortcut(QKeySequence("Ctrl+0"))
+        fit.triggered.connect(self.view.zoom_fit)
+        actual = view_menu.addAction("&Actual Size (100%)")
+        actual.setShortcut(QKeySequence("Ctrl+1"))
+        actual.triggered.connect(self.view.zoom_reset)
+
         self.statusBar()
+        self.zoom_label = QLabel()
+        self.statusBar().addPermanentWidget(self.zoom_label)
 
     def _populate_palette(self):
         self.models = self.cat.list_models()
@@ -719,6 +790,9 @@ class MainWindow(QMainWindow):
         star = "*" if self.doc.dirty else ""
         return f"{self.doc.path.name}{star} — Lionheart Map Editor"
 
+    def report_zoom(self, scale: float) -> None:
+        self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
+
     def save(self):
         try:
             self.doc.save()
@@ -882,6 +956,9 @@ def main() -> int:
     window = MainWindow(Path(args.zax_path), Path(args.data_root))
     window.resize(1400, 900)
     window.show()
+    # Fit after show(), so the viewport has its real size -- fitting before it is laid
+    # out computes against a placeholder and lands at the wrong zoom.
+    window.view.zoom_fit()
     return app.exec()
 
 
