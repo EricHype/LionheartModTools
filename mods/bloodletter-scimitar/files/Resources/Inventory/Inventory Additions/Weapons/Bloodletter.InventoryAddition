@@ -19,71 +19,82 @@ CInventoryAddition
 					}
 				}
 				Character to get attributes from=$Instigator
-				Then=CActionDoDamage
+				Then=CIfExpressionAction
 				{
-					Character Doing Damage=$instigator
-					Character To Damage=$trigger
-					Defend Against=0
-					No Friendly Fire Check=0
-					Damages=Array
+					If Expression=CIsLessThan
 					{
-						Item Count=1
-						Damage=CXRPGDamageOverTime
+						Operand1=CRandom
 						{
-							Damage Type=Damage Types/Slashing
-							Damage Amount=CIfExpression
+							Operator=
+							Minimum=CConstant
 							{
-								Condition=CIsLessThan
-								{
-									Operand1=CRandom
-									{
-										Operator=
-										Minimum=CConstant
-										{
-											Constant Value=0
-										}
-										Maximum=CConstant
-										{
-											Constant Value=100
-										}
-									}
-									Operator=
-									Operand2=CInventoryAdditionsNamedExpressionExpression
-									{
-										InventoryAddition=Inventory/Inventory Additions/Weapons/Bloodletter
-										Expression Name=chancetobleed
-										Value=0
-									}
-								}
-								OperatorPart1=
-								Value if True =CRandom
-								{
-									Operator=
-									Minimum=CInventoryAdditionsNamedExpressionExpression
-									{
-										InventoryAddition=Inventory/Inventory Additions/Weapons/Bloodletter
-										Expression Name=min
-										Value=0
-									}
-									Maximum=CInventoryAdditionsNamedExpressionExpression
-									{
-										InventoryAddition=Inventory/Inventory Additions/Weapons/Bloodletter
-										Expression Name=max
-										Value=0
-									}
-								}
-								OperatorPart2=
-								Value if False=CConstant
-								{
-									Constant Value=0
-								}
+								Constant Value=0
 							}
-							Duration=CConstant
+							Maximum=CConstant
 							{
-								Constant Value=15
+								Constant Value=100
+							}
+						}
+						Operator=
+						Operand2=CInventoryAdditionsNamedExpressionExpression
+						{
+							InventoryAddition=Inventory/Inventory Additions/Weapons/Bloodletter
+							Expression Name=chancetobleed
+							Value=0
+						}
+					}
+					Character to get attributes from=$Instigator
+					Then=CMultipleActionsAction
+					{
+						Action=Array
+						{
+							Item Count=1
+							Action=CActionDoDamage
+							{
+								Character Doing Damage=$Instigator
+								Character To Damage=$trigger
+								Defend Against=0
+								No Friendly Fire Check=0
+								Damages=Array
+								{
+									Item Count=1
+									Damage=CXRPGDamageOverTime
+									{
+										Damage Type=Damage Types/Slashing
+										Damage Amount=CMultiply
+										{
+											Operand1=CRandom
+											{
+												Operator=
+												Minimum=CInventoryAdditionsNamedExpressionExpression
+												{
+													InventoryAddition=Inventory/Inventory Additions/Weapons/Bloodletter
+													Expression Name=min
+													Value=0
+												}
+												Maximum=CInventoryAdditionsNamedExpressionExpression
+												{
+													InventoryAddition=Inventory/Inventory Additions/Weapons/Bloodletter
+													Expression Name=max
+													Value=0
+												}
+											}
+											Operator=
+											Operand2=CConstant
+											{
+												Constant Value=3
+											}
+										}
+										Duration=CConstant
+										{
+											Constant Value=15
+										}
+									}
+								}
 							}
 						}
 					}
+					Else=
 				}
 				Else=
 			}

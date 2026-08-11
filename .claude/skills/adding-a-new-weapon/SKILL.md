@@ -58,35 +58,67 @@ PlugIn Behavior=CPlugInBehaviorStrikeAction
 
 ### Damage over time
 
-`CXRPGDamageOverTime{Damage Type=Damage Types/Slashing, Damage Amount=<expr>, Duration=<expr>}`.
-The tick interval is **fixed at 5 seconds** and is not a field — `Damage Amount` is
-per-tick and `Duration` is total seconds, so `Duration=15` means three ticks. Established
-from the vanilla `Poison Touch` / `Poison` arrow additions.
+`CXRPGDamageOverTime{Damage Type=..., Damage Amount=<expr>, Duration=<expr>}`. The tick
+interval is **fixed at 5 seconds** and is not a field, so `Duration=15` means three ticks.
+
+**`Damage Amount` is the TOTAL across the whole effect, not the per-tick amount.** Every
+vanilla DoT multiplies its intended per-tick value by the tick count:
+
+| addition | duration | multiplier |
+|---|---:|---:|
+| Gas Cloud | 10s | ×2 |
+| Double Biter | 15s | ×3 |
+| Snakebite / Poison / Poison Bolt | 20s | ×4 |
+
+So for 2-4 damage per tick over 15s:
+
+```
+Damage Amount=CMultiply
+{
+    Operand1=CRandom { Operator=, Minimum=<min expr>, Maximum=<max expr> }
+    Operator=
+    Operand2=CConstant { Constant Value=3 }
+}
+```
+
+Getting this wrong fails **silently and invisibly**: passing 2-4 raw with a 15s duration
+spreads under 1 damage per tick, which floors to nothing. The effect applies correctly and
+deals zero, so it looks exactly like the proc never fired. Cost several test cycles here.
+
+**The engine calls this an "infection".** A successful application prints
+`<Damage Type> infection` — e.g. a Slashing DoT reads "slashing infection", not "bleed".
+Useful to know when checking whether it fired.
 
 ### Chance-based procs
 
-Do **not** reach for a nested `CIfAction` — that runs into the `If=` grammar gotcha. Put
-the roll directly inside the numeric field, the way vanilla `Vampirism.InventoryAddition`
-does:
+Nest a second `CIfExpressionAction` inside the hit check's `Then`, as vanilla
+`Double Biter` does:
 
 ```
-Damage Amount=CIfExpression
+Then=CIfExpressionAction
 {
-    Condition=CIsLessThan
+    If Expression=CIsLessThan
     {
         Operand1=CRandom { Operator=, Minimum=CConstant{Constant Value=0}, Maximum=CConstant{Constant Value=100} }
         Operator=
         Operand2=<named expression "chancetobleed">
     }
-    OperatorPart1=
-    Value if True =<named expression, or CRandom between two of them>
-    OperatorPart2=
-    Value if False=CConstant { Constant Value=0 }
+    Character to get attributes from=$Instigator
+    Then=CActionDoDamage { ... }
+    Else=
 }
 ```
 
-Note the authentic irregular spacing: **`Value if True =`** has a space before `=`,
-`Value if False=` does not. Preserve it exactly.
+**The `If=` grammar gotcha does not apply here.** That gotcha is about `CIfAction`'s `If=`
+field, which wants a bare action. `CIfExpressionAction` has a different field —
+`If Expression=` — which takes an expression directly, so nesting is fine. An earlier
+version of this doc wrongly generalised the gotcha and recommended embedding a
+`CIfExpression` inside `Damage Amount` instead; no vanilla DoT weapon does that, and it
+is not worth the risk when the nested-action form is proven.
+
+If you *do* put a `CIfExpression` in a numeric field (vanilla `Ratsbane` does, for skill
+scaling), note the authentic irregular spacing: **`Value if True =`** has a space before
+`=`, `Value if False=` does not. Preserve it exactly.
 
 ### Named expressions, and interpolating them into the description
 
