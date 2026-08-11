@@ -170,30 +170,46 @@ Two candidate mechanisms, both untested:
 Against (1): Calle Perdida has 168 distinct elevation values for 9 textures, so elevation
 is clearly not a direct index — at most a banded one.
 
-### Hypothesis 1 is DISPROVEN
+### SOLVED: elevation is the index, blended between four corners
 
-Tested against ground truth (`bugs/Screen Shot 05.TGA`, the Gate District main gate — the
-game writes 800x600 RLE 24-bit TGA). Rendering the same region with
-`texture = textures[elev * num_textures // 256]` produces **blocky 64px noise**: scattered
-single-cell patches of unrelated textures. The game shows smooth, uniform ground there.
+The elevation byte **is** the texture selector, and the earlier "disproven" verdict was a
+flawed test, not a wrong hypothesis.
 
-Elevation is not the ground-type selector, at least not that directly.
+**Proof from the binary.** In the deserialiser the elevation rows are read straight into
+the plane at object offset `0x2c40`:
 
-Worth recording *why this looked promising*, since the same trap is easy to re-enter. The
-elevation layer really is flat plateaus with sharp boundaries rather than a smooth height
-field, and plotting it collapsed to texture *families* (grnd vs RethrGrass) really does
-produce coherent regions matching map features. But that coherence is entirely at the
-family level — collapsing 21 textures into 2 hides that the within-family index is
-scattered cell to cell. A two-bucket plot will look convincing for almost any mapping.
+```
+0F AF 8E B8 2D 00 00    IMUL ECX, [ESI+0x2db8]     ; count = grid_w * grid_h
+51 6A 00 6A 00          PUSH count, 0, 0
+8D 8E 40 2C 00 00       LEA  ECX, [ESI+0x2c40]     ; <- the plane
+E8 7C 4E F7 FF          CALL 0x0055ec50
+```
 
-The experiment is preserved as `--texture-mode elevation` so it can be re-run, but
-`single` (tile `Texture 0`) is the default because it visibly matches the game better.
+and `FUN_005ed3e0` samples that same plane (`vtable +0xf4`) to choose a tile's texture.
 
-### Where to pick this up
+**Why the first test failed.** The engine does not pick one texture per cell.
+`FUN_005ed990` reads the tile's **four corner values** and interpolates across the tile,
+so the index varies per pixel and regions melt into one another. Filling each 64px cell
+flat with a single index makes *any* mapping look like blocky noise. The mapping was fine;
+the fill method was wrong. Rendering the same crop with four-corner blending produces
+smooth organic regions — plaza, grass, dirt, flagstone — matching the character of
+`bugs/Screen Shot 05.TGA`.
 
-Ground truth now exists: `bugs/Screen Shot 05.TGA` versus
-`exports/renders/gd_gate_area.png` (same crop, world x1500-2500 y1900-2650, Main Gate at
-2150,2401). Comparing those two is the fastest way to judge any future hypothesis.
+**The implemented model**, now the renderer's default (`--texture-mode elevation`):
+
+```
+index(vertex)   = elevation_byte * Num Textures // 256
+index(pixel)    = bilinear blend of the tile's four corner indices
+texel           = textures[round(index(pixel))] sampled at (x % 128, y % 128)
+out             = texel * light / 128        (light also bilinear, see above)
+```
+
+The scaling step is the one part still inferred rather than read out of the binary. The
+engine indexes a 256-entry table of 28-byte records at object offset `0x1040` (confirmed
+by arithmetic: `0x2c40 - 0x1040 = 256 * 0x1c`), and what populates that table was never
+found — `Texture N` parsing writes into a separate 4-byte-stride list at `0x1038`. So
+`* Num Textures // 256` is a stand-in for whatever expands the declared textures across
+those 256 slots. It produces plausible output; it is not proven exact.
 
 ### What the Ghidra dig established
 

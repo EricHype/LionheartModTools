@@ -269,21 +269,29 @@ def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode,
         summary["note"] = "Light Overlay missing or dimensions didn't match the grid; modulation skipped"
     summary["light_modulation"] = light_grid is not None
 
-    # Per-cell texture choice. DISPROVEN as a default: banding the elevation byte across
-    # the texture list (elev * n // 256) produces blocky 64px noise, not the smooth
-    # regions the game shows -- verified against an in-game screenshot of the Gate
-    # District main gate. Elevation is not the ground-type selector, or at least not this
-    # directly. Kept behind --texture-mode=elevation so the experiment is reproducible;
-    # see docs/map-editor-design.md for what this ruled out.
+    # Texture selection from the elevation byte.
+    #
+    # Confirmed in Lionheart.exe: the elevation rows load into the plane at object offset
+    # 0x2c40 (`LEA ECX,[ESI+0x2c40]` before the read in the deserialiser), and that same
+    # plane is what FUN_005ed3e0 samples to pick a tile's texture. So elevation IS the
+    # selector.
+    #
+    # Crucially the engine does NOT pick one texture per cell. FUN_005ed990 reads the
+    # tile's FOUR corner values and interpolates across the tile, so the index varies
+    # per pixel and regions blend smoothly into each other. Choosing per cell instead
+    # makes any mapping look like blocky noise -- that mistake previously led to this
+    # approach being written off as disproven.
     elev_grid = None
-    if elevation_textures and len(loaded) > 1:
+    if len(loaded) > 1:
         elev_grid = parse_elevation_grid(plasma_node, grid_cols, grid_rows)
-    summary["texture_selection"] = "elevation-band" if elev_grid else "single (Texture 0)"
-    if elev_grid:
-        n = len(loaded)
-        tex_choice = [[min(e * n // 256, n - 1) for e in row] for row in elev_grid]
-    else:
-        tex_choice = None
+    if elev_grid and not elevation_textures:
+        elev_grid = None  # caller asked for flat single-texture ground
+    summary["texture_selection"] = (
+        "elevation index, 4-corner blend" if elev_grid else "single (Texture 0)")
+    n_tex = len(loaded)
+    tex_choice = (
+        [[min(e * n_tex // 256, n_tex - 1) for e in row] for row in elev_grid]
+        if elev_grid else None)
 
     FX = [i / GRID_CELL for i in range(GRID_CELL)]  # bilinear x-weights, reused every cell
     stride = width * 4
@@ -297,22 +305,39 @@ def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode,
             tiled_g = (tex_g[0][ty] * reps)[:width]
             tiled_b = (tex_b[0][ty] * reps)[:width]
         else:
-            # Assemble the row cell by cell, each from whichever texture its elevation
-            # selects, sliced at the right tiling phase so the pattern stays continuous
-            # across cell boundaries.
+            # Per-pixel index, bilinearly blended between the tile's four corner values,
+            # matching FUN_005ed990. Done per cell so the interpolation weights and the
+            # texture rows are hoisted out of the inner loop.
             gy = min(y // GRID_CELL, len(tex_choice) - 1)
-            choice_row = tex_choice[gy]
+            gy1 = min(gy + 1, len(tex_choice) - 1)
+            fy = (y - gy * GRID_CELL) / GRID_CELL
+            top_row, bot_row = tex_choice[gy], tex_choice[gy1]
+            rows_r = [t[ty] for t in tex_r]
+            rows_g = [t[ty] for t in tex_g]
+            rows_b = [t[ty] for t in tex_b]
             tiled_r, tiled_g, tiled_b = [], [], []
+            last = len(top_row) - 1
             for cx in range(grid_cols):
                 x0 = cx * GRID_CELL
                 if x0 >= width:
                     break
-                n = min(GRID_CELL, width - x0)
-                ti = choice_row[min(cx, len(choice_row) - 1)]
+                span = min(GRID_CELL, width - x0)
+                c0, c1 = min(cx, last), min(cx + 1, last)
+                # vertical lerp at the cell's two vertex columns
+                left = top_row[c0] + (bot_row[c0] - top_row[c0]) * fy
+                right = top_row[c1] + (bot_row[c1] - top_row[c1]) * fy
+                delta = right - left
                 ph = x0 % tex_w
-                tiled_r += tex_r[ti][ty][ph:ph + n]
-                tiled_g += tex_g[ti][ty][ph:ph + n]
-                tiled_b += tex_b[ti][ty][ph:ph + n]
+                for k in range(span):
+                    ti = int(left + delta * FX[k] + 0.5)
+                    if ti < 0:
+                        ti = 0
+                    elif ti >= n_tex:
+                        ti = n_tex - 1
+                    tp = ph + k
+                    tiled_r.append(rows_r[ti][tp])
+                    tiled_g.append(rows_g[ti][tp])
+                    tiled_b.append(rows_b[ti][tp])
 
         if light_grid is not None:
             ry0 = min(y // GRID_CELL, grid_rows - 2)
@@ -398,10 +423,11 @@ def main() -> int:
         help="skip Plasma Ground terrain rendering; reproduces phase-0 flat-background output",
     )
     parser.add_argument("--texture-mode", choices=["single", "elevation"],
-                        default="single",
-                        help="ground texture selection: \'single\' tiles Texture 0 (default); "
-                             "\'elevation\' bands the elevation byte across the texture list "
-                             "(disproven -- produces blocky noise, kept for reproducibility)")
+                        default="elevation",
+                        help="ground texture selection: 'elevation' (default) treats the "
+                             "elevation byte as a texture index and blends it between each "
+                             "tile's four corners, as the engine does; 'single' tiles "
+                             "Texture 0 across the whole map")
     parser.add_argument(
         "--data-root",
         default=r"C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader\data",
