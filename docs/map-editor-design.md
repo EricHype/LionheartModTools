@@ -102,6 +102,66 @@ on buffer 1's size prefix rather than dimensions; see that function's docstring 
 two approaches that were tried and rejected. `Fence A`'s negative-Y hotspot remains open
 (neither test map uses that asset).
 
+## Terrain
+
+`Plasma Ground=CPlasmaTileMap`. Three earlier claims in this document were wrong and are
+corrected here; terrain is considerably more tractable than first assessed.
+
+### The texture art is the simplest format in the game
+
+All 217 files under `Cache/Textures/**.frm16` are **raw uncompressed 16bpp RGB565**,
+128x128 (one is 32x32): `flags=0x40`, meaning mode bits `0x40 & 6 == 0` (raw) and depth
+bits `0x40` (16bpp). Buffer 1 is exactly `width * height * 2` bytes — no RLE, no row
+table, no opcode grammar. `decode_icon()` rejects them today only because it implements
+the RLE-16bpp path and raises `NotImplementedError` on everything else.
+
+Each texture has a `Textures/<name>.TXT` sidecar (`CGroundTextureFrame`) carrying
+`Damage`, `Damage Type` and `Surface Type` — gameplay properties, nothing needed for
+rendering.
+
+### There are exactly two data layers
+
+Per 64-unit grid vertex, so `Width/64 + 1` columns by `Height/64 + 1` rows:
+
+| layer | bytes per vertex | meaning |
+|---|---|---|
+| `Elevations Row N` | 1 | height, 0-255 |
+| `Light Overlay Row N` | **3** | per-vertex RGB light; 128,128,128 is neutral |
+
+`Light Overlay` being 3 bytes wide is easy to misread as something else — an earlier
+draft of this document guessed it might be a texture blend index. It is vertex colour.
+
+Also corrected: **192 of 201 shipped maps have real elevation variation** (full 0-255
+range), not the handful first assumed. Terrain is not mostly flat.
+
+### The one genuine unknown
+
+**There is no per-cell texture index anywhere in the structure** — verified on a
+9-texture map, which still has only the two layers above. Yet maps declare up to 28
+textures (`Num Textures` across shipped maps runs 0-28; only 25 maps use exactly 1). So
+texture *selection* must be procedural, which is what the class name is telling us —
+"plasma".
+
+The obvious testable hypothesis: **elevation doubles as the texture selector**, with
+elevation bands indexing the texture list and `Blending` (seen at 0.5 and 0.9) softening
+the transitions. That would explain both why elevation spans the full byte range and why
+no separate index exists. Untested.
+
+### What to build, and where to stop
+
+1. **Add raw-16bpp decoding** to `mdl16_format.decode_icon()`. No unknowns.
+2. **Tile `Texture 0`** across the canvas and modulate by the light overlay, bilinear
+   between vertices. This alone replaces the flat background with real ground.
+3. **Then one experiment**: render a multi-texture map under the elevation-band
+   hypothesis and compare to an in-game screenshot. If the bands line up, terrain is
+   solved. If not, stop — approximate ground is sufficient for a placement editor, where
+   the point is spatial context rather than fidelity.
+
+Worth keeping in perspective: a map authored from scratch should use `Num Textures=1`
+anyway (the standing recommendation in the `lionheart-modding` skill, made while blending
+was unknown). At one texture the procedural question does not arise and rendering is
+exact. This work mainly improves *viewing shipped maps*.
+
 ## Phase 1 — entity placement
 
 The 90% case. Everything a scenery pass needs:
@@ -126,11 +186,9 @@ The 90% case. Everything a scenery pass needs:
 
 ## Explicitly out of scope for v1
 
-- **Terrain editing.** `CPlasmaTileMap` stores one elevation byte per 64-unit grid vertex
-  plus a light overlay, but there is **no per-cell texture index anywhere in the
-  structure** — multi-texture blending is procedural and was never reverse-engineered.
-  Render terrain as a flat tinted grid; do not offer to edit it. Also note the scratch
-  template ships inconsistent `Height` vs actual row count and a garbage `Blending` value.
+- **Terrain *editing*.** Rendering it is now in scope (see "Terrain" below); authoring
+  heightmaps and texture sets is not. Note the scratch template ships an inconsistent
+  `Height` vs its actual row count, and a garbage `Blending` value.
 - **Interaction zones.** `CFreeRangePoly` hover does not work in hand-authored maps — four
   construction variants were tried and none produced an interaction cursor. A GUI must not
   offer a tool whose output silently doesn't work. Place model-based doors instead. The
