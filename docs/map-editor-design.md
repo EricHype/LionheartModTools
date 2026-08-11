@@ -89,8 +89,11 @@ Done. `zax_render.py` renders a `.zax` to PNG using stdlib only (`zlib`/`struct`
 `resource_format.py` and `mdl16_format.py`. Gate District: 607 renderable entities, 215
 distinct sprites, 0 skipped, 4.5s at `--scale 0.25`.
 
-**The rendering model in this document is confirmed correct.** The output is recognisably
-Gate District — continuous fortified walls, the gatehouse, red-roofed buildings, roads
+**The rendering model in this document is confirmed correct** -- and independently
+verified against ground truth since: a full-scale render of `Test Pocket.zax`, which uses
+`Num Textures=1` and so has no procedural-texture confound, matches an in-game screenshot
+of the same arena closely (same flagstone ground, same wall layout, same prop placement).
+The output is also recognisably Gate District — continuous fortified walls, the gatehouse, red-roofed buildings, roads
 curving between them, with sensible occlusion. So `pos - hotspot_as_stored` and
 painter's-algorithm-by-Y are right, and phase 1 can be built on them.
 
@@ -142,10 +145,35 @@ textures (`Num Textures` across shipped maps runs 0-28; only 25 maps use exactly
 texture *selection* must be procedural, which is what the class name is telling us —
 "plasma".
 
-The obvious testable hypothesis: **elevation doubles as the texture selector**, with
-elevation bands indexing the texture list and `Blending` (seen at 0.5 and 0.9) softening
-the transitions. That would explain both why elevation spans the full byte range and why
-no separate index exists. Untested.
+The texture *names* are the strongest clue. Gate District declares 21, and they are
+grouped families with numbered variants:
+
+```
+grnd3, grnd3_1, grnd3_2      grnd1, grnd1_1, grnd1_2
+grnd5, grnd5_1, grnd5_2      grnd4, grnd4_1, grnd4_2
+grnd2, grnd2_1               RethrGrass2 .. RethrGrass6
+```
+
+That is the classic anti-tiling pattern: several near-identical variants of one ground
+type, shuffled per tile to break up visible repetition, alongside genuinely different
+ground types (dirt families vs grass). It fits "plasma" — variant choice is *generated*,
+which is exactly why no per-cell index is authored in the file.
+
+Two candidate mechanisms, both untested:
+
+1. **Elevation bands select the family**, `Blending` softens transitions, and a hash or
+   noise over tile coordinates picks the variant within a family. Elevation spanning the
+   full 0-255 range across 192 maps is consistent with this.
+2. Family assignment is also procedural (pure plasma/noise), and elevation is only
+   height.
+
+Against (1): Calle Perdida has 168 distinct elevation values for 9 textures, so elevation
+is clearly not a direct index — at most a banded one.
+
+Confirming either needs ground truth: an in-game screenshot of a multi-texture area to
+compare against, or the `CPlasmaTileMap` render path in `Lionheart.exe`. The field-parsing
+function is at `0x005e9860` and `Blending` registers at class offset `0x103c` (default
+0.25f, class size `0x2dfc`); the render path itself has not been located.
 
 ### What to build, and where to stop
 
