@@ -362,7 +362,9 @@ class MapView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            scene_pos = self.mapToScene(event.pos())
+            # position() not pos(): the latter is deprecated in Qt 6 and warns on every
+            # click, which is a lot of noise in a tool you click constantly.
+            scene_pos = self.mapToScene(event.position().toPoint())
             item = self.scene().itemAt(scene_pos, self.transform())
 
             # Eyedropper: pick the clicked entity's model in the palette, so "more of
