@@ -242,6 +242,34 @@ hypothesis, check that the test exercises the mechanism the hypothesis describes
 the blending detail had already been discovered and written into this very document two
 commits before it was connected back to the failed test.
 
+### Authoring ground (done once, for Test Pocket)
+
+Because the elevation byte *is* the texture index, authoring ground means writing
+elevation bytes — no separate paint layer exists. The recipe, as used on
+`mods/test-pocket/`:
+
+1. Declare the textures light-to-dark in `Texture 0..N-1`. **Order matters**: adjacent
+   indices are what a blend passes *through*, so a light base at 0 and a worn variant at
+   2 get a soft edge for free via index 1. Ordering by name instead gives hard seams.
+2. Write each vertex's byte as the centre of its index band, `i * (256//N) + (256//N)//2`,
+   so blending between neighbours lands cleanly rather than on a band boundary.
+3. Keep the row lengths identical — one hex byte pair per grid vertex,
+   `(Width/64 + 1)` per row.
+
+Two traps hit while doing this:
+
+- **Pick textures by measured luminance, not by name.** The Rethgorad palette is
+  uniformly dark and warm: `grnd1` ("dirt") is lum 28 and renders essentially black,
+  while `grnd5` is the brightest ground in the set at lum 103. `RethrGrass5` is the only
+  genuinely green one (hue 126); the other `RethrGrass*` are brown. A first pass chose by
+  name and produced a black ring around the arena.
+- **Clear inherited junk.** Test Pocket carried an 18-cell patch of elevation 142 from
+  the scratch template. Invisible at `Num Textures=1` (everything maps to index 0), it
+  would have appeared as a stray texture patch the moment more textures were declared.
+
+The script is kept at `scratchpad/author_ground.py` in the session that produced it; it
+is short enough to rewrite from this description.
+
 ### Ground truth for future changes
 
 `bugs/Screen Shot 05.TGA` — Gate District main gate, 800x600 RLE 24-bit TGA (the game's
