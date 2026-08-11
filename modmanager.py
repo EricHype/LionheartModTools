@@ -379,6 +379,44 @@ def cmd_restore(args: argparse.Namespace) -> None:
     shutil.copy2(paths["vanilla_bak"], paths["data_dat"])
     print("Restored vanilla data.dat")
 
+    # Restoring data.dat alone is NOT enough. The loose mirror at <game-dir>\data\
+    # shadows data.dat for every path it contains, so leaving modded files there means
+    # the game still loads mod content from a supposedly-restored install. Undo every
+    # path any installed mod touches: revert to the vanilla copy if there is one, delete
+    # it if the mod added the file (no vanilla original to fall back to).
+    if not paths["loose_dir"].is_dir():
+        return
+    touched: set[str] = set()
+    if paths["installed_dir"].is_dir():
+        for mod_dir in paths["installed_dir"].iterdir():
+            files_dir = mod_dir / "files"
+            if not files_dir.is_dir():
+                continue
+            for p in files_dir.rglob("*"):
+                if p.is_file():
+                    touched.add(p.relative_to(files_dir).as_posix())
+
+    reverted = deleted = 0
+    with zipfile.ZipFile(paths["vanilla_bak"]) as zf:
+        vanilla = set(zf.namelist())
+        for rel in sorted(touched):
+            dst = paths["loose_dir"] / rel
+            if not dst.exists():
+                continue
+            if rel in vanilla:
+                data = zf.read(rel)
+                if dst.read_bytes() != data:
+                    dst.write_bytes(data)
+                    reverted += 1
+            else:
+                dst.unlink()
+                deleted += 1
+    if reverted or deleted:
+        print(f"Cleaned the loose mirror: {reverted} file(s) reverted to vanilla, "
+              f"{deleted} mod-added file(s) removed")
+    else:
+        print("Loose mirror was already clean")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Lionheart mod packaging/install tool")

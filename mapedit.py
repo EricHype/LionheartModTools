@@ -12,10 +12,11 @@ delete. See docs/map-editor-design.md, "The rendering model" and "Phase 1", for 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QMimeData
+from PySide6.QtCore import Qt, QTimer, QMimeData, QProcess
 from PySide6.QtGui import (
     QImage, QPixmap, QColor, QBrush, QPen, QUndoStack, QUndoCommand, QKeySequence,
 )
@@ -23,7 +24,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
     QGraphicsEllipseItem, QGraphicsItem, QDockWidget, QWidget, QVBoxLayout, QFormLayout,
     QLineEdit, QDoubleSpinBox, QCheckBox, QListWidget, QListWidgetItem, QTreeWidget,
-    QTreeWidgetItem, QLabel, QMessageBox,
+    QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
+    QDialogButtonBox,
 )
 
 import zax_render as zr
@@ -262,6 +264,9 @@ class MainWindow(QMainWindow):
         self.doc = MapDocument(zax_path)
         self.cat = SpriteCatalogue(data_root)
         self.data_root = data_root
+        # modmanager works on the game directory, which is the data root's parent.
+        self.game_dir = Path(data_root).resolve().parent
+        self._deploy_proc = None
 
         self.pixmap_cache: dict[str, QPixmap | None] = {}
         self.entity_items: dict[int, EntityItem] = {}
@@ -413,6 +418,13 @@ class MainWindow(QMainWindow):
         save_action = file_menu.addAction("&Save")
         save_action.setShortcut(QKeySequence.Save)
         save_action.triggered.connect(self.save)
+        file_menu.addSeparator()
+        self.deploy_action = file_menu.addAction("&Deploy to game…")
+        self.deploy_action.setShortcut(QKeySequence("Ctrl+B"))
+        self.deploy_action.setStatusTip(
+            "Save, then run modmanager install + build so the change reaches the game "
+            "(several minutes)")
+        self.deploy_action.triggered.connect(self.deploy)
 
         edit_menu = self.menuBar().addMenu("&Edit")
         undo_action = self.undo_stack.createUndoAction(self, "&Undo")
@@ -717,6 +729,129 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "Saved. Run modmanager.py install and build for this change to reach the game.",
             8000)
+
+    # -- deploy ----------------------------------------------------------
+
+    def _mod_context(self):
+        """Work out which mod this file belongs to, and who else ships the same path.
+
+        Returns (mod_id, relative_path, winner) or None if the file is not inside a
+        mod's `files/` tree. `winner` is the mod that actually reaches the game for
+        this path -- the last enabled mod that ships it.
+        """
+        parts = self.doc.path.resolve().parts
+        try:
+            i = len(parts) - 1 - parts[::-1].index("files")
+        except ValueError:
+            return None
+        if i < 1:
+            return None
+        mod_id = parts[i - 1]
+        repo = Path(*parts[:i - 1])            # .../mods
+        rel = Path(*parts[i + 1:]).as_posix()
+
+        winner = mod_id
+        enabled_path = self.game_dir / "mods" / "enabled.json"
+        if enabled_path.exists():
+            try:
+                order = json.loads(enabled_path.read_text())
+                if isinstance(order, dict):
+                    order = order.get("enabled", [])
+                for other in order:                     # last enabled mod wins
+                    if (repo / other / "files" / rel).exists():
+                        winner = other
+            except Exception:
+                pass
+        return mod_id, rel, winner
+
+    def deploy(self):
+        """Save, then run modmanager install + build so the edit reaches the game."""
+        if self._deploy_proc is not None:
+            QMessageBox.information(self, "Deploy", "A deploy is already running.")
+            return
+
+        ctx = self._mod_context()
+        if ctx is None:
+            QMessageBox.warning(
+                self, "Not a mod file",
+                "This .zax is not inside a mod's files/ directory, so there is nothing "
+                "to install. Deploy only works on files under mods/<id>/files/.")
+            return
+        mod_id, rel, winner = ctx
+
+        # The trap this exists to catch: several mods can ship the same path, and only
+        # the last enabled one reaches the game. Editing a losing copy looks like the
+        # deploy silently did nothing.
+        if winner != mod_id:
+            QMessageBox.warning(
+                self, "This copy will not reach the game",
+                f"You are editing <b>{mod_id}</b>'s copy of<br><code>{rel}</code><br><br>"
+                f"but <b>{winner}</b> also ships that file and loads later, so its copy "
+                f"wins the conflict.<br><br>Edit "
+                f"<code>mods/{winner}/files/{rel}</code> instead, or reorder the mods.")
+            return
+
+        if self.doc.dirty:
+            self.save()
+            if self.doc.dirty:      # save failed and already reported
+                return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Deploy to game")
+        dlg.resize(720, 380)
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel(
+            f"Installing and rebuilding <b>{mod_id}</b>.<br>"
+            "A full repack takes several minutes. Do not launch the game until it "
+            "finishes — it locks data.dat and the final step will fail."))
+        log = QPlainTextEdit()
+        log.setReadOnly(True)
+        log.setStyleSheet("font-family: Consolas, monospace;")
+        layout.addWidget(log)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.reject)
+        buttons.button(QDialogButtonBox.Close).setEnabled(False)
+        layout.addWidget(buttons)
+
+        steps = [
+            [sys.executable, "modmanager.py", "install", f"mods/{mod_id}",
+             str(self.game_dir)],
+            [sys.executable, "modmanager.py", "build", str(self.game_dir)],
+        ]
+
+        def run_next():
+            if not steps:
+                log.appendPlainText("\nDone. The change is live in the game.")
+                buttons.button(QDialogButtonBox.Close).setEnabled(True)
+                self._deploy_proc = None
+                self.deploy_action.setEnabled(True)
+                self.statusBar().showMessage("Deploy finished.", 8000)
+                return
+            cmd = steps.pop(0)
+            log.appendPlainText(f"$ {' '.join(cmd[1:])}\n")
+            proc = QProcess(dlg)
+            proc.setWorkingDirectory(str(Path(__file__).resolve().parent))
+            proc.setProcessChannelMode(QProcess.MergedChannels)
+            proc.readyReadStandardOutput.connect(
+                lambda p=proc: log.appendPlainText(
+                    bytes(p.readAllStandardOutput()).decode("utf-8", "replace").rstrip()))
+
+            def finished(code, _status, p=proc):
+                if code != 0:
+                    log.appendPlainText(f"\nFAILED (exit {code}). Nothing further run.")
+                    buttons.button(QDialogButtonBox.Close).setEnabled(True)
+                    self._deploy_proc = None
+                    self.deploy_action.setEnabled(True)
+                    return
+                run_next()
+
+            proc.finished.connect(finished)
+            self._deploy_proc = proc
+            proc.start(cmd[0], cmd[1:])
+
+        self.deploy_action.setEnabled(False)
+        run_next()
+        dlg.exec()
 
     def closeEvent(self, event):
         if self.doc.dirty:

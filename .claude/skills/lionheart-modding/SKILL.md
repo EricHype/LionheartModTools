@@ -746,8 +746,16 @@ python modmanager.py install <mod-dir-or-zip> <game-dir>
 python modmanager.py list <game-dir>
 python modmanager.py enable/disable <id> <game-dir>
 python modmanager.py build <game-dir>              # vanilla + enabled mods -> data.dat (store mode, validated)
-python modmanager.py restore <game-dir>             # revert to pristine vanilla
+python modmanager.py restore "<game-dir>"          # revert to pristine vanilla
 ```
+
+**On backups.** `init` copies the untouched `data.dat` to `data.dat.vanilla.bak` once
+and never overwrites it, so a pristine original always exists. `restore` puts it back
+**and** undoes the loose mirror -- reverting mod-modified files to their vanilla contents
+and deleting files the mods added. Restoring `data.dat` alone is not enough: the loose
+tree shadows it, so a data.dat-only restore leaves the game still loading mod content.
+That was a real bug in `restore`, fixed after finding 27 files that would have survived
+it.
 
 `build` always starts from a **fresh unpack of `data.dat.vanilla.bak`**, never from the
 live `data/` folder or a previous build — this is what makes clean enable/disable/reorder
