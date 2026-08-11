@@ -240,14 +240,69 @@ what the renderer's bilinear light modulation already approximates. That part is
 declares `Num Textures=2` but has elevation values up to 61, and only 12% of Gate
 District's cells hold a value below its texture count.
 
-### Where to pick this up
+### The texturing pass, traced
 
-1. Find the ground *texturing* pass. It is not `FUN_005ebb70`. Likely candidates: a
-   composite built once at load into the surface at `0x2dec`, or a separate pass in the
-   world renderer that runs before the lighting loop.
-2. **Whether the light overlay carries it.** It is 3 bytes/vertex and assumed pure RGB,
+Found it. The full chain, from the world renderer down:
+
+```
+FUN_005a88f0 / FUN_005a9540   world draw
+  -> FUN_005ea350             ground pass  (dispatches on DAT_00711168)
+    -> FUN_005ea3f0           clip to visible tiles, loop them
+      -> FUN_005ed730         per-tile, with a CACHE at 0x2dcc
+                              index: ((grid_rows * mode + tileY) * grid_cols + tileX)
+         -> FUN_005ed3e0      compose tile (cache miss only)
+            fast path: one texture, blitted directly
+            -> FUN_005ed990   slow path: four-corner blend
+  -> FUN_005ebb70             lighting + fog pass, over the textured result
+```
+
+**Tiles are cached**, composed once on demand and reused — which is why the composer is
+reached through a cache-miss branch rather than called every frame.
+
+**A fifth data plane exists at `0x2c40`**, and its per-vertex byte is the texture
+selector. `FUN_005ed3e0`:
+
+```c
+idx = plane_0x2c40.get(tileX, tileY);            // vtable +0xf4
+// fast path taken only if all four corners agree and the entry is simple:
+if (entry[idx].f18 == 0 for all four corners && entry[idx].f00 equal for all four)
+    blit entry[idx].texture;
+else
+    FUN_005ed990(...);                            // blend
+```
+
+**The entry table is 256 entries of 28 bytes at `0x1040`** — confirmed by arithmetic:
+`0x2c40 - 0x1040 = 0x1C00 = 256 * 0x1c`, i.e. it runs exactly up to the planes. Field
+`+0x00` is the texture, `+0x18` a flag. So the selector is a **byte indexing a 256-slot
+table**, not a value scaled against `Num Textures`.
+
+`FUN_005ed990` (the common case) reads the four corner bytes and calls
+`FUN_0055c8b0(dx, dy, value)` at the tile's four corners, then interpolates across the
+tile. So **each pixel gets a bilinearly blended index between its four corner values** —
+which is precisely the smooth ground transition the screenshot shows, and why any
+per-cell nearest-index approach looks blocky no matter what the mapping is.
+
+### The one remaining unknown
+
+**What fills plane `0x2c40`.** Only three planes deserialize from the file (elevation,
+light, fog) but five are constructed, so at least one is computed at load. `FUN_005ee850`,
+which runs immediately after deserialization, turned out to allocate the tile cache and a
+per-cell 12-byte state array at `0x2dd0` — not the selector plane.
+
+If `0x2c40` simply held the raw elevation byte, Gate District would index empty slots for
+88% of its cells (21 textures, elevation values up to 255), so either the plane is derived
+from elevation rather than equal to it, or the table is populated far more densely than
+one slot per declared texture. Resolving that is the whole remaining question.
+
+Leads not yet followed: what writes `0x2c40` (its setter is vtable `+0xf8`, matching the
+plane writes seen in the field parser); `FUN_005ea790`, the alternate ground-pass branch
+taken when `DAT_00711168` is set; and `FUN_005ede70`, the final blend call in the slow
+path, which may reveal how an index maps to a texture sample.
+
+### Where else to pick this up
+1. **Whether the light overlay carries it.** It is 3 bytes/vertex and assumed pure RGB,
    but only the neutral value 128 was verified; a channel could be doing double duty.
-3. Accepting single-texture ground indefinitely. For a placement editor this costs
+2. Accepting single-texture ground indefinitely. For a placement editor this costs
    little, and a from-scratch map uses `Num Textures=1` where the render is already
    exact.
 
