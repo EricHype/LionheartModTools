@@ -16,9 +16,10 @@ import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QMimeData, QProcess
+from PySide6.QtCore import Qt, QTimer, QMimeData, QProcess, QPointF
 from PySide6.QtGui import (
     QImage, QPixmap, QColor, QBrush, QPen, QUndoStack, QUndoCommand, QKeySequence,
+    QCursor, QPainter,
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
@@ -49,6 +50,46 @@ def pixels_to_qpixmap(data: dict) -> QPixmap:
     flat = bytes(v for row in data["rows"] for px in row for v in px)
     img = QImage(flat, w, h, QImage.Format_RGBA8888)
     return QPixmap.fromImage(img.copy())
+
+
+def make_eyedropper_cursor() -> QCursor:
+    """Draw a pipette cursor, hotspot at the tip.
+
+    Drawn rather than shipped as an asset: the project carries no image files, and a
+    generated cursor cannot go missing or fail to load. White outline under a dark body
+    so it stays visible over both the pale courtyard and dark ground.
+    """
+    size = 32
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+
+    # barrel: a diagonal stroke from the tip (bottom-left) up to the bulb (top-right)
+    tip = QPointF(3.5, 28.5)
+    neck = QPointF(11.0, 21.0)
+    bulb_a = QPointF(19.0, 13.0)
+    bulb_b = QPointF(27.0, 5.0)
+
+    outline = QPen(QColor(255, 255, 255, 230), 5.0, Qt.SolidLine, Qt.RoundCap)
+    body = QPen(QColor(30, 30, 34), 3.0, Qt.SolidLine, Qt.RoundCap)
+    for pen in (outline, body):
+        p.setPen(pen)
+        p.drawLine(tip, neck)
+    # wider barrel section
+    for pen, w in ((outline, 9.0), (body, 6.5)):
+        p.setPen(QPen(pen.color(), w, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(neck, bulb_a)
+    # squeeze bulb
+    for pen, w in ((outline, 12.0), (body, 9.0)):
+        p.setPen(QPen(pen.color(), w, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(bulb_a, bulb_b)
+    # a bright dot exactly on the hotspot, so the pick point is unambiguous
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(255, 255, 255))
+    p.drawEllipse(QPointF(2.5, 29.5), 1.6, 1.6)
+    p.end()
+    return QCursor(pm, 2, 30)
 
 
 def render_terrain_pixmap(doc: MapDocument, data_root: Path) -> QPixmap:
@@ -232,6 +273,44 @@ class MapView(QGraphicsView):
         self.setAcceptDrops(True)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        # Needed so holding Alt swaps the cursor without waiting for a click, and so
+        # keyPress/keyRelease reach us at all.
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self._eyedropper_cursor = make_eyedropper_cursor()
+        self._cursor_is_dropper = False
+
+    def refresh_cursor(self) -> None:
+        """Show the pipette whenever the next click would pick -- sticky mode OR Alt.
+
+        Driven from mouse-move and key events rather than set once, because the Alt path
+        has no toggle to hang it off: without this, holding Alt gives no feedback at all
+        until you click and something unexpected happens.
+        """
+        want = self.window.eyedropper_active(QApplication.keyboardModifiers())
+        if want == self._cursor_is_dropper:
+            return
+        self._cursor_is_dropper = want
+        if want:
+            self.viewport().setCursor(self._eyedropper_cursor)
+        else:
+            self.viewport().unsetCursor()
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
+        self.refresh_cursor()
+
+    def keyReleaseEvent(self, event):
+        super().keyReleaseEvent(event)
+        self.refresh_cursor()
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.refresh_cursor()
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        self.refresh_cursor()
 
     # -- zoom ------------------------------------------------------------
 
@@ -824,8 +903,7 @@ class MainWindow(QMainWindow):
         return bool(modifiers is not None and (modifiers & Qt.AltModifier))
 
     def on_eyedropper_toggled(self, checked: bool) -> None:
-        self.view.viewport().setCursor(
-            Qt.CrossCursor if checked else Qt.ArrowCursor)
+        self.view.refresh_cursor()
         if checked:
             self.statusBar().showMessage(
                 "Eyedropper: click an object to select its model in the palette.")
