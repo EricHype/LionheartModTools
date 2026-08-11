@@ -1,7 +1,8 @@
 # A GUI map editor for Lionheart — design notes
 
-Status: **phases 0 and 0.5 built and validated** (`zax_render.py` renders any `.zax` to
-a PNG, terrain included); the editor itself is still design only. This records why a
+Status: **phase 1 built** — `mapedit.py` is a working PySide6 editor over
+`mapedit_core.py`, with `zax_render.py` (phases 0/0.5) still available as a headless
+renderer. Verified offscreen; not yet exercised by hand. This records why a
 visual map editor is now tractable, what it should and shouldn't try to do, and the order
 to build it in.
 
