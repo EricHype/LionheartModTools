@@ -282,10 +282,24 @@ class MapView(QGraphicsView):
         super().wheelEvent(event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.window.selected_palette_model:
+        if event.button() == Qt.LeftButton:
             scene_pos = self.mapToScene(event.pos())
             item = self.scene().itemAt(scene_pos, self.transform())
-            if item is None:
+
+            # Eyedropper: pick the clicked entity's model in the palette, so "more of
+            # that" does not mean hunting for it among 4787 entries. Alt is the usual
+            # modifier for this in paint tools; the toolbar toggle does the same thing
+            # without needing a modifier held.
+            if self.window.eyedropper_active(event.modifiers()):
+                if isinstance(item, EntityItem):
+                    self.window.pick_model(item.entity.model)
+                else:
+                    self.window.statusBar().showMessage(
+                        "Eyedropper: nothing under the cursor.", 3000)
+                event.accept()
+                return
+
+            if self.window.selected_palette_model and item is None:
                 shift = bool(event.modifiers() & Qt.ShiftModifier)
                 self.window.place_entity_at(scene_pos.x(), scene_pos.y(), snap=shift)
                 event.accept()
@@ -492,6 +506,14 @@ class MainWindow(QMainWindow):
         delete_action = edit_menu.addAction("&Delete Entity")
         delete_action.setShortcut(QKeySequence(Qt.Key_Delete))
         delete_action.triggered.connect(self.delete_selected)
+
+        tools_menu = self.menuBar().addMenu("&Tools")
+        self.eyedropper_action = tools_menu.addAction("&Eyedropper")
+        self.eyedropper_action.setCheckable(True)
+        self.eyedropper_action.setShortcut(QKeySequence("I"))
+        self.eyedropper_action.setStatusTip(
+            "Click an object to select its model in the palette (or hold Alt)")
+        self.eyedropper_action.toggled.connect(self.on_eyedropper_toggled)
 
         view_menu = self.menuBar().addMenu("&View")
         zoom_in = view_menu.addAction("Zoom &In")
@@ -792,6 +814,54 @@ class MainWindow(QMainWindow):
 
     def report_zoom(self, scale: float) -> None:
         self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
+
+    # -- eyedropper ------------------------------------------------------
+
+    def eyedropper_active(self, modifiers=None) -> bool:
+        """True when the next click should pick a model rather than place or select."""
+        if self.eyedropper_action.isChecked():
+            return True
+        return bool(modifiers is not None and (modifiers & Qt.AltModifier))
+
+    def on_eyedropper_toggled(self, checked: bool) -> None:
+        self.view.viewport().setCursor(
+            Qt.CrossCursor if checked else Qt.ArrowCursor)
+        if checked:
+            self.statusBar().showMessage(
+                "Eyedropper: click an object to select its model in the palette.")
+        else:
+            self.statusBar().clearMessage()
+
+    def pick_model(self, model: str) -> None:
+        """Select `model` in the palette tree, revealing and scrolling to it."""
+        if not model:
+            return
+        leaf = next((it for it in self._palette_leaf_items
+                     if it.data(0, Qt.UserRole) == model), None)
+        if leaf is None:
+            self.statusBar().showMessage(
+                f"{model} is not in the palette (not under Environments/).", 5000)
+            return
+
+        # A filter can be hiding the match; clear it rather than silently doing nothing.
+        # apply_filter must be called directly -- filter_edit.textChanged only restarts a
+        # 150ms debounce timer, so relying on the signal would select a still-hidden row.
+        if leaf.isHidden() and self.filter_edit.text().strip():
+            self.filter_edit.clear()
+            self.filter_timer.stop()
+            self.apply_filter()
+
+        parent = leaf.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
+        self.palette_tree.setCurrentItem(leaf)      # fires selection-changed
+        self.palette_tree.scrollToItem(leaf, QTreeWidget.PositionAtCenter)
+
+        vec = tiling_vector(model)
+        extra = f"  tiling step {vec}" if vec else ""
+        self.statusBar().showMessage(
+            f"Picked {model.rsplit('/', 1)[-1]}{extra}", 5000)
 
     def save(self):
         try:
