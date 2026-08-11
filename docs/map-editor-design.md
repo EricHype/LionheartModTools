@@ -170,10 +170,44 @@ Two candidate mechanisms, both untested:
 Against (1): Calle Perdida has 168 distinct elevation values for 9 textures, so elevation
 is clearly not a direct index — at most a banded one.
 
-Confirming either needs ground truth: an in-game screenshot of a multi-texture area to
-compare against, or the `CPlasmaTileMap` render path in `Lionheart.exe`. The field-parsing
-function is at `0x005e9860` and `Blending` registers at class offset `0x103c` (default
-0.25f, class size `0x2dfc`); the render path itself has not been located.
+### Hypothesis 1 is DISPROVEN
+
+Tested against ground truth (`bugs/Screen Shot 05.TGA`, the Gate District main gate — the
+game writes 800x600 RLE 24-bit TGA). Rendering the same region with
+`texture = textures[elev * num_textures // 256]` produces **blocky 64px noise**: scattered
+single-cell patches of unrelated textures. The game shows smooth, uniform ground there.
+
+Elevation is not the ground-type selector, at least not that directly.
+
+Worth recording *why this looked promising*, since the same trap is easy to re-enter. The
+elevation layer really is flat plateaus with sharp boundaries rather than a smooth height
+field, and plotting it collapsed to texture *families* (grnd vs RethrGrass) really does
+produce coherent regions matching map features. But that coherence is entirely at the
+family level — collapsing 21 textures into 2 hides that the within-family index is
+scattered cell to cell. A two-bucket plot will look convincing for almost any mapping.
+
+The experiment is preserved as `--texture-mode elevation` so it can be re-run, but
+`single` (tile `Texture 0`) is the default because it visibly matches the game better.
+
+### Where to pick this up
+
+Ground truth now exists: `bugs/Screen Shot 05.TGA` versus
+`exports/renders/gd_gate_area.png` (same crop, world x1500-2500 y1900-2650, Main Gate at
+2150,2401). Comparing those two is the fastest way to judge any future hypothesis.
+
+Remaining leads, in order of expected value:
+
+1. **The `CPlasmaTileMap` render path in `Lionheart.exe`** — not yet located. Known
+   breadcrumbs: field parser at `0x005e9860`, `Blending` registers at class offset
+   `0x103c` (default 0.25f), class size `0x2dfc`, class-name string at `0x00715650`,
+   `CPlasmaTileMap::Client_RecieveSynch` at `0x00715728`. The 11KB object is large enough
+   to hold a generated per-tile index array, which would confirm selection happens at
+   load rather than being authored.
+2. **Whether the light overlay carries it.** It is 3 bytes/vertex and assumed to be pure
+   RGB, but only the neutral value 128 was verified; a channel could be doing double duty.
+3. Accepting single-texture ground indefinitely. For a placement editor this costs
+   little, and a from-scratch map uses `Num Textures=1` where the render is already
+   exact.
 
 ### What to build, and where to stop
 

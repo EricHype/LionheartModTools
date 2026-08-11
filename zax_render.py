@@ -196,7 +196,27 @@ def parse_light_grid(node: ResourceNode, grid_cols: int, grid_rows: int):
     return grid
 
 
-def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode) -> dict:
+def parse_elevation_grid(node: ResourceNode, grid_cols: int, grid_rows: int):
+    """Parse `Elevations Row 0..grid_rows-1` into a grid_rows x grid_cols list of ints.
+    Returns None on any missing/mismatched/invalid row, so texture selection falls back
+    to Texture 0 rather than the render failing."""
+    grid = []
+    for ry in range(grid_rows):
+        raw = node.get(f"Elevations Row {ry}")
+        if not isinstance(raw, str):
+            return None
+        hexstr = raw.strip()
+        if len(hexstr) != grid_cols * 2:  # 1 byte/vertex
+            return None
+        try:
+            grid.append(list(bytes.fromhex(hexstr)))
+        except ValueError:
+            return None
+    return grid
+
+
+def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode,
+                   elevation_textures: bool = False) -> dict:
     """Tile `Texture 0` across the whole canvas, modulated by the light overlay
     (bilinear between grid vertices), writing directly into `canvas`. Meant to run
     before any entity sprites are blitted, so terrain ends up underneath them.
@@ -209,23 +229,34 @@ def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode) -
         "light_modulation": False, "note": None,
     }
 
-    tex_name = plasma_node.get("Texture 0")
-    if not tex_name:
-        summary["note"] = "no 'Texture 0' field on Plasma Ground"
+    try:
+        num_tex = int(plasma_node.get("Num Textures") or 0)
+    except ValueError:
+        num_tex = 0
+    tex_names = [plasma_node.get(f"Texture {i}") for i in range(max(num_tex, 1))]
+    tex_names = [t for t in tex_names if t]
+    if not tex_names:
+        summary["note"] = "no 'Texture N' fields on Plasma Ground"
         return summary
-    summary["texture"] = tex_name
+    summary["texture"] = tex_names[0]
 
-    texture = load_ground_texture(data_root, tex_name)
-    if texture is None:
-        summary["note"] = f"failed to load/decode texture {tex_name!r}"
+    # Load every declared texture; fall back to texture 0 for any that fail so a single
+    # bad entry degrades one region rather than the whole map.
+    loaded = [load_ground_texture(data_root, t) for t in tex_names]
+    if loaded[0] is None:
+        summary["note"] = f"failed to load/decode texture {tex_names[0]!r}"
         return summary
+    loaded = [t if t is not None else loaded[0] for t in loaded]
+    summary["textures_loaded"] = sum(1 for t in loaded if t is not None)
 
-    tex_w, tex_h = texture["width"], texture["height"]
-    # Split into separate per-channel row arrays (plain ints, not (r,g,b,a) tuples) --
-    # avoids per-pixel tuple indexing in the hot loop below.
-    tex_r_rows = [[px[0] for px in row] for row in texture["rows"]]
-    tex_g_rows = [[px[1] for px in row] for row in texture["rows"]]
-    tex_b_rows = [[px[2] for px in row] for row in texture["rows"]]
+    tex_w, tex_h = loaded[0]["width"], loaded[0]["height"]
+    # Per-channel row arrays of plain ints (not (r,g,b,a) tuples) to keep the hot loop
+    # cheap, doubled so a 64px cell slice at any tiling phase is a plain slice.
+    def channel_rows(tex, ch):
+        return [[px[ch] for px in row] * 2 for row in tex["rows"]]
+    tex_r = [channel_rows(t, 0) for t in loaded]
+    tex_g = [channel_rows(t, 1) for t in loaded]
+    tex_b = [channel_rows(t, 2) for t in loaded]
 
     width, height = canvas.width, canvas.height
     grid_cols = width // GRID_CELL + 1
@@ -238,16 +269,50 @@ def render_terrain(canvas: Canvas, data_root: Path, plasma_node: ResourceNode) -
         summary["note"] = "Light Overlay missing or dimensions didn't match the grid; modulation skipped"
     summary["light_modulation"] = light_grid is not None
 
+    # Per-cell texture choice. DISPROVEN as a default: banding the elevation byte across
+    # the texture list (elev * n // 256) produces blocky 64px noise, not the smooth
+    # regions the game shows -- verified against an in-game screenshot of the Gate
+    # District main gate. Elevation is not the ground-type selector, or at least not this
+    # directly. Kept behind --texture-mode=elevation so the experiment is reproducible;
+    # see docs/map-editor-design.md for what this ruled out.
+    elev_grid = None
+    if elevation_textures and len(loaded) > 1:
+        elev_grid = parse_elevation_grid(plasma_node, grid_cols, grid_rows)
+    summary["texture_selection"] = "elevation-band" if elev_grid else "single (Texture 0)"
+    if elev_grid:
+        n = len(loaded)
+        tex_choice = [[min(e * n // 256, n - 1) for e in row] for row in elev_grid]
+    else:
+        tex_choice = None
+
     FX = [i / GRID_CELL for i in range(GRID_CELL)]  # bilinear x-weights, reused every cell
     stride = width * 4
     alpha_row = b"\xff" * width
 
     for y in range(height):
         ty = y % tex_h
-        reps = -(-width // tex_w)  # ceil division
-        tiled_r = (tex_r_rows[ty] * reps)[:width]
-        tiled_g = (tex_g_rows[ty] * reps)[:width]
-        tiled_b = (tex_b_rows[ty] * reps)[:width]
+        if tex_choice is None:
+            reps = -(-width // tex_w)  # ceil division
+            tiled_r = (tex_r[0][ty] * reps)[:width]
+            tiled_g = (tex_g[0][ty] * reps)[:width]
+            tiled_b = (tex_b[0][ty] * reps)[:width]
+        else:
+            # Assemble the row cell by cell, each from whichever texture its elevation
+            # selects, sliced at the right tiling phase so the pattern stays continuous
+            # across cell boundaries.
+            gy = min(y // GRID_CELL, len(tex_choice) - 1)
+            choice_row = tex_choice[gy]
+            tiled_r, tiled_g, tiled_b = [], [], []
+            for cx in range(grid_cols):
+                x0 = cx * GRID_CELL
+                if x0 >= width:
+                    break
+                n = min(GRID_CELL, width - x0)
+                ti = choice_row[min(cx, len(choice_row) - 1)]
+                ph = x0 % tex_w
+                tiled_r += tex_r[ti][ty][ph:ph + n]
+                tiled_g += tex_g[ti][ty][ph:ph + n]
+                tiled_b += tex_b[ti][ty][ph:ph + n]
 
         if light_grid is not None:
             ry0 = min(y // GRID_CELL, grid_rows - 2)
@@ -332,6 +397,11 @@ def main() -> int:
         "--no-terrain", action="store_true",
         help="skip Plasma Ground terrain rendering; reproduces phase-0 flat-background output",
     )
+    parser.add_argument("--texture-mode", choices=["single", "elevation"],
+                        default="single",
+                        help="ground texture selection: \'single\' tiles Texture 0 (default); "
+                             "\'elevation\' bands the elevation byte across the texture list "
+                             "(disproven -- produces blocky noise, kept for reproducibility)")
     parser.add_argument(
         "--data-root",
         default=r"C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader\data",
@@ -358,7 +428,7 @@ def main() -> int:
     if not args.no_terrain:
         plasma_node = root.get("Plasma Ground")
         if isinstance(plasma_node, ResourceNode):
-            terrain_summary = render_terrain(canvas, data_root, plasma_node)
+            terrain_summary = render_terrain(canvas, data_root, plasma_node, elevation_textures=args.texture_mode == 'elevation')
         else:
             terrain_summary = {"note": "no 'Plasma Ground' node on the map root"}
 
@@ -459,7 +529,8 @@ def main() -> int:
         print(f"terrain: not rendered ({terrain_summary['note']})")
     else:
         print(
-            f"terrain: texture={terrain_summary['texture']!r}, "
+            f"terrain: {terrain_summary.get('textures_loaded', 1)} texture(s), "
+            f"selection={terrain_summary.get('texture_selection', 'single (Texture 0)')}, "
             f"grid={terrain_summary['grid_cols']}x{terrain_summary['grid_rows']}, "
             f"light modulation={'yes' if terrain_summary['light_modulation'] else 'no'}"
         )
