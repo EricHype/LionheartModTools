@@ -9,14 +9,18 @@ sorted by Position Y, placed with:
     screen_x = entity.Position X - sprite.hotspot_x   (hotspot exactly as stored)
     screen_y = entity.Position Y - sprite.hotspot_y
 
-Underneath that, `Plasma Ground=CPlasmaTileMap` terrain is tiled from `Texture 0` and
-modulated by the `Light Overlay` vertex-colour grid (bilinear). See
-docs/map-editor-design.md, "The rendering model", "Phase 0" and "Terrain", for the full
-spec this implements. This module does not redesign anything from that doc. Multi-texture
-selection and elevation are explicitly out of scope for this step (see the doc).
+Underneath that, `Plasma Ground=CPlasmaTileMap` terrain is drawn: the `Elevations` byte
+at each grid vertex selects a ground texture, bilinearly blended between each tile's four
+corners (as the engine does), then modulated by the `Light Overlay` vertex-colour grid.
+
+See docs/map-editor-design.md, "The rendering model" and "Terrain", for the full spec
+this implements, the evidence behind it, and the one step (byte -> texture index) that is
+inferred rather than read out of the binary. This module does not redesign anything from
+that doc.
 
 Usage:
     python zax_render.py "<path to .zax>" out.png [--scale 0.5] [--no-terrain]
+                                                  [--texture-mode single|elevation]
 
 No third-party libraries: the PNG is hand-written with stdlib zlib + struct.
 """
@@ -144,16 +148,20 @@ class Canvas:
 # Terrain (Plasma Ground = CPlasmaTileMap)
 # ---------------------------------------------------------------------------
 #
-# See docs/map-editor-design.md, "Terrain". Two data sources:
-#   - `Texture 0` (and `Texture 1..N-1`, unused here -- multi-texture selection is an
-#     open question and out of scope): a 128x128 raw-16bpp ground tile, tiled across the
-#     whole canvas with wraparound.
-#   - `Light Overlay Row N`: 3 bytes (R,G,B) per grid vertex, on a
-#     `Width/64 + 1` by `Height/64 + 1` vertex grid; 128 is neutral. Modulates the tiled
-#     texture: out = clamp(texel * light / 128), bilinearly interpolated between
-#     vertices so there's no visible blockiness at 64px cell boundaries.
-# Elevation (`Elevations Row N`) is recorded in the design doc as an open question and is
-# deliberately not read here.
+# See docs/map-editor-design.md, "Terrain", for the full derivation. Three data sources,
+# all on a `Width/64 + 1` by `Height/64 + 1` vertex grid:
+#   - `Texture 0..N-1`: 128x128 raw-16bpp ground tiles, sampled with wraparound.
+#   - `Elevations Row N`: 1 byte per vertex. Despite the name this is the TEXTURE INDEX,
+#     not a height -- the deserialiser reads these rows into the plane the engine samples
+#     to pick a tile's texture. Scaled here as `byte * Num Textures // 256`, which is the
+#     one step inferred rather than read from the binary (see the doc).
+#   - `Light Overlay Row N`: 3 bytes (R,G,B) per vertex; 128 is neutral. Modulates the
+#     result: out = clamp(texel * light / 128).
+#
+# Both the index and the light are bilinearly interpolated between each tile's four
+# corner vertices. That is not cosmetic smoothing -- the engine does exactly this
+# (FUN_005ed990), and picking one texture per cell instead makes any mapping look like
+# blocky noise regardless of whether the mapping is correct.
 
 GRID_CELL = 64  # world units between adjacent Light Overlay / Elevation vertices
 

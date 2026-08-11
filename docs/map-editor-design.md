@@ -1,8 +1,9 @@
 # A GUI map editor for Lionheart — design notes
 
-Status: **phase 0 built and validated** (`zax_render.py`); the editor itself is still
-design only. This records why a visual map editor is now
-tractable, what it should and shouldn't try to do, and the order to build it in.
+Status: **phases 0 and 0.5 built and validated** (`zax_render.py` renders any `.zax` to
+a PNG, terrain included); the editor itself is still design only. This records why a
+visual map editor is now tractable, what it should and shouldn't try to do, and the order
+to build it in.
 
 Context: the retail game's own editor was stripped from the build (see the
 `lionheart-modding` skill — the F6 handler is gone, not hidden), so hand-editing `.zax`
@@ -105,237 +106,156 @@ on buffer 1's size prefix rather than dimensions; see that function's docstring 
 two approaches that were tried and rejected. `Fence A`'s negative-Y hotspot remains open
 (neither test map uses that asset).
 
-## Terrain
+## Terrain — SOLVED
 
-`Plasma Ground=CPlasmaTileMap`. Three earlier claims in this document were wrong and are
-corrected here; terrain is considerably more tractable than first assessed.
+`Plasma Ground=CPlasmaTileMap`. Ground now renders correctly, confirmed against an
+in-game screenshot. This section is the reference; the investigation that produced it,
+including two wrong turns worth not repeating, is at the end.
 
-### The texture art is the simplest format in the game
+### The model
 
-All 217 files under `Cache/Textures/**.frm16` are **raw uncompressed 16bpp RGB565**,
-128x128 (one is 32x32): `flags=0x40`, meaning mode bits `0x40 & 6 == 0` (raw) and depth
-bits `0x40` (16bpp). Buffer 1 is exactly `width * height * 2` bytes — no RLE, no row
-table, no opcode grammar. `decode_icon()` rejects them today only because it implements
-the RLE-16bpp path and raises `NotImplementedError` on everything else.
+```
+grid              (Width/64 + 1) x (Height/64 + 1) vertices, 64 world units apart
+index(vertex)   = Elevations byte * Num Textures // 256
+index(pixel)    = bilinear blend of the tile's four corner indices
+texel           = textures[round(index(pixel))] sampled at (x % 128, y % 128)
+light(pixel)    = bilinear blend of the tile's four corner Light Overlay RGB
+out             = clamp(texel * light / 128)
+```
 
-Each texture has a `Textures/<name>.TXT` sidecar (`CGroundTextureFrame`) carrying
-`Damage`, `Damage Type` and `Surface Type` — gameplay properties, nothing needed for
-rendering.
+The two data layers, per vertex:
 
-### There are exactly two data layers
-
-Per 64-unit grid vertex, so `Width/64 + 1` columns by `Height/64 + 1` rows:
-
-| layer | bytes per vertex | meaning |
+| layer | bytes/vertex | meaning |
 |---|---|---|
-| `Elevations Row N` | 1 | height, 0-255 |
-| `Light Overlay Row N` | **3** | per-vertex RGB light; 128,128,128 is neutral |
+| `Elevations Row N` | 1 | **texture index** (see below), 0-255 |
+| `Light Overlay Row N` | 3 | per-vertex RGB light; 128,128,128 is neutral |
 
-`Light Overlay` being 3 bytes wide is easy to misread as something else — an earlier
-draft of this document guessed it might be a texture blend index. It is vertex colour.
+A third layer, `Fog Of War N Row`, deserialises but is runtime state, not authored art.
 
-Also corrected: **192 of 201 shipped maps have real elevation variation** (full 0-255
-range), not the handful first assumed. Terrain is not mostly flat.
-
-### The one genuine unknown
-
-**There is no per-cell texture index anywhere in the structure** — verified on a
-9-texture map, which still has only the two layers above. Yet maps declare up to 28
-textures (`Num Textures` across shipped maps runs 0-28; only 25 maps use exactly 1). So
-texture *selection* must be procedural, which is what the class name is telling us —
-"plasma".
-
-The texture *names* are the strongest clue. Gate District declares 21, and they are
-grouped families with numbered variants:
-
-```
-grnd3, grnd3_1, grnd3_2      grnd1, grnd1_1, grnd1_2
-grnd5, grnd5_1, grnd5_2      grnd4, grnd4_1, grnd4_2
-grnd2, grnd2_1               RethrGrass2 .. RethrGrass6
-```
-
-That is the classic anti-tiling pattern: several near-identical variants of one ground
-type, shuffled per tile to break up visible repetition, alongside genuinely different
-ground types (dirt families vs grass). It fits "plasma" — variant choice is *generated*,
-which is exactly why no per-cell index is authored in the file.
-
-Two candidate mechanisms, both untested:
-
-1. **Elevation bands select the family**, `Blending` softens transitions, and a hash or
-   noise over tile coordinates picks the variant within a family. Elevation spanning the
-   full 0-255 range across 192 maps is consistent with this.
-2. Family assignment is also procedural (pure plasma/noise), and elevation is only
-   height.
-
-Against (1): Calle Perdida has 168 distinct elevation values for 9 textures, so elevation
-is clearly not a direct index — at most a banded one.
-
-### SOLVED: elevation is the index, blended between four corners
-
-The elevation byte **is** the texture selector, and the earlier "disproven" verdict was a
-flawed test, not a wrong hypothesis.
-
-**Proof from the binary.** In the deserialiser the elevation rows are read straight into
-the plane at object offset `0x2c40`:
+**"Elevations" is a misnomer** — the byte is the ground-texture selector, not a height.
+Proven from the binary: the deserialiser reads those rows straight into the plane at
+object offset `0x2c40`
 
 ```
 0F AF 8E B8 2D 00 00    IMUL ECX, [ESI+0x2db8]     ; count = grid_w * grid_h
 51 6A 00 6A 00          PUSH count, 0, 0
-8D 8E 40 2C 00 00       LEA  ECX, [ESI+0x2c40]     ; <- the plane
+8D 8E 40 2C 00 00       LEA  ECX, [ESI+0x2c40]     ; <- the selector plane
 E8 7C 4E F7 FF          CALL 0x0055ec50
 ```
 
-and `FUN_005ed3e0` samples that same plane (`vtable +0xf4`) to choose a tile's texture.
+and `FUN_005ed3e0` samples that same plane (vtable `+0xf4`) to choose each tile's
+texture. Nothing in the class treats it as a height.
 
-**Why the first test failed.** The engine does not pick one texture per cell.
-`FUN_005ed990` reads the tile's **four corner values** and interpolates across the tile,
-so the index varies per pixel and regions melt into one another. Filling each 64px cell
-flat with a single index makes *any* mapping look like blocky noise. The mapping was fine;
-the fill method was wrong. Rendering the same crop with four-corner blending produces
-smooth organic regions — plaza, grass, dirt, flagstone — matching the character of
-`bugs/Screen Shot 05.TGA`.
+**Blending across four corners is not optional.** `FUN_005ed990` reads a tile's four
+corner values and interpolates across the tile, so the index varies per *pixel*.
+Rendering one texture per cell makes any mapping look like blocky noise regardless of
+whether the mapping is right.
 
-**The implemented model**, now the renderer's default (`--texture-mode elevation`):
+### The texture art
 
-```
-index(vertex)   = elevation_byte * Num Textures // 256
-index(pixel)    = bilinear blend of the tile's four corner indices
-texel           = textures[round(index(pixel))] sampled at (x % 128, y % 128)
-out             = texel * light / 128        (light also bilinear, see above)
-```
+All 217 files under `Cache/Textures/**.frm16` are **raw uncompressed 16bpp RGB565**,
+128x128 (one is 32x32): `flags=0x40` — mode bits `0x40 & 6 == 0` (raw), depth bits `0x40`
+(16bpp). Buffer 1 is exactly `width * height * 2` bytes; no RLE, no row table, no opcode
+grammar. `mdl16_format.decode_icon()` handles this mode as of phase 0.5.
 
-The scaling step is the one part still inferred rather than read out of the binary. The
-engine indexes a 256-entry table of 28-byte records at object offset `0x1040` (confirmed
-by arithmetic: `0x2c40 - 0x1040 = 256 * 0x1c`), and what populates that table was never
-found — `Texture N` parsing writes into a separate 4-byte-stride list at `0x1038`. So
-`* Num Textures // 256` is a stand-in for whatever expands the declared textures across
-those 256 slots. It produces plausible output; it is not proven exact.
+Each has a `Textures/<name>.TXT` sidecar (`CGroundTextureFrame`) with `Damage`,
+`Damage Type`, `Surface Type` — gameplay properties, irrelevant to rendering.
 
-### What the Ghidra dig established
+Texture lists are grouped families with numbered variants (`grnd3, grnd3_1, grnd3_2`,
+`RethrGrass2..6`), the classic anti-tiling pattern. `Num Textures` runs 0-28 across
+shipped maps; only 25 maps use exactly 1.
 
-`CPlasmaTileMap` was traced in some depth. The texture-selection logic was **not** found,
-but the surrounding structure is now mapped, which should make a future attempt much
-cheaper.
+### The one inferred step
 
-**Object layout** (class size `0x2dfc`, vtable `0x006da568`, descriptor `DAT_00807ca4`):
+`index = elevation * Num Textures // 256` is a **stand-in, not read from the binary**.
+
+The engine indexes a 256-entry table of 28-byte records at object offset `0x1040`
+(confirmed by arithmetic: `0x2c40 - 0x1040 = 256 * 0x1c`, i.e. the table runs exactly up
+to the planes). Field `+0x00` is the texture, `+0x18` a flag. What *populates* those 256
+slots was never found — `Texture N` parsing writes into a different 4-byte-stride list at
+`0x1038`. So the scaling above stands in for whatever expands the declared textures
+across the slots.
+
+It produces output matching the screenshot's character. If ground boundaries ever look
+consistently offset from the real game, this is the thing to fix.
+
+### `CPlasmaTileMap` object layout
+
+Class size `0x2dfc`, vtable `0x006da568`, descriptor `DAT_00807ca4`.
 
 | offset | contents |
 |---|---|
 | `0x1038` | texture list (count via vtable `+0x88`, item N via `+0x04`) |
 | `0x103c` | `Blending` float, default 0.25 |
-| `0x2c80` `0x2cc0` `0x2d00` `0x2d40` | four `CStandAloneFrame` data planes |
+| `0x1040` | 256 x 28-byte texture-entry table (population unknown) |
+| `0x2c40` | **texture-selector plane** (fed by `Elevations Row N`) |
+| `0x2c80` `0x2cc0` `0x2d00` `0x2d40` | further `CStandAloneFrame` data planes |
 | `0x2d80` `0x2d81` | fog-enabled / lighting-enabled flags |
 | `0x2dac` `0x2db0` | tile size in pixels |
 | `0x2db4` `0x2db8` | grid cols / rows |
+| `0x2dcc` | composed-tile cache |
+| `0x2dd0` | per-cell 12-byte state array |
 | `0x2dec` | destination surface |
 
-**Only three data layers deserialize** (confirmed in `FUN_005e9c90`): elevation at 1
-byte/cell, light overlay at 3 bytes/cell, fog at 1 byte/cell. There is definitively no
-texture-index plane in the file *or* in the loaded object.
-
-**The tile pipeline that was found is lighting and fog, not texturing:**
-
-```
-FUN_005ebb70   tile loop over visible grid cells
-  -> FUN_005eba30   per-tile lighting: fetch 4 corner colours; flat-shade if all equal
-                    (0x808080 = neutral, skip), else Gouraud via FUN_005eac20
-    -> FUN_005ebdd0 fog overlay, gated on the 0x2d81 flag; also 4-corner, with a
-                    "uniform and < 0x40" early-out
-      -> FUN_005ebf10 fixed-point span rasteriser, applies the colour LUT
-```
-
-The constructor (`FUN_005e8c40`) builds a 64K-entry RGB565 colour-grading LUT at
-`DAT_007e7c88` (saturation/contrast constants `DAT_00715248` / `DAT_0071524c`) which that
-rasteriser consumes. All of this runs *over* ground that has already been textured
-somewhere else. That "somewhere else" is the remaining gap.
-
-Useful side effect: lighting is per-tile Gouraud between four corner colours, which is
-what the renderer's bilinear light modulation already approximates. That part is right.
-
-**Also disproven: the raw elevation byte is not a texture index either.** Herbalist map
-declares `Num Textures=2` but has elevation values up to 61, and only 12% of Gate
-District's cells hold a value below its texture count.
-
-### The texturing pass, traced
-
-Found it. The full chain, from the world renderer down:
+### The render pipeline
 
 ```
 FUN_005a88f0 / FUN_005a9540   world draw
-  -> FUN_005ea350             ground pass  (dispatches on DAT_00711168)
-    -> FUN_005ea3f0           clip to visible tiles, loop them
-      -> FUN_005ed730         per-tile, with a CACHE at 0x2dcc
-                              index: ((grid_rows * mode + tileY) * grid_cols + tileX)
+  -> FUN_005ea350             ground pass (dispatches on DAT_00711168)
+    -> FUN_005ea3f0           clip to visible tiles, loop
+      -> FUN_005ed730         per-tile, backed by the cache at 0x2dcc
          -> FUN_005ed3e0      compose tile (cache miss only)
-            fast path: one texture, blitted directly
-            -> FUN_005ed990   slow path: four-corner blend
-  -> FUN_005ebb70             lighting + fog pass, over the textured result
+            fast path         all four corners agree -> blit one texture
+            -> FUN_005ed990   slow path: four-corner blend (the common case)
+  -> FUN_005ebb70             lighting + fog, over the textured result
+    -> FUN_005eba30           per-tile shading: flat if the four corner colours
+                              match (0x808080 neutral), else Gouraud
+      -> FUN_005ebdd0         fog overlay, gated on the 0x2d81 flag
+        -> FUN_005ebf10       fixed-point span rasteriser
 ```
 
-**Tiles are cached**, composed once on demand and reused — which is why the composer is
-reached through a cache-miss branch rather than called every frame.
+The constructor (`FUN_005e8c40`) builds a 64K-entry RGB565 colour-grading LUT at
+`DAT_007e7c88` (constants `DAT_00715248` / `DAT_0071524c`) that the rasteriser consumes.
+Tiles are composed once and cached, which is why the composer sits behind a cache-miss
+branch rather than running every frame.
 
-**A fifth data plane exists at `0x2c40`**, and its per-vertex byte is the texture
-selector. `FUN_005ed3e0`:
+### Two wrong turns, and why
 
-```c
-idx = plane_0x2c40.get(tileX, tileY);            // vtable +0xf4
-// fast path taken only if all four corners agree and the entry is simple:
-if (entry[idx].f18 == 0 for all four corners && entry[idx].f00 equal for all four)
-    blit entry[idx].texture;
-else
-    FUN_005ed990(...);                            // blend
+Both cost real time and both are easy to re-enter.
+
+**1. "Light Overlay might be a blend index."** It is 3 bytes/vertex, which invites the
+guess. It is vertex colour.
+
+**2. "Elevation is not the texture index" — asserted, wrongly, on a bad test.** Rendering
+`elev * n // 256` one-texture-per-cell produced blocky noise, and that was recorded as
+disproving the hypothesis. The mapping was right; the *fill method* was wrong, because
+the engine blends four corners per tile. The correct conclusion from that evidence was
+"this test is invalid", not "this hypothesis is dead".
+
+What made it seductive: plotting the elevation grid collapsed to texture *families*
+(`grnd` vs `RethrGrass`) produced coherent regions matching real map features — but a
+two-bucket plot looks convincing for almost any mapping, and it hid that the
+within-family index is scattered cell to cell.
+
+The general lesson, and the reason this is written down: when a test refutes a
+hypothesis, check that the test exercises the mechanism the hypothesis describes. Here
+the blending detail had already been discovered and written into this very document two
+commits before it was connected back to the failed test.
+
+### Ground truth for future changes
+
+`bugs/Screen Shot 05.TGA` — Gate District main gate, 800x600 RLE 24-bit TGA (the game's
+own screenshot format; `Screen Shot NN.TGA` files land in the game directory).
+
+Compare against the same crop of a full-scale render:
+
+```
+python zax_render.py "<data>/Levels/1 Barcelona/Gate District.zax" out.png
+# then crop world x1500-2500, y1900-2650  (Main Gate is at 2150,2401)
 ```
 
-**The entry table is 256 entries of 28 bytes at `0x1040`** — confirmed by arithmetic:
-`0x2c40 - 0x1040 = 0x1C00 = 256 * 0x1c`, i.e. it runs exactly up to the planes. Field
-`+0x00` is the texture, `+0x18` a flag. So the selector is a **byte indexing a 256-slot
-table**, not a value scaled against `Num Textures`.
-
-`FUN_005ed990` (the common case) reads the four corner bytes and calls
-`FUN_0055c8b0(dx, dy, value)` at the tile's four corners, then interpolates across the
-tile. So **each pixel gets a bilinearly blended index between its four corner values** —
-which is precisely the smooth ground transition the screenshot shows, and why any
-per-cell nearest-index approach looks blocky no matter what the mapping is.
-
-### The one remaining unknown
-
-**What fills plane `0x2c40`.** Only three planes deserialize from the file (elevation,
-light, fog) but five are constructed, so at least one is computed at load. `FUN_005ee850`,
-which runs immediately after deserialization, turned out to allocate the tile cache and a
-per-cell 12-byte state array at `0x2dd0` — not the selector plane.
-
-If `0x2c40` simply held the raw elevation byte, Gate District would index empty slots for
-88% of its cells (21 textures, elevation values up to 255), so either the plane is derived
-from elevation rather than equal to it, or the table is populated far more densely than
-one slot per declared texture. Resolving that is the whole remaining question.
-
-Leads not yet followed: what writes `0x2c40` (its setter is vtable `+0xf8`, matching the
-plane writes seen in the field parser); `FUN_005ea790`, the alternate ground-pass branch
-taken when `DAT_00711168` is set; and `FUN_005ede70`, the final blend call in the slow
-path, which may reveal how an index maps to a texture sample.
-
-### Where else to pick this up
-1. **Whether the light overlay carries it.** It is 3 bytes/vertex and assumed pure RGB,
-   but only the neutral value 128 was verified; a channel could be doing double duty.
-2. Accepting single-texture ground indefinitely. For a placement editor this costs
-   little, and a from-scratch map uses `Num Textures=1` where the render is already
-   exact.
-
-### What to build, and where to stop
-
-1. **Add raw-16bpp decoding** to `mdl16_format.decode_icon()`. No unknowns.
-2. **Tile `Texture 0`** across the canvas and modulate by the light overlay, bilinear
-   between vertices. This alone replaces the flat background with real ground.
-3. **Then one experiment**: render a multi-texture map under the elevation-band
-   hypothesis and compare to an in-game screenshot. If the bands line up, terrain is
-   solved. If not, stop — approximate ground is sufficient for a placement editor, where
-   the point is spatial context rather than fidelity.
-
-Worth keeping in perspective: a map authored from scratch should use `Num Textures=1`
-anyway (the standing recommendation in the `lionheart-modding` skill, made while blending
-was unknown). At one texture the procedural question does not arise and rendering is
-exact. This work mainly improves *viewing shipped maps*.
+`Test Pocket.zax` is the other useful reference: `Num Textures=1`, so its render is exact
+and isolates the renderer from any texture-selection question.
 
 ## Phase 1 — entity placement
 
@@ -361,7 +281,7 @@ The 90% case. Everything a scenery pass needs:
 
 ## Explicitly out of scope for v1
 
-- **Terrain *editing*.** Rendering it is now in scope (see "Terrain" below); authoring
+- **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring
   heightmaps and texture sets is not. Note the scratch template ships an inconsistent
   `Height` vs its actual row count, and a garbage `Blending` value.
 - **Interaction zones.** `CFreeRangePoly` hover does not work in hand-authored maps — four
@@ -409,13 +329,16 @@ These are all documented in the `lionheart-modding` skill and all cost real debu
 
 ## Open questions
 
-1. Fence A's negative Y hotspot — does the convention above hold for every sprite, or is
-   there a second case? Phase 0 answers this.
-2. Does anything read `Rendering Height` / `Rendering Height Float`? Every scenery entity
+1. **What populates the 256-entry texture table at `0x1040`** — the one inferred step in
+   an otherwise-confirmed terrain model. See "Terrain / The one inferred step".
+2. Fence A's negative Y hotspot — does the convention hold for every sprite, or is there
+   a second case? Phase 0 rendered two maps correctly without hitting it, since neither
+   uses that asset, so it remains open but is evidently not common.
+3. Does anything read `Rendering Height` / `Rendering Height Float`? Every scenery entity
    examined has both at 0.
-3. `CUnderConstructionLayerPart` (15 instances in Gate District) and `CRenderablePolygon`
+4. `CUnderConstructionLayerPart` (15 instances in Gate District) and `CRenderablePolygon`
    (8) are unexamined. Probably editor leftovers, worth confirming before an editor
    silently drops or mangles them.
-4. Is the tiling-vector snap worth deriving automatically from shipped maps at startup, or
+5. Is the tiling-vector snap worth deriving automatically from shipped maps at startup, or
    should it be a small hand-curated table? Automatic derivation is what found the correct
    vectors originally, but it needs the corpus filtered to exclude work-in-progress maps.
