@@ -1,0 +1,168 @@
+# A GUI map editor for Lionheart — design notes
+
+Status: **design only, nothing built.** This records why a visual map editor is now
+tractable, what it should and shouldn't try to do, and the order to build it in.
+
+Context: the retail game's own editor was stripped from the build (see the
+`lionheart-modding` skill — the F6 handler is gone, not hidden), so hand-editing `.zax`
+text is currently the only way to author a map. That works, but placing scenery by
+computing tiling vectors and clearance radii in a Python REPL is slow and error-prone;
+three bad layouts were caught by assertions during the Test Pocket arena work, and one
+(a chest placed inside a rock) only surfaced in-game.
+
+## Why this is feasible now
+
+Four things are already true, measured rather than assumed:
+
+**1. Byte-identical round-trip on real maps.** All 14 shipped `.zax` files tested parse
+and reserialize byte-for-byte through `resource_format.py`, including Gate District at
+2.3MB / 1139 entities in 0.06s. An editor can load a large map, change one entity, and
+write it back with provably zero collateral damage. This is the property the whole idea
+rests on.
+
+**2. World coordinates are screen pixels, 1:1.** There is no isometric projection to
+reverse-engineer — the iso look is baked into pre-rendered sprite art. Confirmed
+empirically: the chest-inside-rock bug was predicted correctly by comparing a sprite's
+half-width in pixels (169) against world distance (166 units). Placement math in world
+units and pixel math over sprites are the same math.
+
+**3. Sprites decode fast enough for live preview.** 17ms per environment sprite; a whole
+map's distinct models (215 for Gate District) is ~4s one-time, then cacheable. 4787
+environment sprites exist in total. This only became possible when the `.mdl16` per-row
+offset table was cracked — before that `decode_icon()` was wrong on every file in the
+game (see `mdl16-icon-format.md`).
+
+**4. The validation rules already exist.** The clearance and corner-closure checks
+written as throwaway assertions during the arena work are exactly what the GUI should
+surface continuously.
+
+## The rendering model
+
+```
+screen_x = entity.Position X - sprite.hotspot_x      (hotspot as stored in the file)
+screen_y = entity.Position Y - sprite.hotspot_y
+draw order: ascending Position Y  (painter's algorithm)
+```
+
+**Hotspot convention** — the stored hotspot is roughly the sprite's centre for
+ground-standing objects, which is what makes the subtraction above the natural reading:
+
+| sprite | size | hotspot | as fraction of w/h |
+|---|---|---|---|
+| Tree1 A | 229x191 | (131, 100) | 0.57, 0.52 |
+| Rock B | 311x494 | (195, 252) | 0.63, 0.51 |
+| Chest2 | 74x74 | (46, 39) | 0.62, 0.53 |
+| Wall 01 A | 130x174 | (65, 137) | 0.50, 0.79 |
+| Fence A | 157x117 | (99, **-23**) | 0.63, **-0.20** |
+
+Note the loader *negates* the hotspot into memory (`*(short *)(in_ECX + 10) = -local_20`
+in `FUN_0055d0a0`), and `GetColorAt` then subtracts the in-memory value. Using the
+in-memory (negated) form for blitting would place the anchor outside the sprite entirely
+for Rock B, so **as-stored is the correct form for rendering**. Fence A's negative Y is
+unexplained and is the one loose end.
+
+**Depth sorting** is by Y, per the container class name `CSortList2D`. Model
+`Properties.txt` files carry a `Sorting Y` offset, but it is almost never used — of the
+10 `Properties.txt` files in the entire game, 8 have `Sorting Y=0` and only two are
+nonzero (23 and 51). Treat it as an optional per-model bias, not a core mechanism.
+
+**This whole model needs exactly one confirmation test** before building UI on it: render
+a shipped map and compare against an in-game screenshot of the same area. That is the
+purpose of phase 0.
+
+## Phase 0 — read-only renderer (do this first)
+
+A single command: `.zax` in, PNG out. No UI.
+
+It exercises the entire risky core — sprite decode, hotspot convention, depth sort,
+coordinate mapping — against ground truth that already exists (screenshots of shipped
+maps). If the PNG matches the game, everything after it is UI work over a proven engine.
+If it doesn't, that is discovered in an afternoon rather than after building an editor.
+
+It is also independently useful: reviewing a map without launching the game, and
+diffing two versions of a map visually.
+
+## Phase 1 — entity placement
+
+The 90% case. Everything a scenery pass needs:
+
+- **Palette** of the 4787 environment sprites, searchable, grouped by directory
+  (`Rethgorad/Town/...`, `Mountain/Inside/Walls/...`).
+- **Place / drag / delete** entities, with the sprite drawn where it will actually land.
+- **Snap to measured tiling vectors** for assets that tile — `Wall 01 A` at `(124,-7)`,
+  `C` at `(10,88)`, etc. The vectors are derivable from shipped maps by finding collinear
+  runs (method and caveats in the `lionheart-modding` skill). Assets that do *not* tile
+  (the whole `Fence` set) should be marked as such in the palette so nobody tries to build
+  a wall out of them again.
+- **Property panel**: `Collideable`, `Half Height` / `Full Height`, `Visible`, `Name`,
+  `Model`. A small, well-understood field set — copy the rest from a template entity.
+- **Live validation overlay** — the real differentiator:
+  - footprint circles from actual sprite dimensions
+  - overlap warnings against other props, walls, and any entity that must stay reachable
+  - corner-gap detection on wall runs
+  - off-map coordinates
+- **Export** writing only the `Tree List` entries that changed, leaving the rest of the
+  file byte-identical.
+
+## Explicitly out of scope for v1
+
+- **Terrain editing.** `CPlasmaTileMap` stores one elevation byte per 64-unit grid vertex
+  plus a light overlay, but there is **no per-cell texture index anywhere in the
+  structure** — multi-texture blending is procedural and was never reverse-engineered.
+  Render terrain as a flat tinted grid; do not offer to edit it. Also note the scratch
+  template ships inconsistent `Height` vs actual row count and a garbage `Blending` value.
+- **Interaction zones.** `CFreeRangePoly` hover does not work in hand-authored maps — four
+  construction variants were tried and none produced an interaction cursor. A GUI must not
+  offer a tool whose output silently doesn't work. Place model-based doors instead. The
+  untested lead is that cloned maps lack the `CWayPointsPolygon` entries every real map
+  has (1-7 per map).
+- **Quest / dialogue / AI scripting.** Different problem, well served by text editing.
+
+## Architecture
+
+The real fork is the UI layer. The backend is settled either way: reuse
+`resource_format.py`, `mdl16_format.py`, and `modmanager.py` directly.
+
+**Option A — PySide6 + `QGraphicsScene`.** Pan, zoom, z-ordering, rubber-band selection
+and an undo stack come for free, and it handles thousands of items. Scene management is
+the bulk of the work and Qt has already solved it. Cost: a heavy dependency in a project
+that is currently pure-stdlib plus Pillow-free.
+
+**Option B — local web app.** Flask/FastAPI backend, browser canvas frontend, sprites
+served as PNG on demand. Richest widgets, no GUI toolkit to fight, trivially
+cross-platform, easy to screenshot and share. Cost: client/server plumbing, and
+hand-rolling the scene management Qt gives away.
+
+**Recommendation: A**, for a single-user desktop tool that must stay responsive while
+panning a 4096x960 canvas with a thousand sprites. Option B becomes more attractive if
+sharing maps or running the tool elsewhere ever matters.
+
+Either way, phase 0 has no UI and commits to neither.
+
+## Gotchas the tool must surface
+
+These are all documented in the `lionheart-modding` skill and all cost real debugging time:
+
+- **New entities do not appear on a save that already visited the level.** Warn on export.
+  This failure looks exactly like a broken edit.
+- **`build` reads from `mods/installed/`, not the mod source** — the tool should run
+  `install` then `build`, never `build` alone.
+- **The loose `data\` mirror shadows `data.dat`** — handled by `modmanager build`, but
+  anything bypassing it must sync too.
+- **Don't build while the game is running.** `build` now keeps a completed archive and
+  resumes, but the tool should just refuse and say so.
+- **Line endings and encoding**: `.zax` is `latin-1`, and line endings vary per file.
+  Always read/write bytes and preserve what was there.
+
+## Open questions
+
+1. Fence A's negative Y hotspot — does the convention above hold for every sprite, or is
+   there a second case? Phase 0 answers this.
+2. Does anything read `Rendering Height` / `Rendering Height Float`? Every scenery entity
+   examined has both at 0.
+3. `CUnderConstructionLayerPart` (15 instances in Gate District) and `CRenderablePolygon`
+   (8) are unexamined. Probably editor leftovers, worth confirming before an editor
+   silently drops or mangles them.
+4. Is the tiling-vector snap worth deriving automatically from shipped maps at startup, or
+   should it be a small hand-curated table? Automatic derivation is what found the correct
+   vectors originally, but it needs the corpus filtered to exclude work-in-progress maps.
