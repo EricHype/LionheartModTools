@@ -1,6 +1,7 @@
 # A GUI map editor for Lionheart — design notes
 
-Status: **design only, nothing built.** This records why a visual map editor is now
+Status: **phase 0 built and validated** (`zax_render.py`); the editor itself is still
+design only. This records why a visual map editor is now
 tractable, what it should and shouldn't try to do, and the order to build it in.
 
 Context: the retail game's own editor was stripped from the build (see the
@@ -81,6 +82,25 @@ If it doesn't, that is discovered in an afternoon rather than after building an 
 
 It is also independently useful: reviewing a map without launching the game, and
 diffing two versions of a map visually.
+
+## Phase 0 result
+
+Done. `zax_render.py` renders a `.zax` to PNG using stdlib only (`zlib`/`struct`), reusing
+`resource_format.py` and `mdl16_format.py`. Gate District: 607 renderable entities, 215
+distinct sprites, 0 skipped, 4.5s at `--scale 0.25`.
+
+**The rendering model in this document is confirmed correct.** The output is recognisably
+Gate District — continuous fortified walls, the gatehouse, red-roofed buildings, roads
+curving between them, with sensible occlusion. So `pos - hotspot_as_stored` and
+painter's-algorithm-by-Y are right, and phase 1 can be built on them.
+
+Terrain is absent as designed, which reads as flat dark background.
+
+One real bug surfaced: `find_header`'s plausibility bound rejected every sprite over
+512px — 321 of them, including the Cathedral (1707x1709) and Main Gate. Fixed by keying
+on buffer 1's size prefix rather than dimensions; see that function's docstring for the
+two approaches that were tried and rejected. `Fence A`'s negative-Y hotspot remains open
+(neither test map uses that asset).
 
 ## Phase 1 — entity placement
 

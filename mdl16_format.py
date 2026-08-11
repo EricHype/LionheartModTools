@@ -88,20 +88,57 @@ class IconHeader:
         return self.offset + 36
 
 
+# Upper bound on plausible sprite dimensions when scanning for a header. This is a
+# false-match guard, not a format limit: the scan looks for a magic byte that also occurs
+# in ordinary data, so implausible dimensions are how spurious hits get rejected. It was
+# 512, which silently rejected 321 real sprites -- every large set piece in the game,
+# including the Cathedral (1707x1709), Tavern, House Of Ilk and the ships. The largest
+# real sprite found across all 5658 .mdl16 files is 1707x1720, so 2048 clears everything
+# shipped with headroom while still rejecting nonsense.
+MAX_SPRITE_DIM = 2048
+
+
 def find_header(data: bytes) -> IconHeader | None:
-    """Scan for a plausible CStandAloneFrame header. Returns the first match, or None."""
+    """Scan for a plausible CStandAloneFrame header. Returns the best match, or None.
+
+    The magic byte also occurs in ordinary data, so the scan needs a way to reject
+    spurious hits. The discriminator is buffer 1's leading u32, which restates the
+    buffer's own declared size -- true of every real sprite, and vanishingly unlikely at a
+    coincidental magic byte.
+
+    Two things this deliberately does NOT do:
+
+    * Rely on dimension bounds alone. The old bound of 512 rejected 321 real sprites
+      (every large set piece: the Cathedral is 1707x1709, Main Gate 1230x680), and simply
+      raising it made 54 files latch onto an earlier bogus candidate.
+    * Use whole-file size accounting. That invariant is exact and holds for inventory
+      icons, but environment sprite files contain more than one header-shaped structure,
+      and the one that satisfies the accounting is a trailing block that decodes to
+      nothing -- it picks the wrong sprite on 3114 of 5658 files.
+
+    Falls back to the first dimensionally-plausible candidate when no prefix-valid one is
+    found, e.g. for a bare header+buffer from encode_icon_rle16() before build_icon_file()
+    wraps it in an envelope.
+    """
+    fallback = None
     for off in range(len(data) - 36):
         if data[off] != MAGIC:
             continue
         unk1, hx, hy, w, h = struct.unpack_from("<BhhHH", data, off + 1)
-        if unk1 != 0x10 or not (1 <= w <= 512) or not (1 <= h <= 512):
+        if unk1 != 0x10 or not (1 <= w <= MAX_SPRITE_DIM) or not (1 <= h <= MAX_SPRITE_DIM):
             continue
         (flags,) = struct.unpack_from("<I", data, off + 12)
         sizes = struct.unpack_from("<5I", data, off + 16)
         if sum(sizes) >= len(data) or any(s >= len(data) for s in sizes):
             continue
-        return IconHeader(off, hx, hy, w, h, flags, sizes)
-    return None
+        candidate = IconHeader(off, hx, hy, w, h, flags, sizes)
+        base = candidate.data_offset
+        if sizes[0] >= 4 and base + 4 <= len(data):
+            if struct.unpack_from("<I", data, base)[0] == sizes[0]:
+                return candidate
+        if fallback is None:
+            fallback = candidate
+    return fallback
 
 
 def _rgb565_to_rgb888(v: int) -> tuple[int, int, int]:
