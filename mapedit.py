@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsItem, QDockWidget, QWidget, QVBoxLayout, QFormLayout,
     QLineEdit, QDoubleSpinBox, QCheckBox, QListWidget, QListWidgetItem, QTreeWidget,
     QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
-    QGraphicsSimpleTextItem,
+    QGraphicsSimpleTextItem, QAbstractSpinBox,
     QDialogButtonBox,
 )
 
@@ -612,8 +612,11 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(undo_action)
         edit_menu.addAction(redo_action)
         edit_menu.addSeparator()
-        delete_action = edit_menu.addAction("&Delete Entity")
-        delete_action.setShortcut(QKeySequence(Qt.Key_Delete))
+        self.delete_action = delete_action = edit_menu.addAction("&Delete Entity")
+        # Backspace as well as Delete: on a laptop keyboard Delete is often awkward or
+        # absent, and Backspace is what the hand reaches for.
+        delete_action.setShortcuts([QKeySequence(Qt.Key_Delete),
+                                    QKeySequence(Qt.Key_Backspace)])
         delete_action.triggered.connect(self.delete_selected)
 
         tools_menu = self.menuBar().addMenu("&Tools")
@@ -756,6 +759,16 @@ class MainWindow(QMainWindow):
         self.view.centerOn(item)
 
     def delete_selected(self):
+        # Delete and Backspace are window-wide shortcuts, so they fire even when focus is
+        # in the palette filter or a property field -- where both keys must edit text
+        # instead. Without this guard, backspacing a typo in the filter box silently
+        # deletes whatever happens to be selected on the map.
+        # self.focusWidget() before the application-wide one: the latter returns None
+        # whenever the window is not active, and a None there would fall straight
+        # through to the delete.
+        focus = self.focusWidget() or QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QAbstractSpinBox, QPlainTextEdit)):
+            return
         items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
         if not items:
             return
