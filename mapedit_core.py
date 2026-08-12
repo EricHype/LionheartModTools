@@ -349,21 +349,76 @@ def validate(doc: MapDocument, cat: SpriteCatalogue, *,
                     f"({dist:.0f} apart, need {need:.0f})",
                     [ent_a, ent_b],
                     ((ent_a.x + ent_b.x) / 2, (ent_a.y + ent_b.y) / 2)))
+
+    # Holes in wall runs. Warning rather than error: a run that stops is often a
+    # deliberate gateway, and only the author knows which. The arena's missing
+    # south-east corner reached an in-game test because nothing flagged it.
+    for ent, neighbours in find_wall_gaps(doc.entities()):
+        what = ("is on its own" if neighbours == 0
+                else "ends here with nothing adjoining it")
+        issues.append(Issue(
+            "warning",
+            f"wall run {what} at ({ent.x:g}, {ent.y:g}) — gap, or an intended opening?",
+            [ent], (ent.x, ent.y)))
     return issues
 
 
-def check_run_corners(points: list[tuple[float, float]], pitch: float,
-                      tolerance: float = 1.0) -> list[tuple[float, float]]:
-    """Gaps in a closed run of tiled pieces.
+def find_wall_gaps(entities: list[Entity], *, slack: float = 1.35
+                   ) -> list[tuple[Entity, int]]:
+    """Ends of tiled runs that nothing adjoins -- i.e. holes in a wall.
 
-    Opposing edges of a rectangular arena use slightly different step vectors, so they
-    are not parallel and the accumulated drift opens a gap at whichever corner is
-    furthest from the origin. Returns the corners that need another piece.
+    Counts, for each tiled piece, how many other tiled pieces sit within one step (plus
+    slack). Interior pieces have two neighbours; where two runs meet at a corner each
+    corner piece still sees the other run's piece. **One** neighbour means the run just
+    stops, and **zero** means the piece is stranded.
+
+    Returns (entity, neighbour_count) for each such piece, so the caller can word an
+    endpoint and an orphan differently.
+
+    An earlier version of this looked for pieces whose nearest neighbour was further
+    than one pitch, which only ever found fully isolated pieces -- it could not have
+    detected the bug it was written for. The Test Pocket arena's missing south-east
+    corner left two pieces each with a single neighbour, not zero.
     """
-    gaps = []
-    for i, p in enumerate(points):
-        nearest = min((math.hypot(p[0] - q[0], p[1] - q[1])
-                       for j, q in enumerate(points) if j != i), default=float("inf"))
-        if nearest > pitch * tolerance:
-            gaps.append(p)
-    return gaps
+    tiled = []
+    for ent in entities:
+        vec = tiling_vector(ent.model)
+        if vec is not None:
+            tiled.append((ent, vec, math.hypot(*vec)))
+    if len(tiled) < 2:
+        return []
+
+    def piece_at(x: float, y: float, tol: float):
+        for o, _, _ in tiled:
+            if math.hypot(x - o.x, y - o.y) <= tol:
+                return o
+        return None
+
+    out = []
+    for ent, vec, pitch in tiled:
+        # Where this run would continue, forwards and backwards.
+        slots = [(ent.x + vec[0], ent.y + vec[1]),
+                 (ent.x - vec[0], ent.y - vec[1])]
+        fillers = [piece_at(sx, sy, pitch * 0.5) for sx, sy in slots]
+        continues = sum(1 for f in fillers if f is not None)
+        if continues == 2:
+            continue        # interior piece, nothing to say
+
+        # One slot empty is normal -- every run has two ends, and at a corner the
+        # adjoining run picks up from there. What distinguishes a corner from a hole is
+        # the distance to the nearest piece that ISN'T already filling a slot: at the
+        # arena's north-east corner that is 124 (one pitch, sprites still overlapping),
+        # at its actual hole it was 157, and either side of a removed mid-run piece it
+        # is 248. Excluding the run-mate is the crux -- measuring to *any* neighbour
+        # makes a mid-run hole look adjoined by the piece on its other side.
+        # Judge each candidate against the LARGER of the two pitches. Runs meeting at a
+        # corner usually have different step lengths -- Wall 01 C steps 88 but the A run
+        # it meets steps 124 -- so measuring against only this piece's pitch reports
+        # every such corner as a hole.
+        adjoined = any(
+            math.hypot(ent.x - o.x, ent.y - o.y) <= max(pitch, op) * 1.15
+            for o, _, op in tiled
+            if o is not ent and o not in fillers)
+        if not adjoined:
+            out.append((ent, continues))
+    return out

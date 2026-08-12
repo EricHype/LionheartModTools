@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 
 import zax_render as zr
 from mapedit_core import (
-    MapDocument, SpriteCatalogue, validate, tiling_vector,
+    MapDocument, SpriteCatalogue, validate, tiling_vector, known_non_tiling,
 )
 from resource_format import ResourceNode
 
@@ -670,6 +670,21 @@ class MainWindow(QMainWindow):
                 parent = node
             leaf = QTreeWidgetItem([parts[-1]])
             leaf.setData(0, Qt.UserRole, model)
+            # Say which assets tile before they are picked, not after they are placed.
+            # The Fence set looks like wall material and is not -- laying it in a run
+            # leaves a visible jog at every joint, which cost a build cycle to discover.
+            vec = tiling_vector(model)
+            if vec is not None:
+                leaf.setText(0, f"{parts[-1]}   [tiles {vec[0]},{vec[1]}]")
+                leaf.setForeground(0, QBrush(QColor(150, 220, 150)))
+                leaf.setToolTip(0, f"{model}\nTiles into runs; step {vec[0]},{vec[1]}. "
+                                   f"Hold Shift when placing to snap to it.")
+            elif known_non_tiling(model):
+                leaf.setForeground(0, QBrush(QColor(220, 160, 120)))
+                leaf.setToolTip(0, f"{model}\nScatter decoration — does NOT tile into "
+                                   f"runs. Laying these end to end leaves visible gaps.")
+            else:
+                leaf.setToolTip(0, model)
             if parent is None:
                 self.palette_tree.addTopLevelItem(leaf)
             else:
