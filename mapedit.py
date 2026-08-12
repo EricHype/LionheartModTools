@@ -400,6 +400,15 @@ class MapView(QGraphicsView):
             self.viewport().unsetCursor()
 
     def keyPressEvent(self, event):
+        # [ and ] resize the brush, the usual paint-app binding. Handled here rather
+        # than as a window-wide QAction shortcut so the keys still type normally in the
+        # palette filter and the property fields -- a shortcut would swallow them
+        # everywhere, which is the trap Backspace-to-delete already had to work around.
+        if self._paint_mode and event.key() in (Qt.Key_BracketLeft, Qt.Key_BracketRight):
+            step = -1 if event.key() == Qt.Key_BracketLeft else 1
+            self.window.nudge_brush_radius(step)
+            event.accept()
+            return
         super().keyPressEvent(event)
         self.refresh_cursor()
 
@@ -1290,6 +1299,17 @@ class MainWindow(QMainWindow):
             item.setFlag(QGraphicsItem.ItemIsMovable, enabled)
         if not enabled:
             self.scene.clearSelection()
+
+    def nudge_brush_radius(self, step: int) -> None:
+        spin = self.terrain_radius_spin
+        new = max(spin.minimum(), min(spin.maximum(), spin.value() + step))
+        if new == spin.value():
+            self.statusBar().showMessage(
+                f"Brush radius {new} is the {'smallest' if step < 0 else 'largest'}.",
+                2000)
+            return
+        spin.setValue(new)      # fires valueChanged, which resizes the cursor
+        self.statusBar().showMessage(f"Brush radius {new}", 2000)
 
     def flush_pending_redraw(self) -> None:
         """Redraw whatever has accumulated since the last repaint."""
