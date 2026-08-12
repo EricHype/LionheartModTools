@@ -381,7 +381,10 @@ class TerrainLayer:
             for c in range(col - radius, col + radius + 1):
                 if not (0 <= c < self.cols):
                     continue
-                if radius and math.hypot(c - col, r - row) > radius + 0.5:
+                # Plain Euclidean radius, no slack. An earlier `radius + 0.5` let the
+                # diagonals in at radius 1 -- 1.414 < 1.5 -- so the default brush was a
+                # 3x3 square, and larger ones were squares with the corners clipped.
+                if radius and math.hypot(c - col, r - row) > radius:
                     continue
                 if self._grid[r][c] != val:
                     self._grid[r][c] = val
