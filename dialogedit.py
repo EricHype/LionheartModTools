@@ -26,13 +26,14 @@ from PySide6.QtGui import (
     QPolygonF, QUndoCommand, QUndoStack,
 )
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDockWidget, QFileDialog, QFormLayout, QGraphicsItem,
-    QGraphicsPathItem, QGraphicsScene, QGraphicsView, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QDockWidget, QFileDialog, QFormLayout, QGraphicsItem,
+    QGraphicsPathItem, QGraphicsScene, QGraphicsView, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+    QScrollArea, QTreeWidget, QTreeWidgetItem, QUndoView, QVBoxLayout, QWidget,
 )
 
 import dialogtree_format as dtf
+from qtwidgets import NoScrollComboBox
 
 # Files under here are the installed game: reference only, never written to.
 DEFAULT_GAME_DATA = (
@@ -45,10 +46,31 @@ NODE_PAD = 14
 COL_GAP = 190
 ROW_GAP = 34
 
+# Changed-since-opened. Deliberately a cool blue: green is the entry node and amber means
+# unreachable, so a third state needs to be nobody else's colour.
+TOUCHED = QColor(96, 178, 236)
+
 
 # ---------------------------------------------------------------------------
 # Undo commands
+#
+# Every command's label is written to be read, not just to fill an Undo menu entry: the
+# Edits dock lists them, and a list of "Retarget reply" x6 tells you nothing about which
+# reply went where. That mattered once already -- a stray mouse wheel silently retargeted
+# a reply, and nothing on screen said so.
 # ---------------------------------------------------------------------------
+
+def _snip(text: str, limit: int = 34) -> str:
+    """A value short enough for a menu line, with the ellipsis inside the quotes."""
+    text = " ".join((text or "").split())
+    if not text:
+        return "(empty)"
+    return f'"{text}"' if len(text) <= limit else f'"{text[:limit - 1]}..."'
+
+
+def _target_name(goto: str) -> str:
+    return goto.strip() or "(ends the conversation)"
+
 
 class _Edit(QUndoCommand):
     """Set one attribute on a node or reply. Both are views over the parsed file, so
@@ -68,6 +90,115 @@ class _Edit(QUndoCommand):
 
     def undo(self):
         self._apply(self.old)
+
+
+class _AddNode(QUndoCommand):
+    def __init__(self, window, node):
+        super().__init__(f"Add node {node.node_id}")
+        self.window, self.node = window, node
+
+    def redo(self):
+        self.window.tree.add_node(self.node)
+        self.window.after_structural_edit(select=self.node)
+
+    def undo(self):
+        self.window.tree.remove_node(self.node)
+        self.window.after_structural_edit()
+
+
+class _DeleteNode(QUndoCommand):
+    def __init__(self, window, node):
+        super().__init__(f"Delete node {node.node_id}")
+        self.window, self.node, self.index = window, node, None
+
+    def redo(self):
+        self.index = self.window.tree.remove_node(self.node)
+        self.window.after_structural_edit()
+
+    def undo(self):
+        self.window.tree.add_node(self.node, self.index)
+        self.window.after_structural_edit(select=self.node)
+
+
+class _RenameNode(QUndoCommand):
+    """Change a node's ID, retargeting every reply that points at it.
+
+    The two halves are one command on purpose: a rename that leaves the links behind
+    manufactures the same link rot phase 1 exists to repair, and an undo that restored
+    only the ID would leave the file worse than it started.
+    """
+
+    def __init__(self, window, node, new_id):
+        refs = len(window.tree.referrers(node))
+        carried = f", carrying {refs} " + ("link" if refs == 1 else "links") if refs else ""
+        super().__init__(f"Rename {node.node_id} -> {new_id}{carried}")
+        self.window, self.node = window, node
+        self.old_id, self.new_id = node.node_id, new_id
+        self.moved = []
+
+    def redo(self):
+        # Record what each link said before, not just that it pointed here: links match
+        # case-insensitively, so a reply reading `10 Goodbye` may target `10 goodbye`.
+        # Rewriting it to the canonical spelling on undo would change bytes the user
+        # never touched.
+        self.moved = [(r, r.goto) for _n, r in self.window.tree.referrers(self.node)]
+        self.window.tree.rename_node(self.node, self.new_id)
+        self.window.after_edit(relayout=True)
+
+    def undo(self):
+        self.node.node_id = self.old_id
+        for reply, goto in self.moved:
+            reply.goto = goto
+        self.window.after_edit(relayout=True)
+
+
+class _AddReply(QUndoCommand):
+    """Append a reply, and on undo take back exactly what was appended.
+
+    Undoing by removing the reply's own window is not enough: adding the first reply to a
+    node also inserts the blank line that separates it from the node header, and that
+    blank sits *before* the window. Truncating back to the recorded length is exact,
+    because `add_reply` only ever appends.
+    """
+
+    def __init__(self, window, node):
+        super().__init__(f"Add reply to {node.node_id}")
+        self.window, self.node = window, node
+        self.entries = None
+        self.mark = None
+
+    def redo(self):
+        self.mark = len(self.node.entries)
+        if self.entries is None:
+            self.node.add_reply("New reply", "")
+        else:
+            self.node.entries.extend(self.entries)   # identical objects, exact redo
+        self.window.after_structural_edit(select=self.node)
+
+    def undo(self):
+        self.entries = self.node.entries[self.mark:]
+        del self.node.entries[self.mark:]
+        self.window.after_structural_edit(select=self.node)
+
+
+class _DeleteReply(QUndoCommand):
+    def __init__(self, window, node, index):
+        super().__init__(f"Delete reply {_snip(node.replies[index].text)} "
+                         f"from {node.node_id}")
+        self.window, self.node, self.index = window, node, index
+        self.entries = None
+        self.at = None
+
+    def redo(self):
+        reply = self.node.replies[self.index]
+        # `remove_reply` decides where the cut starts -- deleting the last reply takes
+        # the blank line before it too -- so take the index from it, not from the reply.
+        self.at, self.entries = self.node.remove_reply(reply)
+        self.window.after_structural_edit(select=self.node)
+
+    def undo(self):
+        self.node.insert_reply_entries(self.at, self.entries)
+        self.window.after_structural_edit(select=self.node)
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +226,8 @@ class NodeItem(QGraphicsItem):
         if len(textwrap.wrap(body, 42)) > 6:
             self.body_lines[-1] += " ..."
         self.height = NODE_PAD * 2 + 20 + 16 * len(self.body_lines)
+        self.setToolTip("Changed since this file was opened."
+                        if self.window.is_touched(self.node) else "")
         self.update()
 
     def boundingRect(self) -> QRectF:
@@ -105,6 +238,7 @@ class NodeItem(QGraphicsItem):
         selected = self.isSelected()
         entry = self.window.is_entry_node(self.node)
         orphan = self.window.is_orphan(self.node)
+        touched = self.window.is_touched(self.node)
 
         if entry:
             fill = QColor(48, 74, 58)        # the way in
@@ -121,12 +255,22 @@ class NodeItem(QGraphicsItem):
         painter.setPen(QPen(border, 2.0 if selected else 1.0))
         painter.drawPath(path)
 
+        title_w = NODE_W - NODE_PAD * 2
+        if touched:
+            # A dot rather than a different fill: a node can be the entry point, or
+            # unreachable, *and* edited, and those already own the fill and the border.
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(TOUCHED))
+            painter.drawEllipse(QPointF(NODE_W - NODE_PAD - 3, NODE_PAD + 4), 4.0, 4.0)
+            painter.setBrush(Qt.NoBrush)
+            title_w -= 14
+
         font = painter.font()
         font.setBold(True)
         font.setPointSizeF(9.5)
         painter.setFont(font)
         painter.setPen(QColor(235, 220, 160) if not orphan else QColor(235, 190, 120))
-        painter.drawText(QRectF(NODE_PAD, NODE_PAD - 4, NODE_W - NODE_PAD * 2, 18),
+        painter.drawText(QRectF(NODE_PAD, NODE_PAD - 4, title_w, 18),
                          Qt.AlignLeft | Qt.AlignVCenter, self.title)
 
         font.setBold(False)
@@ -163,12 +307,21 @@ class NodeItem(QGraphicsItem):
 class EdgeItem(QGraphicsPathItem):
     """A reply, drawn from its node to its target."""
 
-    def __init__(self, source: NodeItem, target: NodeItem, label: str, broken=False):
+    def __init__(self, source: NodeItem, target: NodeItem, label: str, broken=False,
+                 touched=False):
         super().__init__()
         self.source, self.target, self.label = source, target, label
         self.broken = broken
-        colour = QColor(190, 90, 80) if broken else QColor(120, 130, 145)
-        self.setPen(QPen(colour, 1.4, Qt.DashLine if broken else Qt.SolidLine))
+        if broken:
+            colour, width = QColor(190, 90, 80), 1.4
+        elif touched:
+            # Links added or retargeted this session, drawn to be noticed: a wrong-but-
+            # valid target is a working link to the wrong place, so no validator catches
+            # it and only seeing it will do.
+            colour, width = TOUCHED, 2.2
+        else:
+            colour, width = QColor(120, 130, 145), 1.4
+        self.setPen(QPen(colour, width, Qt.DashLine if broken else Qt.SolidLine))
         self.setZValue(-1)
         self.refresh()
 
@@ -343,6 +496,8 @@ class DialogWindow(QMainWindow):
         self.edges: list[EdgeItem] = []
         self._updating = False
         self.read_only = False
+        self._baseline: dict = {}
+        self._touched: set = set()
 
         self.scene = QGraphicsScene(self)
         self.view = DialogView(self.scene, self)
@@ -456,6 +611,7 @@ class DialogWindow(QMainWindow):
         self.read_only = self._is_game_file(path)
         self.undo_stack.clear()
         self.retarget_reply = None
+        self._snapshot()
         self.rebuild_scene()
         self.run_validate()
         self._refresh_panel()
@@ -518,13 +674,31 @@ class DialogWindow(QMainWindow):
         self.header_label.setWordWrap(True)
         layout.addWidget(self.header_label)
 
+        id_row = QHBoxLayout()
+        self.id_label = QLabel("<b>Node ID</b>")
+        id_row.addWidget(self.id_label)
+        self.id_edit = QLineEdit()
+        self.id_edit.setPlaceholderText("Node ID")
+        self.id_edit.setToolTip(
+            "Renaming retargets every reply in this file that points here.\n"
+            "It cannot follow references from map scripts.")
+        self.id_edit.editingFinished.connect(self._commit_id)
+        id_row.addWidget(self.id_edit, 1)
+        layout.addLayout(id_row)
+
         layout.addWidget(QLabel("<b>NPC line</b>"))
         self.text_edit = QPlainTextEdit()
         self.text_edit.setPlaceholderText("Select a node in the graph.")
         self.text_edit.focusOutEvent = self._wrap_focus_out(self.text_edit)
         layout.addWidget(self.text_edit, 2)
 
-        layout.addWidget(QLabel("<b>Replies</b>"))
+        reply_header = QHBoxLayout()
+        reply_header.addWidget(QLabel("<b>Replies</b>"))
+        reply_header.addStretch(1)
+        self.add_reply_button = QPushButton("Add reply")
+        self.add_reply_button.clicked.connect(self.add_reply)
+        reply_header.addWidget(self.add_reply_button)
+        layout.addLayout(reply_header)
         self.reply_host = QWidget()
         self.reply_form = QVBoxLayout(self.reply_host)
         self.reply_form.setContentsMargins(0, 0, 0, 0)
@@ -542,6 +716,18 @@ class DialogWindow(QMainWindow):
         issues = QDockWidget("Problems", self)
         issues.setWidget(self.issue_list)
         self.addDockWidget(Qt.BottomDockWidgetArea, issues)
+
+        # Every edit, in order, in one list. The Problems dock only catches edits that
+        # break something; this catches the ones that don't -- a reply retargeted to a
+        # node that exists is a valid file and a broken conversation, and the only way
+        # to notice is to see that it was changed at all.
+        self.edit_view = QUndoView(self.undo_stack)
+        self.edit_view.setEmptyLabel("Nothing changed yet")
+        edits = QDockWidget("Edits", self)
+        edits.setWidget(self.edit_view)
+        self.addDockWidget(Qt.BottomDockWidgetArea, edits)
+        self.tabifyDockWidget(issues, edits)
+        issues.raise_()
 
         self.scene.selectionChanged.connect(self._on_selection)
         self.statusBar()
@@ -571,6 +757,16 @@ class DialogWindow(QMainWindow):
         redo.setShortcut(QKeySequence("Ctrl+Shift+Z"))
         edit_menu.addAction(undo)
         edit_menu.addAction(redo)
+        edit_menu.addSeparator()
+        new_node = edit_menu.addAction("&New Node")
+        new_node.setShortcut(QKeySequence("Ctrl+N"))
+        new_node.triggered.connect(self.add_node)
+        del_node = edit_menu.addAction("Delete &Node")
+        del_node.setShortcut(QKeySequence("Ctrl+Shift+Delete"))
+        del_node.triggered.connect(self.delete_node)
+        add_reply = edit_menu.addAction("Add &Reply")
+        add_reply.setShortcut(QKeySequence("Ctrl+R"))
+        add_reply.triggered.connect(self.add_reply)
 
         view_menu = self.menuBar().addMenu("&View")
         fit = view_menu.addAction("&Fit")
@@ -590,6 +786,65 @@ class DialogWindow(QMainWindow):
     def is_orphan(self, node) -> bool:
         return node.node_id in self._orphans
 
+    # -- what has changed since the file was opened ------------------------
+
+    def _snapshot(self):
+        """Remember every node exactly as it was on disk.
+
+        "Touched" is then *derived* by comparison rather than tracked as edits happen.
+        That is the whole point: an undo clears the mark for free, a redo restores it,
+        and the marks cannot drift out of step with the file the way a hand-maintained
+        set would. It survives a save deliberately -- the question being answered is
+        "what have I changed in this session", which is what you want to review before
+        deploying, and saving is not the end of a session.
+        """
+        # Keyed by id() because Node is a dataclass and so unhashable -- and the node
+        # itself is kept in the value to pin it alive, which is what makes the id safe
+        # to use as a key: a freed node's id can be handed to a later one.
+        self._baseline = {id(n): (n, *self._fingerprint(n)) for n in self.tree.nodes}
+        self._recompute_touched()
+
+    @staticmethod
+    def _fingerprint(node):
+        """The node's bytes, and where each of its replies pointed, keyed by reply text.
+
+        Keyed by *text*, not by the target and not by position. Keying by target was the
+        obvious choice and was wrong in the one case this feature exists for: the reply
+        that got retargeted by accident was sent to `10 Transformation`, and its node
+        already linked there through a different reply, so the link looked pre-existing
+        and nothing lit up. Keying by text also survives replies being added or deleted
+        above it, which shifts positions.
+        """
+        links: dict[str, set[str]] = {}
+        for r in node.replies:
+            links.setdefault(" ".join(r.text.split()).lower(), set()).add(
+                dtf.normalise_id(r.goto))
+        return ("\n".join(node.to_lines()), links)
+
+    def _recompute_touched(self):
+        self._touched = {
+            id(node) for node in self.tree.nodes
+            if id(node) not in self._baseline
+            or self._baseline[id(node)][1] != "\n".join(node.to_lines())
+        }
+
+    def is_touched(self, node) -> bool:
+        """Has this node changed since the file was opened? Added counts as changed."""
+        return id(node) in self._touched
+
+    def is_new_link(self, node, reply) -> bool:
+        """Did this reply point somewhere else when the file was opened?
+
+        A retarget reads as the old link disappearing and a new one appearing, which is
+        the right way round: the new edge is the one worth looking at. A reply whose text
+        was rewritten counts as new too -- it is no longer the reply that was there.
+        """
+        base = self._baseline.get(id(node))
+        if base is None:
+            return True
+        was = base[2].get(" ".join(reply.text.split()).lower())
+        return was is None or dtf.normalise_id(reply.goto) not in was
+
     def rebuild_scene(self):
         """Lay the graph out in columns by distance from the entry node.
 
@@ -598,6 +853,7 @@ class DialogWindow(QMainWindow):
         visible returns rather than tangling the columns.
         """
         self._orphans = set(self.tree.unreachable_nodes())
+        self._recompute_touched()
         self.scene.clear()
         self.node_items.clear()
         self.edges.clear()
@@ -644,7 +900,8 @@ class DialogWindow(QMainWindow):
                 target_node = by_id.get(dtf.normalise_id(reply.goto))
                 if target_node is None:
                     continue        # dangling; reported in Problems, no edge to draw
-                edge = EdgeItem(source, self.node_items[id(target_node)], reply.text)
+                edge = EdgeItem(source, self.node_items[id(target_node)], reply.text,
+                                touched=self.is_new_link(node, reply))
                 self.scene.addItem(edge)
                 self.edges.append(edge)
 
@@ -677,37 +934,59 @@ class DialogWindow(QMainWindow):
                 f"{len(self.tree.nodes)} nodes. Select one to edit it.")
             self.text_edit.setPlainText("")
             self.text_edit.setEnabled(False)
+            self.id_edit.setText("")
+            self.id_edit.setEnabled(False)
             self._updating = False
             return
 
-        self.header_label.setText(f"<b>{node.node_id}</b>")
+        refs = len(self.tree.referrers(node))
+        note = "the entry node" if self.is_entry_node(node) else (
+            f"{refs} reply links here" if refs == 1 else f"{refs} replies link here")
+        self.header_label.setText(f"<i>{note}</i>")
+        self.id_edit.setEnabled(not self.read_only)
+        self.id_edit.setText(node.node_id)
         self.text_edit.setEnabled(True)
         self.text_edit.setPlainText(node.text)
 
         ids = [""] + [n.node_id for n in self.tree.nodes]
-        for reply in node.replies:
+        for index, reply in enumerate(node.replies):
             box = QWidget()
             form = QFormLayout(box)
             form.setContentsMargins(0, 4, 0, 10)
 
             text = QLineEdit(reply.text)
             text.editingFinished.connect(
-                lambda w=text, r=reply: self._commit(r, "text", w.text(), "Edit reply"))
+                lambda w=text, r=reply: self._commit(r, "text", w.text()))
             form.addRow("Reply", text)
 
-            target = QComboBox()
+            target = NoScrollComboBox()
             target.setEditable(True)
             target.addItems(ids)
-            target.setCurrentText(reply.goto)
+            # `setCurrentText` on an editable combo sets the text and leaves the index
+            # alone, so the box would show one node while its index pointed at another.
+            # Keyboard and wheel navigation move the *index*, which made the first
+            # keystroke land somewhere unrelated to what was on screen.
+            known = target.findText(reply.goto)
+            if known >= 0:
+                target.setCurrentIndex(known)
+            else:
+                target.setCurrentText(reply.goto)
             if reply.goto and self.tree.node_by_id(reply.goto) is None:
                 target.setStyleSheet("color: #e05a4e;")
             target.currentTextChanged.connect(
-                lambda value, r=reply: self._commit(r, "goto", value, "Retarget reply"))
+                lambda value, r=reply: self._commit(r, "goto", value))
             form.addRow("Goes to", target)
 
+            buttons = QHBoxLayout()
             pick = QPushButton("Pick target in graph")
             pick.clicked.connect(lambda _=False, r=reply: self.begin_retarget(r))
-            form.addRow("", pick)
+            buttons.addWidget(pick)
+            drop = QPushButton("Delete")
+            drop.clicked.connect(lambda _=False, i=index: self.delete_reply(i))
+            buttons.addWidget(drop)
+            holder = QWidget()
+            holder.setLayout(buttons)
+            form.addRow("", holder)
 
             bits = []
             if reply.requirement and reply.requirement != "!None":
@@ -727,25 +1006,106 @@ class DialogWindow(QMainWindow):
         self.reply_form.addStretch(1)
         self._updating = False
 
+    @staticmethod
+    def _one_line(text: str) -> str:
+        """Flatten a value to a single line.
+
+        `.DialogTree` is line-based: a value runs to the end of its line, so a newline
+        inside one splits the record. A trailing newline produces a stray blank line; a
+        newline mid-sentence turns the remainder into a bare line the engine would read
+        as a malformed key. The NPC line is edited in a multi-line box because the lines
+        are long and wrap badly in a single-line field, so the flattening happens here
+        rather than by forbidding the keypress.
+        """
+        return " ".join(text.split())
+
+    def _commit_id(self):
+        """Rename the selected node, refusing anything that would corrupt the file.
+
+        An empty ID or a duplicate is rejected outright rather than pushed and undone:
+        both make the node unreachable, and duplicates make every link to either one
+        ambiguous, since matching is by name.
+        """
+        node = self.selected_node()
+        if node is None or self._updating:
+            return
+        new = self._one_line(self.id_edit.text())
+        if new == node.node_id:
+            return
+        if self.read_only:
+            self.id_edit.setText(node.node_id)
+            self._reject_if_read_only()
+            return
+        # Validate before pushing, not inside the command: a redo that raises would
+        # leave a half-applied entry on the undo stack.
+        clash = self.tree.node_by_id(new)
+        if not new:
+            reason = "a node needs an ID"
+        elif clash is not None and clash is not node:
+            reason = f"another node is already called {new!r}"
+        else:
+            reason = None
+        if reason:
+            self.id_edit.setText(node.node_id)
+            self._announce(f"Kept the old ID: {reason}.")
+            return
+
+        was_entry = self.is_entry_node(node)
+        command = _RenameNode(self, node, new)
+        self._push(command)
+        if was_entry:
+            self._announce(f"{command.text()}. This is the entry node -- check any map "
+                           "script that opens this dialogue by name.")
+
+    def _announce(self, message: str):
+        """Say what just changed. Every mutation goes through here.
+
+        The status bar is the weaker half of the pair -- a message you were not looking
+        at when it flashed is a message you never saw -- but it is the half that costs
+        nothing, and the Edits dock keeps the same text where you can go back to it.
+        """
+        self.statusBar().showMessage(message, 6000)
+
+    def _push(self, command):
+        self.undo_stack.push(command)
+        self._announce(command.text())
+
+    @staticmethod
+    def _describe(target, attr, old, new) -> str:
+        """A label naming what changed, which node it happened to, and to what."""
+        if isinstance(target, dtf.Reply):
+            where = f" in {target.node.node_id}" if target.node.node_id else ""
+            if attr == "goto":
+                return (f"Retarget {_snip(target.text)}{where}: "
+                        f"{_target_name(old)} -> {_target_name(new)}")
+            return f"Edit reply{where}: {_snip(old)} -> {_snip(new)}"
+        return f"Edit the line of {target.node_id}"
+
     def _commit_text(self):
         node = self.selected_node()
         if node is None or self._updating:
             return
-        new = self.text_edit.toPlainText()
+        new = self._one_line(self.text_edit.toPlainText())
         if new != node.text:
-            self.undo_stack.push(_Edit(self, node, "text", node.text, new, "Edit line"))
+            self._push(_Edit(self, node, "text", node.text, new,
+                             self._describe(node, "text", node.text, new)))
 
-    def _commit(self, target, attr, value, label):
+    def _commit(self, target, attr, value):
         if self._updating:
             return
+        value = self._one_line(value)
         old = getattr(target, attr)
         if value != old:
-            self.undo_stack.push(_Edit(self, target, attr, old, value, label))
+            self._push(_Edit(self, target, attr, old, value,
+                             self._describe(target, attr, old, value)))
 
     def after_edit(self, relayout=False):
         self.tree.dirty = True
         self.setWindowTitle(self._title())
         node = self.selected_node()
+        # Before the items repaint: `rebuild_scene` does this itself, but the no-relayout
+        # path only calls `item.rebuild()`, which reads the set rather than filling it.
+        self._recompute_touched()
         if relayout:
             self.rebuild_scene()
             if node is not None and id(node) in self.node_items:
@@ -757,6 +1117,82 @@ class DialogWindow(QMainWindow):
                 item.rebuild()
         self._refresh_panel()
         self.run_validate()
+
+    # -- authoring --------------------------------------------------------
+
+    def after_structural_edit(self, select=None):
+        """A node or reply was added or removed: relayout, revalidate, reselect."""
+        self.tree.dirty = True
+        self.setWindowTitle(self._title())
+        self.rebuild_scene()
+        if select is not None and id(select) in self.node_items:
+            self._updating = True
+            self.node_items[id(select)].setSelected(True)
+            self._updating = False
+            self.view.centerOn(self.node_items[id(select)])
+        self._refresh_panel()
+        self.run_validate()
+
+    def _reject_if_read_only(self) -> bool:
+        if self.read_only:
+            self.statusBar().showMessage(
+                f"{self.path.name} is in the game directory and cannot be edited. "
+                "Copy it into a mod first.", 6000)
+            return True
+        return False
+
+    def add_node(self):
+        if self._reject_if_read_only():
+            return
+        node = dtf.new_node(self.tree.unique_node_id(), "")
+        self._push(_AddNode(self, node))
+        self.text_edit.setFocus()
+
+    def delete_node(self):
+        if self._reject_if_read_only():
+            return
+        node = self.selected_node()
+        if node is None:
+            self.statusBar().showMessage("Select a node to delete.", 4000)
+            return
+        if self.tree.nodes and node is self.tree.nodes[0]:
+            QMessageBox.warning(
+                self, "Cannot delete",
+                "This is the conversation's entry point -- the first node is where the "
+                "conversation starts. Move another node to the top first.")
+            return
+        # Deleting a node orphans every reply pointing at it, and in-game that presents
+        # as a conversation that stops responding. Say how many before doing it.
+        refs = self.tree.referrers(node)
+        if refs:
+            answer = QMessageBox.question(
+                self, "Delete node",
+                f"{len(refs)} repl{'y' if len(refs) == 1 else 'ies'} link to "
+                f"{node.node_id!r}.\n\nDeleting it will leave "
+                f"{'that reply' if len(refs) == 1 else 'those replies'} pointing at "
+                "nothing, which in-game means the conversation stops responding."
+                "\n\nDelete anyway?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return
+        self._push(_DeleteNode(self, node))
+
+    def add_reply(self):
+        if self._reject_if_read_only():
+            return
+        node = self.selected_node()
+        if node is None:
+            self.statusBar().showMessage("Select a node to add a reply to.", 4000)
+            return
+        self._push(_AddReply(self, node))
+
+    def delete_reply(self, index: int):
+        if self._reject_if_read_only():
+            return
+        node = self.selected_node()
+        if node is None or index >= len(node.replies):
+            return
+        self._push(_DeleteReply(self, node, index))
 
     # -- retargeting by clicking --------------------------------------
 
@@ -774,7 +1210,7 @@ class DialogWindow(QMainWindow):
         self.retarget_reply = None
         self.statusBar().clearMessage()
         if reply is not None:
-            self._commit(reply, "goto", node.node_id, "Retarget reply")
+            self._commit(reply, "goto", node.node_id)
 
     # -- validation -------------------------------------------------------
 

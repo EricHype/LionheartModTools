@@ -244,6 +244,16 @@ box. Click a node to edit its line and its replies; rewire a reply from a dropdo
 clicking its new target in the graph. Green is the entry node, amber means nothing links
 to it. Left-drag pans, the wheel zooms, `Ctrl+L` re-layouts, and there's full undo.
 
+You can also write new dialogue, not just edit it: `Ctrl+N` adds a node, `Ctrl+R` adds a
+reply to the selected one, `Ctrl+Shift+Del` deletes a node — with a warning naming how
+many replies would be left dangling. **Renaming** a node is a field at the top of the Node
+dock, and it retargets every reply in the file that points there, because a rename that
+leaves the links behind is precisely how the game ended up with 84 broken ones. What it
+cannot follow is a reference from *outside* the file: map scripts name nodes directly
+through `CDisplayDialogTreeAction`, so renaming a tree's entry node means checking the map
+that opens it. Duplicate and empty IDs are refused outright — matching is by name, so a
+duplicate makes every link to either node ambiguous.
+
 Files inside the installed game open **read-only** — the toolchain layers mods over a
 pristine backup, so writing into the install would corrupt what every rebuild restores
 from. Copy one into a mod's `files/` tree to edit it.
@@ -251,6 +261,30 @@ from. Copy one into a mod's `files/` tree to edit it.
 The **Problems** dock lists replies pointing at nodes that don't exist, and nodes nothing
 links to, each clickable to jump there. That is worth having: in-game a dangling reply
 just refuses to advance the conversation, and says nothing about why.
+
+### Seeing what you changed
+
+Problems only catches edits that break something, and the dangerous ones don't. A reply
+retargeted to a node that *exists* is a valid file and a broken conversation — no
+validator can flag it. So every edit is surfaced three ways:
+
+- The **Edits** dock lists them in order, naming what changed and to what:
+  `Retarget "Not yet. I'll return when..." in 1 Conversation Start: 1 Conversation Start
+  -> 10 Transformation`. It's the undo stack, so undo and redo move through it.
+- The **status bar** says the same thing as each edit lands.
+- **The graph marks it**: a blue dot on every node changed since the file was opened, and
+  a thicker blue edge on every link added or retargeted.
+
+The marks are derived by comparing against the file as loaded, not tracked as you go — so
+an undo clears them, a redo restores them, and editing a value back to what it was leaves
+nothing marked. They persist across a save, because the question they answer is "what
+have I changed this session", which is what you want to review before deploying.
+
+This exists because of a real incident: a stray mouse wheel over a reply's target dropdown
+retargeted "Not yet, I'll return when I have it" to the quest's payoff node. Nothing said
+so, and the file was saved. The wheel is now ignored unless the box is focused
+(`qtwidgets.NoScrollComboBox`, used by the script dock too), but the guard only covers the
+bug that was found — the three displays cover the next one.
 
 ### Two things about the format
 
@@ -270,8 +304,16 @@ in trailing space. The leading number is *not* the key either, tempting as it lo
 numbers are reused within their own file (`1 Conversation Start Male` / `Female` /
 `Angry`). The full normalised string is unique across all 341 files with no collisions.
 
-Under the correct rule, 96 replies in vanilla are genuinely broken (0.9%) — including a
-`5 goobye` typo in Goblin Sapper that dead-ends the conversation.
+Under the correct rule, 84 replies in vanilla are genuinely broken (0.8%) — including a
+`5 goobye` typo in Goblin Sapper that dead-ends the conversation. (It reads 96 if you
+count the twelve replies whose target is a single space. They aren't broken: 2263 replies,
+21% of the game, legitimately end a conversation with an empty target, and a space does
+the same thing.)
+
+One more rule, found while adding reply authoring: **a blank line goes before every reply
+and nowhere else.** No node in the corpus ends on a blank — 3510 of 3510 end on a key.
+Writing the separator after a reply instead of before produces a layout that appears
+nowhere in the game's own files.
 
 The round-trip is byte-identical across all 341 shipped files, which was the gate for
 building anything on top of it.

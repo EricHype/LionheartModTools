@@ -21,12 +21,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QUndoCommand, QBrush, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QLabel, QLineEdit, QComboBox, QScrollArea, QDialog, QListWidget,
+    QPushButton, QLabel, QLineEdit, QScrollArea, QDialog, QListWidget,
     QDialogButtonBox, QAbstractItemView,
 )
 
 import script_schema as ss
 from resource_format import ResourceNode
+from qtwidgets import NoScrollComboBox
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +383,7 @@ class ScriptDock(QWidget):
             value = node.get(f.key)
             value = "" if isinstance(value, ResourceNode) else (value or "")
             if f.kind == "enum" and f.choices:
-                widget = QComboBox()
+                widget = NoScrollComboBox()
                 widget.setEditable(True)      # observed values are common, not exhaustive
                 widget.addItems(list(f.choices))
                 widget.setCurrentText(value)

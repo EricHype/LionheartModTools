@@ -25,6 +25,7 @@ gate this module has to pass before anything is built on it.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -99,6 +100,14 @@ class Node:
     def node_id(self) -> str:
         return self._get("Node ID") or ""
 
+    @node_id.setter
+    def node_id(self, value: str) -> None:
+        """Rename the node. Callers own the consequences: replies elsewhere in the file
+        that point at the old ID are not followed, and neither are `Node ID` fields in
+        map scripts (`CDisplayDialogTreeAction`, `CDisplayDialogBalloonAction`). Use
+        `DialogTree.rename_node` unless you specifically want the links left alone."""
+        self._set("Node ID", value)
+
     @property
     def text(self) -> str:
         return self._get("Text") or ""
@@ -127,6 +136,64 @@ class Node:
         for e in self.entries:
             lines.extend(e.to_lines())
         return lines
+
+    # -- authoring --------------------------------------------------------
+
+    def add_reply(self, text: str = "", goto: str = "",
+                  requirement: str = "!None") -> "Reply":
+        """Append a reply in the shape the shipped files use.
+
+        `Requirement` / `Reply Text` / `Go to node ID` is the universal core -- 1189 of
+        the corpus's replies are exactly those three keys and every other variant starts
+        with them. Optional keys (`Icon`, `Is Default Reply`, `Custom Action`) are left
+        off rather than written empty, because a reply without them is the common case
+        and an empty `Icon=` is not something the shipped files ever contain.
+
+        The blank line goes *before* the new reply, never after. That is the shipped
+        shape: a blank separates consecutive replies, and no node in the corpus ends on
+        one -- 3510 of 3510 end on a key. Writing a trailing blank produced a layout that
+        appears nowhere in the game's own files.
+        """
+        if self.entries and self.entries[-1].key is not None:
+            # A node with no replies yet ends on `Should Have Voiceover`; the blank line
+            # before the first reply is part of the shipped shape.
+            self.entries.append(Entry(None))
+        self.entries.append(Entry("Requirement", requirement))
+        self.entries.append(Entry("Reply Text", text))
+        self.entries.append(Entry("Go to node ID", goto))
+        return self.replies[-1]
+
+    def remove_reply(self, reply: "Reply") -> tuple[int, list[Entry]]:
+        """Delete a reply, returning `(index, entries)` so an undo can put it back exactly.
+
+        A reply's window runs to the start of the next one, so it carries the blank line
+        that follows it -- which keeps the separators right for every reply but the last.
+        Removing the last one would strand the blank that preceded it at the end of the
+        node, so that blank goes too.
+        """
+        start, end = reply.start, reply.end
+        if end >= len(self.entries) and start and self.entries[start - 1].key is None:
+            start -= 1
+        removed = self.entries[start:end]
+        del self.entries[start:end]
+        return start, removed
+
+    def insert_reply_entries(self, index: int, entries: list[Entry]) -> None:
+        self.entries[index:index] = entries
+
+
+def new_node(node_id: str, text: str = "") -> Node:
+    """A node with the three keys every shipped node has, in their shipped order.
+
+    1597 of 1597 nodes across the corpus lead with exactly
+    `Node ID` / `Text` / `Should Have Voiceover`, so there is no variation to choose
+    between. `Should Have Voiceover=0` because new writing has no recorded audio.
+    """
+    return Node([
+        Entry("Node ID", node_id),
+        Entry("Text", text),
+        Entry("Should Have Voiceover", "0"),
+    ])
 
 
 @dataclass
@@ -251,6 +318,69 @@ class DialogTree:
         targets = {normalise_id(r.goto) for n in self.nodes for r in n.replies if r.goto}
         return [n.node_id for n in self.nodes[1:]
                 if normalise_id(n.node_id) not in targets]
+
+    # -- authoring ---------------------------------------------------------
+
+    def unique_node_id(self, label: str = "new node") -> str:
+        """A node ID that collides with nothing, numbered in the game's own style.
+
+        IDs read `<number> <label>`, and the number is not itself the key -- 534 numbers
+        are reused within their own file across the corpus. So this only needs to avoid
+        colliding on the full normalised string, and picking a number above every
+        existing one simply keeps new nodes easy to find.
+        """
+        highest = 0
+        for node in self.nodes:
+            m = re.match(r"\s*(\d+)", node.node_id)
+            if m:
+                highest = max(highest, int(m.group(1)))
+        candidate = f"{highest + 10} {label}"
+        taken = {normalise_id(n.node_id) for n in self.nodes}
+        n = 2
+        while normalise_id(candidate) in taken:
+            candidate = f"{highest + 10} {label} {n}"
+            n += 1
+        return candidate
+
+    def add_node(self, node: Node, index: int | None = None) -> Node:
+        """Append a node. Order is not execution order -- links are -- except that the
+        first node is the conversation's entry point, so appending is always safe."""
+        self.nodes.insert(len(self.nodes) if index is None else index, node)
+        return node
+
+    def remove_node(self, node: Node) -> int:
+        i = self.nodes.index(node)
+        del self.nodes[i]
+        return i
+
+    def referrers(self, node: Node) -> list[tuple[Node, "Reply"]]:
+        """Every reply that links to this node -- what would dangle if it were deleted."""
+        want = normalise_id(node.node_id)
+        return [(n, r) for n in self.nodes for r in n.replies
+                if r.goto and normalise_id(r.goto) == want]
+
+    def rename_node(self, node: Node, new_id: str) -> list["Reply"]:
+        """Rename a node and carry every reply that points at it along with it.
+
+        Renaming without retargeting is exactly how the game's 84 broken links came
+        about, so it is not offered as an option here. Returns the replies that were
+        retargeted, in case the caller wants to undo them.
+
+        What this cannot follow is a reference from outside the file: map scripts name
+        nodes directly through `CDisplayDialogTreeAction` and `CDisplayDialogBalloonAction`.
+        Renaming the entry node of a tree a map opens will break that map.
+        """
+        new_id = new_id.strip()
+        if not new_id:
+            raise ValueError("a node needs an ID")
+        clash = self.node_by_id(new_id)
+        if clash is not None and clash is not node:
+            raise ValueError(f"another node is already called {new_id!r}")
+        moved = [r for _n, r in self.referrers(node)]
+        node.node_id = new_id
+        for reply in moved:
+            reply.goto = new_id
+        return moved
 
     # -- serialisation ----------------------------------------------------
 

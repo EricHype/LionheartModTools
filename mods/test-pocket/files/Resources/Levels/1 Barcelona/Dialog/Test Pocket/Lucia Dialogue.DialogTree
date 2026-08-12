@@ -44,8 +44,13 @@ Icon=Quest Icon
 
 Requirement=!None
 Reply Text=Not yet. I'll return when I have it.
-Go to node ID=
+Go to node ID=1 Conversation Start
 Is Default Reply=1
+
+Requirement=!None
+Reply Text=Who are you?
+Go to node ID=20 Introduction
+
 ------------------------------------------------------------
 Node ID=10 Transformation
 Text=At last... I can feel it. The weight lifting... no - settling deeper. Thank you, traveler. You've done me a service you'll come to regret.
@@ -106,5 +111,18 @@ Forget Trigger=0
 }
 }
 }
+Is Default Reply=1
+------------------------------------------------------------
+Node ID=20 Introduction
+Text=My name is Lucia, my family has been in Barcelona since the breaking of the world. Unfortunately, my ancestors were part of those who spilled blood that day.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Then let me see what's in the chest.
+Go to node ID=1 Conversation Start
+
+Requirement=!None
+Reply Text=I'm sorry for your family. Good day.
+Go to node ID=
 Is Default Reply=1
 }
