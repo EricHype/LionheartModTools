@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsItem, QDockWidget, QWidget, QVBoxLayout, QFormLayout,
     QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
-    QGraphicsSimpleTextItem, QAbstractSpinBox,
+    QGraphicsSimpleTextItem, QAbstractSpinBox, QProgressBar,
     QDialogButtonBox,
 )
 
@@ -1469,6 +1469,12 @@ class MainWindow(QMainWindow):
             f"Installing and rebuilding <b>{mod_id}</b>.<br>"
             "A full repack takes several minutes. Do not launch the game until it "
             "finishes - it locks data.dat and the final step will fail."))
+        phase = QLabel("Starting...")
+        layout.addWidget(phase)
+        bar = QProgressBar()
+        bar.setRange(0, 0)          # busy until the repack starts producing bytes
+        layout.addWidget(bar)
+
         log = QPlainTextEdit()
         log.setReadOnly(True)
         log.setStyleSheet("font-family: Consolas, monospace;")
@@ -1479,20 +1485,68 @@ class MainWindow(QMainWindow):
         layout.addWidget(buttons)
 
         steps = [
-            [sys.executable, "modmanager.py", "install", f"mods/{mod_id}",
-             str(self.game_dir)],
-            [sys.executable, "modmanager.py", "build", str(self.game_dir)],
+            ("Installing the mod", [sys.executable, "modmanager.py", "install",
+                                    f"mods/{mod_id}", str(self.game_dir)]),
+            ("Repacking data.dat", [sys.executable, "modmanager.py", "build",
+                                    str(self.game_dir)]),
         ]
+
+        # modmanager prints nothing during the repack, which is the part that takes
+        # minutes -- but archive.repack streams into data.dat.build.tmp.tmp and that
+        # grows to roughly the size of the vanilla archive. Polling it gives a real
+        # percentage instead of a bar that just spins.
+        growing = self.game_dir / "data.dat.build.tmp.tmp"
+        vanilla = self.game_dir / "data.dat.vanilla.bak"
+        try:
+            expected = vanilla.stat().st_size
+        except OSError:
+            expected = 0
+
+        # A build that was interrupted leaves this file behind at whatever size it had
+        # reached -- 1.5GB was sitting there when this was written. Left in place the bar
+        # would open at 94% and sit there, so clear it first. It is scratch either way:
+        # archive.repack recreates it, and nothing reads it afterwards.
+        try:
+            if growing.exists():
+                stale_mb = growing.stat().st_size // (1 << 20)
+                growing.unlink()
+                log.appendPlainText(
+                    f"Removed {stale_mb} MB of scratch left by an interrupted build.\n")
+        except OSError:
+            pass        # not fatal; at worst the percentage starts high
+
+        def poll_progress():
+            try:
+                done = growing.stat().st_size
+            except OSError:
+                return          # not started yet, or already renamed into place
+            if expected <= 0:
+                return
+            pct = min(99, int(done * 100 / expected))
+            if bar.maximum() == 0:
+                bar.setRange(0, 100)
+            bar.setValue(pct)
+            phase.setText(f"Repacking data.dat - {done // (1 << 20)} of "
+                          f"{expected // (1 << 20)} MB")
+
+        progress_timer = QTimer(dlg)
+        progress_timer.timeout.connect(poll_progress)
+        progress_timer.start(400)
 
         def run_next():
             if not steps:
+                progress_timer.stop()
+                bar.setRange(0, 100)
+                bar.setValue(100)
+                phase.setText("Done - the change is live in the game.")
                 log.appendPlainText("\nDone. The change is live in the game.")
                 buttons.button(QDialogButtonBox.Close).setEnabled(True)
                 self._deploy_proc = None
                 self.deploy_action.setEnabled(True)
                 self.statusBar().showMessage("Deploy finished.", 8000)
                 return
-            cmd = steps.pop(0)
+            label, cmd = steps.pop(0)
+            phase.setText(label + "...")
             log.appendPlainText(f"$ {' '.join(cmd[1:])}\n")
             proc = QProcess(dlg)
             proc.setWorkingDirectory(str(Path(__file__).resolve().parent))
@@ -1503,6 +1557,10 @@ class MainWindow(QMainWindow):
 
             def finished(code, _status, p=proc):
                 if code != 0:
+                    progress_timer.stop()
+                    bar.setRange(0, 100)
+                    bar.setValue(0)
+                    phase.setText(f"Failed (exit {code}).")
                     log.appendPlainText(f"\nFAILED (exit {code}). Nothing further run.")
                     buttons.button(QDialogButtonBox.Close).setEnabled(True)
                     self._deploy_proc = None
