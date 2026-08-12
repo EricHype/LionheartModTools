@@ -21,6 +21,10 @@ official modding support or SDK for this game — this project exists to establi
 - **`mapedit_core.py`** / **`zax_render.py`** — the editor's headless half. Loading and
   editing a `.zax`, the sprite catalogue, placement validation, and a `.zax`-to-PNG
   renderer that needs no GUI at all.
+- **`script_schema.py`** — what the game's entity scripts are made of: the action classes,
+  their fields, defaults and value sets, all derived from the shipped maps. Headless, and
+  useful on its own for reading or generating scripts. `mapedit_script.py` is the editor
+  dock over it.
 - **`mods/`** — real, working mods built with this toolkit (see below).
 - **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
   the `.mdl16` icon format, the `.gr2` model format, the map/terrain format and editor
@@ -147,6 +151,7 @@ file in place under `mods/`, never the installed game.
 | **Wall Run** (`R`) | Drag to lay a whole run of a tiling piece in one undo step. Start on an existing piece to extend it; drag along a run with holes in it to fill only the holes. |
 | **Terrain Paint** (`T`) | Paint ground textures onto the terrain grid. `[` and `]` resize the brush. |
 | **Eyedropper** (`I`, or hold `Alt`) | Click anything on the map to select its model in the palette. |
+| **Entity Script** | Edit the action tree on the selected chest, NPC, generator or door — see below. |
 | **Validation** | Live list of missing sprites, overlapping footprints, off-map coordinates, and gaps in wall runs — the checks that used to be throwaway assertions. |
 | **Deploy** (`Ctrl+B`) | Save, then `modmanager` install + build, with a progress bar. |
 
@@ -154,10 +159,56 @@ Markers for spawn points, doors, generators and chests are drawn faded with name
 because you place props *relative* to them — a chest ended up inside a rock once for
 exactly this reason.
 
-Two things it deliberately does not do: author interaction zones (`CFreeRangePoly` hover
-has never worked in a hand-built map, and a tool must not offer something whose output
-silently does nothing), or edit quests and dialogue (a different problem, well served by
-text editing).
+It deliberately does not author interaction zones: `CFreeRangePoly` hover has never worked
+in a hand-built map, and a tool must not offer something whose output silently does
+nothing. Quest and DialogTree *files* are also outside it — those are separate files with
+their own structure, and text editing serves them well.
+
+### Entity scripts
+
+What a chest gives you, when an NPC turns hostile, what a door does when opened — all of
+it is a tree of `C*Action` nodes hanging off the entity. There are 125 such classes in the
+shipped game and about 44,600 nodes, with real control flow: conditionals, sequences,
+delays, randomisation.
+
+The **Entity Script** dock shows that tree for whatever is selected, in plain language:
+
+```
+Activity
+  Activity: CAIInteractionSpecifier
+    Action: Do all of these  --  6 action(s)
+      Action  (6)
+        Action: Play an animation  --  animate Opening
+        Action: Give an item  --  give Inventory Items/Necklace
+        Action: Give an item  --  give Inventory Items/Scimitar
+          Additions to add  (1)
+            Addition to add: Inventory/.../Weapons/Bloodletter
+```
+
+Click a row to edit its fields; **Add / Delete / Up / Down** restructure it; order in an
+array is execution order. It all goes through the same undo stack as the rest of the
+editor.
+
+`script_schema.py` holds the curated part: 20 action classes, covering **61% of every
+action node in the game**, labelled by what they do rather than by class name — "Turn
+hostile" rather than `CGoToCombatAction`. Every field list, ordering, default and choice
+list in it was derived by sweeping all 201 shipped maps, not guessed. The other 104
+classes are not hidden; they render with their raw fields still editable, so nothing in a
+map is unreachable.
+
+Two invariants the dock maintains, both established from that same sweep:
+
+- **`Array` nodes declare their own length**, in `Item Count` or `Array Count`, and it is
+  exact in 107,670 of 107,802 cases. Every structural edit keeps it in step. The 132
+  exceptions declare no count at all and are fixed-length stat tables (one entry per
+  attribute, skill or damage type) — so a count is never *added* where the game ships
+  without one.
+- **Arrays that hold item paths reject actions.** `Additions to add` is a list of
+  inventory-addition strings, not actions; putting a node there would write an object
+  where the engine reads a string.
+
+The load/save contract holds throughout: loading a map and saving it unedited is
+byte-identical, and changing one field changes exactly one line.
 
 For a map render without the GUI:
 

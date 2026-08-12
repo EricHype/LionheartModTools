@@ -38,6 +38,7 @@ from mapedit_core import (
     learn_vector_from_map,
 )
 from resource_format import ResourceNode
+from mapedit_script import ScriptDock
 
 DEFAULT_DATA_ROOT = (
     r"C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader\data"
@@ -842,6 +843,16 @@ class MainWindow(QMainWindow):
         issue_dock.setWidget(self.issue_list)
         self.addDockWidget(Qt.BottomDockWidgetArea, issue_dock)
 
+        # Script dock: the action tree hanging off the selected entity. Tabbed with the
+        # issue list rather than stacked -- both want the full width, and you are either
+        # laying out geometry or writing behaviour, rarely both at once.
+        self.script_dock_widget = ScriptDock(self)
+        script_dock = QDockWidget("Entity Script", self)
+        script_dock.setWidget(self.script_dock_widget)
+        self.addDockWidget(Qt.BottomDockWidgetArea, script_dock)
+        self.tabifyDockWidget(issue_dock, script_dock)
+        issue_dock.raise_()
+
         # Terrain dock: texture picker + brush radius for terrain paint mode.
         terrain_widget = QWidget()
         terrain_layout = QVBoxLayout(terrain_widget)
@@ -1249,6 +1260,7 @@ class MainWindow(QMainWindow):
         items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
         entity = items[0].entity if items else None
         self.show_entity_properties(entity)
+        self.script_dock_widget.set_entity(entity)
         if entity is not None:
             self._show_tiling_status(entity.model)
 
