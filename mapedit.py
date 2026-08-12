@@ -16,16 +16,16 @@ import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QMimeData, QProcess, QPointF
+from PySide6.QtCore import Qt, QTimer, QMimeData, QProcess, QPointF, QSize, QRectF
 from PySide6.QtGui import (
     QImage, QPixmap, QColor, QBrush, QPen, QUndoStack, QUndoCommand, QKeySequence,
-    QCursor, QPainter,
+    QCursor, QPainter, QIcon,
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
     QGraphicsEllipseItem, QGraphicsItem, QDockWidget, QWidget, QVBoxLayout, QFormLayout,
-    QLineEdit, QDoubleSpinBox, QCheckBox, QListWidget, QListWidgetItem, QTreeWidget,
-    QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
+    QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
+    QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
     QGraphicsSimpleTextItem, QAbstractSpinBox,
     QDialogButtonBox,
 )
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 import zax_render as zr
 from mapedit_core import (
     MapDocument, SpriteCatalogue, validate, tiling_vector, known_non_tiling,
+    TerrainLayer, GRID_CELL,
 )
 from resource_format import ResourceNode
 
@@ -93,22 +94,69 @@ def make_eyedropper_cursor() -> QCursor:
     return QCursor(pm, 2, 30)
 
 
-def render_terrain_pixmap(doc: MapDocument, data_root: Path) -> QPixmap:
-    """Render the map's terrain to a full-resolution QPixmap, reusing zax_render's terrain
-    code (not reimplementing it). Falls back to a flat dark pixmap on any failure, per spec.
+def make_brush_cursor(radius_px: float) -> QCursor:
+    """Draw a circle-plus-crosshair cursor whose circle spans `radius_px` screen pixels,
+    so the terrain brush's on-screen footprint is visible before the first click.
+    """
+    d = max(8, min(220, int(round(radius_px * 2))))
+    size = d + 6
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    c = size / 2
+    pen_outline = QPen(QColor(0, 0, 0, 180), 3.0)
+    pen_body = QPen(QColor(255, 255, 255, 230), 1.5)
+    for pen in (pen_outline, pen_body):
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(c, c), d / 2, d / 2)
+        p.drawLine(QPointF(c - 5, c), QPointF(c + 5, c))
+        p.drawLine(QPointF(c, c - 5), QPointF(c, c + 5))
+    p.end()
+    return QCursor(pm, int(c), int(c))
+
+
+def make_terrain_canvas(doc: MapDocument, data_root: Path) -> "zr.Canvas":
+    """Build a full-resolution zax_render Canvas for the map's terrain.
+
+    Kept around (not discarded like a one-shot render) so a paint stroke can hand a
+    region back to `zax_render.render_terrain` and redraw only that rectangle, rather
+    than reprocessing the whole map on every mouse-move step.
     """
     w, h = max(1, doc.width), max(1, doc.height)
-    try:
-        canvas = zr.Canvas(w, h, zr.BACKGROUND)
-        plasma = doc.root.get("Plasma Ground")
-        if isinstance(plasma, ResourceNode):
+    canvas = zr.Canvas(w, h, zr.BACKGROUND)
+    plasma = doc.root.get("Plasma Ground")
+    if isinstance(plasma, ResourceNode):
+        try:
             zr.render_terrain(canvas, data_root, plasma, elevation_textures=True)
-        img = QImage(bytes(canvas.pixels), w, h, QImage.Format_RGBA8888)
-        return QPixmap.fromImage(img.copy())
-    except Exception:
-        pm = QPixmap(w, h)
-        pm.fill(QColor(*zr.BACKGROUND))
-        return pm
+        except Exception:
+            pass
+    return canvas
+
+
+def canvas_to_qpixmap(canvas: "zr.Canvas") -> QPixmap:
+    img = QImage(bytes(canvas.pixels), canvas.width, canvas.height, QImage.Format_RGBA8888)
+    return QPixmap.fromImage(img.copy())
+
+
+def terrain_region_image(canvas: "zr.Canvas", x0: int, y0: int, x1: int, y1: int) -> QImage:
+    """Extract the sub-rectangle [x0,x1) x [y0,y1) of a zax_render Canvas as a QImage,
+    for compositing just that rectangle back onto the terrain pixmap."""
+    w, h = x1 - x0, y1 - y0
+    stride = canvas.width * 4
+    buf = bytearray(w * 4 * h)
+    src = canvas.pixels
+    for row in range(h):
+        src_off = (y0 + row) * stride + x0 * 4
+        dst_off = row * w * 4
+        buf[dst_off:dst_off + w * 4] = src[src_off:src_off + w * 4]
+    img = QImage(bytes(buf), w, h, QImage.Format_RGBA8888)
+    return img.copy()
+
+
+def union_bounds(a: tuple, b: tuple) -> tuple:
+    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +316,30 @@ class DeleteEntityCommand(QUndoCommand):
         self.window.schedule_validate()
 
 
+class PaintTerrainCommand(QUndoCommand):
+    """One stroke's worth of terrain painting. `before`/`after` are `TerrainLayer.snapshot()`
+    results captured at mouse-press and mouse-release; redo/undo swap between them and
+    re-render only the stroke's bounding box, not the whole map."""
+
+    def __init__(self, window: "MainWindow", before: list, after: list, bounds: tuple):
+        super().__init__("Paint terrain")
+        self.window = window
+        self.before = before
+        self.after = after
+        self.bounds = bounds
+
+    def _apply(self, snap):
+        self.window.terrain_layer.restore(snap)
+        self.window.redraw_terrain_bounds(self.bounds)
+        self.window.setWindowTitle(self.window._title())
+
+    def redo(self):
+        self._apply(self.after)
+
+    def undo(self):
+        self._apply(self.before)
+
+
 # ---------------------------------------------------------------------------
 # Palette (directory-grouped tree, lazy thumbnails, drag source)
 # ---------------------------------------------------------------------------
@@ -307,6 +379,9 @@ class MapView(QGraphicsView):
         self.setFocusPolicy(Qt.StrongFocus)
         self._eyedropper_cursor = make_eyedropper_cursor()
         self._cursor_is_dropper = False
+        self._paint_mode = False
+        self._paint_active = False
+        self._paint_cursor = None
 
     def refresh_cursor(self) -> None:
         """Show the pipette whenever the next click would pick -- sticky mode OR Alt.
@@ -337,8 +412,45 @@ class MapView(QGraphicsView):
         self.refresh_cursor()
 
     def mouseMoveEvent(self, event):
+        if self._paint_mode:
+            if self._paint_active and (event.buttons() & Qt.LeftButton):
+                self._paint_at(event.position().toPoint())
+            event.accept()
+            return
         super().mouseMoveEvent(event)
         self.refresh_cursor()
+
+    # -- terrain paint mode -------------------------------------------------
+
+    def set_terrain_paint_mode(self, enabled: bool) -> None:
+        """Switch the view between normal interaction and terrain painting.
+
+        RubberBandDrag is turned off while painting -- left-drag must paint, not select
+        -- and restored on exit. The brush cursor is (re)built for the current zoom.
+        """
+        self._paint_mode = enabled
+        self._paint_active = False
+        if enabled:
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.update_paint_cursor()
+        else:
+            self.setDragMode(QGraphicsView.RubberBandDrag)
+            self.viewport().unsetCursor()
+            self._cursor_is_dropper = False
+            self.refresh_cursor()
+
+    def update_paint_cursor(self) -> None:
+        """Rebuild the brush cursor for the current radius setting and zoom level."""
+        radius_cells = self.window.terrain_radius_spin.value()
+        radius_world = radius_cells * GRID_CELL if radius_cells > 0 else GRID_CELL * 0.35
+        radius_px = max(4.0, radius_world * self.current_scale())
+        self._paint_cursor = make_brush_cursor(radius_px)
+        if self._paint_mode:
+            self.viewport().setCursor(self._paint_cursor)
+
+    def _paint_at(self, view_pos) -> None:
+        scene_pos = self.mapToScene(view_pos)
+        self.window.paint_terrain_at(scene_pos.x(), scene_pos.y())
 
     # -- zoom ------------------------------------------------------------
 
@@ -361,6 +473,8 @@ class MapView(QGraphicsView):
         self.scale(factor, factor)
         self.setTransformationAnchor(old_anchor)
         self.window.report_zoom(self.current_scale())
+        if self._paint_mode:
+            self.update_paint_cursor()
 
     def zoom_in(self):
         self.zoom_by(self.ZOOM_STEP, anchor_under_mouse=False)
@@ -371,6 +485,8 @@ class MapView(QGraphicsView):
     def zoom_reset(self):
         self.resetTransform()
         self.window.report_zoom(self.current_scale())
+        if self._paint_mode:
+            self.update_paint_cursor()
 
     def zoom_fit(self):
         """Fit the whole map in the view -- the default on open for a wide map."""
@@ -379,6 +495,8 @@ class MapView(QGraphicsView):
             return
         self.fitInView(rect, Qt.KeepAspectRatio)
         self.window.report_zoom(self.current_scale())
+        if self._paint_mode:
+            self.update_paint_cursor()
 
     def wheelEvent(self, event):
         delta = event.angleDelta().y()
@@ -389,6 +507,15 @@ class MapView(QGraphicsView):
         super().wheelEvent(event)
 
     def mousePressEvent(self, event):
+        if self._paint_mode:
+            if event.button() == Qt.LeftButton:
+                self._paint_active = True
+                self.window.begin_paint_stroke()
+                self._paint_at(event.position().toPoint())
+                event.accept()
+                return
+            super().mousePressEvent(event)
+            return
         if event.button() == Qt.LeftButton:
             # position() not pos(): the latter is deprecated in Qt 6 and warns on every
             # click, which is a lot of noise in a tool you click constantly.
@@ -415,6 +542,15 @@ class MapView(QGraphicsView):
                 return
         super().mousePressEvent(event)
 
+    def mouseReleaseEvent(self, event):
+        if self._paint_mode:
+            if self._paint_active and event.button() == Qt.LeftButton:
+                self._paint_active = False
+                self.window.end_paint_stroke()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasText():
             event.acceptProposedAction()
@@ -440,11 +576,29 @@ class MainWindow(QMainWindow):
     def __init__(self, zax_path: Path, data_root: Path):
         super().__init__()
         self.doc = MapDocument(zax_path)
+        # Coerce: several helpers do `data_root / "Cache" / ...`, which fails on a str.
+        # main() happens to pass a Path, so a str only breaks for other callers/tests.
+        data_root = Path(data_root)
         self.cat = SpriteCatalogue(data_root)
         self.data_root = data_root
         # modmanager works on the game directory, which is the data root's parent.
         self.game_dir = Path(data_root).resolve().parent
         self._deploy_proc = None
+
+        # Terrain paint state. TerrainLayer parses the whole elevation grid up front, so
+        # build it once here; None means this map has no Plasma Ground and terrain
+        # painting stays disabled (the dock/action reflect that once _build_ui runs).
+        try:
+            self.terrain_layer = TerrainLayer(self.doc)
+        except ValueError:
+            self.terrain_layer = None
+        self.terrain_paint_index = 0
+        self._paint_snapshot = None          # TerrainLayer.snapshot() at stroke start
+        self._paint_stroke_bounds = None     # union of dirty rects painted this stroke
+        self._pending_redraw = None          # dirty rect awaiting the coalesced repaint
+        self._redraw_timer = QTimer(self)
+        self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.timeout.connect(self.flush_pending_redraw)
 
         self.pixmap_cache: dict[str, QPixmap | None] = {}
         self.entity_items: dict[int, EntityItem] = {}
@@ -473,6 +627,7 @@ class MainWindow(QMainWindow):
             self._load_terrain()
             self._populate_scene()
             self._populate_palette()
+            self._populate_terrain_dock()
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -488,8 +643,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.view)
 
     def _load_terrain(self):
-        pm = render_terrain_pixmap(self.doc, self.data_root)
-        bg = QGraphicsPixmapItem(pm)
+        # Keep the Canvas (not just the QPixmap made from it) so a paint stroke can hand
+        # zax_render.render_terrain a region and redraw just that rectangle afterwards.
+        self.terrain_canvas = make_terrain_canvas(self.doc, self.data_root)
+        self.terrain_pixmap = canvas_to_qpixmap(self.terrain_canvas)
+        bg = QGraphicsPixmapItem(self.terrain_pixmap)
         bg.setZValue(-1000)
         bg.setPos(0, 0)
         self.scene.addItem(bg)
@@ -508,7 +666,13 @@ class MainWindow(QMainWindow):
         pm = self.make_pixmap(entity.model)
         if info is None or pm is None:
             return None
-        return EntityItem(entity, pm, info, self, marker=marker)
+        item = EntityItem(entity, pm, info, self, marker=marker)
+        if self.terrain_paint_action.isChecked():
+            # Entities placed/undone while a paint stroke tool is active must stay
+            # non-interactive too, matching whatever's already on the map.
+            item.setFlag(QGraphicsItem.ItemIsSelectable, False)
+            item.setFlag(QGraphicsItem.ItemIsMovable, False)
+        return item
 
     def _populate_scene(self):
         for ent in self.doc.entities():
@@ -591,6 +755,40 @@ class MainWindow(QMainWindow):
         issue_dock.setWidget(self.issue_list)
         self.addDockWidget(Qt.BottomDockWidgetArea, issue_dock)
 
+        # Terrain dock: texture picker + brush radius for terrain paint mode.
+        terrain_widget = QWidget()
+        terrain_layout = QVBoxLayout(terrain_widget)
+
+        note = QLabel(
+            "Texture order is light-to-dark and matters: adjacent indices are what a "
+            "blend passes through, so a painted edge softens toward its neighbor in "
+            "the list, not toward some other texture.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: palette(mid);")
+        terrain_layout.addWidget(note)
+
+        self.terrain_texture_list = QListWidget()
+        self.terrain_texture_list.setIconSize(QSize(48, 48))
+        self.terrain_texture_list.currentRowChanged.connect(self.on_terrain_texture_changed)
+        terrain_layout.addWidget(self.terrain_texture_list, stretch=1)
+
+        radius_form = QFormLayout()
+        self.terrain_radius_spin = QSpinBox()
+        self.terrain_radius_spin.setRange(0, 8)
+        self.terrain_radius_spin.setValue(1)
+        self.terrain_radius_spin.setToolTip(
+            "Brush radius in grid cells (0 paints a single vertex).\n"
+            "Painting always registers instantly; only the redraw costs time, and it\n"
+            "grows with the area. On a large map a wide brush repaints in about half a\n"
+            "second, so the picture lags the strokes slightly.")
+        self.terrain_radius_spin.valueChanged.connect(self.on_terrain_radius_changed)
+        radius_form.addRow("Brush radius", self.terrain_radius_spin)
+        terrain_layout.addLayout(radius_form)
+
+        terrain_dock = QDockWidget("Terrain", self)
+        terrain_dock.setWidget(terrain_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, terrain_dock)
+
         # Menus
         file_menu = self.menuBar().addMenu("&File")
         save_action = file_menu.addAction("&Save")
@@ -626,6 +824,13 @@ class MainWindow(QMainWindow):
         self.eyedropper_action.setStatusTip(
             "Click an object to select its model in the palette (or hold Alt)")
         self.eyedropper_action.toggled.connect(self.on_eyedropper_toggled)
+
+        self.terrain_paint_action = tools_menu.addAction("&Terrain Paint")
+        self.terrain_paint_action.setCheckable(True)
+        self.terrain_paint_action.setShortcut(QKeySequence("T"))
+        self.terrain_paint_action.setStatusTip(
+            "Left-drag to paint the selected ground texture index onto the terrain grid")
+        self.terrain_paint_action.toggled.connect(self.on_terrain_paint_toggled)
 
         view_menu = self.menuBar().addMenu("&View")
         zoom_in = view_menu.addAction("Zoom &In")
@@ -978,6 +1183,8 @@ class MainWindow(QMainWindow):
         return bool(modifiers is not None and (modifiers & Qt.AltModifier))
 
     def on_eyedropper_toggled(self, checked: bool) -> None:
+        if checked and self.terrain_paint_action.isChecked():
+            self.terrain_paint_action.setChecked(False)
         self.view.refresh_cursor()
         if checked:
             self.statusBar().showMessage(
@@ -1015,6 +1222,167 @@ class MainWindow(QMainWindow):
         extra = f"  tiling step {vec}" if vec else ""
         self.statusBar().showMessage(
             f"Picked {model.rsplit('/', 1)[-1]}{extra}", 5000)
+
+    # -- terrain paint -----------------------------------------------------
+
+    def _populate_terrain_dock(self) -> None:
+        self.terrain_texture_list.clear()
+        if self.terrain_layer is None:
+            self.terrain_texture_list.addItem("(no Plasma Ground on this map)")
+            self.terrain_texture_list.setEnabled(False)
+            self.terrain_radius_spin.setEnabled(False)
+            self.terrain_paint_action.setEnabled(False)
+            return
+        for name in self.terrain_layer.textures:
+            icon = self._terrain_texture_icon(name)
+            item = QListWidgetItem(icon, name) if icon is not None else QListWidgetItem(name)
+            self.terrain_texture_list.addItem(item)
+        if self.terrain_texture_list.count():
+            self.terrain_texture_list.setCurrentRow(0)
+
+    def _terrain_texture_icon(self, name: str) -> QIcon | None:
+        # Ground textures live under Cache/Textures/*.frm16, not Cache/Models -- outside
+        # SpriteCatalogue's remit, which only knows Cache/Models/Environments/**. Reuse
+        # zax_render's loader (itself just mdl16_format.decode_icon on that path) rather
+        # than duplicating the decode here.
+        data = zr.load_ground_texture(self.data_root, name)
+        if data is None:
+            return None
+        pm = pixels_to_qpixmap(data)
+        if pm.isNull():
+            return None
+        pm = pm.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return QIcon(pm)
+
+    def on_terrain_texture_changed(self, row: int) -> None:
+        if row < 0:
+            return
+        self.terrain_paint_index = row
+        if self.terrain_paint_action.isChecked() and self.terrain_layer is not None:
+            names = self.terrain_layer.textures
+            label = names[row] if 0 <= row < len(names) else "?"
+            self.statusBar().showMessage(
+                f"Terrain paint: texture index {row} ({label})", 4000)
+
+    def on_terrain_radius_changed(self, _value: int) -> None:
+        if self.view._paint_mode:
+            self.view.update_paint_cursor()
+
+    def on_terrain_paint_toggled(self, checked: bool) -> None:
+        if checked and self.terrain_layer is None:
+            self.terrain_paint_action.setChecked(False)
+            return
+        if checked and self.eyedropper_action.isChecked():
+            self.eyedropper_action.setChecked(False)
+        self.set_entities_interactive(not checked)
+        self.view.set_terrain_paint_mode(checked)
+        if checked:
+            self.statusBar().showMessage(
+                "Terrain paint: left-drag to paint; release to commit an undo step.")
+        else:
+            self.statusBar().clearMessage()
+
+    def set_entities_interactive(self, enabled: bool) -> None:
+        """Toggle whether entity items can be selected/dragged. Turned off while terrain
+        painting so a left-drag over an entity paints the ground instead of moving it."""
+        for item in self.entity_items.values():
+            item.setFlag(QGraphicsItem.ItemIsSelectable, enabled)
+            item.setFlag(QGraphicsItem.ItemIsMovable, enabled)
+        if not enabled:
+            self.scene.clearSelection()
+
+    def flush_pending_redraw(self) -> None:
+        """Redraw whatever has accumulated since the last repaint."""
+        self._redraw_timer.stop()
+        pending, self._pending_redraw = self._pending_redraw, None
+        if pending is not None:
+            self.redraw_terrain_bounds(pending)
+
+    def begin_paint_stroke(self) -> None:
+        if self.terrain_layer is None:
+            return
+        self._paint_snapshot = self.terrain_layer.snapshot()
+        self._paint_stroke_bounds = None
+        self._pending_redraw = None
+
+    def paint_terrain_at(self, x: float, y: float) -> None:
+        if self.terrain_layer is None:
+            return
+        col, row = TerrainLayer.world_to_grid(x, y)
+        radius = self.terrain_radius_spin.value()
+        changed = self.terrain_layer.paint(col, row, self.terrain_paint_index, radius=radius)
+        if not changed:
+            return
+        self.terrain_layer.flush()
+        bounds = self._dirty_bounds(col, row, radius)
+        if bounds is None:
+            return
+        self._paint_stroke_bounds = (
+            bounds if self._paint_stroke_bounds is None
+            else union_bounds(self._paint_stroke_bounds, bounds))
+
+        # Coalesce redraws instead of redrawing per mouse-move. A single step costs
+        # 0.05s at radius 0 but 0.97s at radius 8 on Gate District, and a drag emits
+        # move events far faster than that -- redrawing each one makes the whole app
+        # stall. The grid itself is updated immediately (it is cheap), so no paint is
+        # lost; only the repaint is batched, and end_paint_stroke() forces a final one.
+        self._pending_redraw = (
+            bounds if self._pending_redraw is None
+            else union_bounds(self._pending_redraw, bounds))
+        if not self._redraw_timer.isActive():
+            self._redraw_timer.start(60)
+
+    def _dirty_bounds(self, col: int, row: int, radius: int) -> tuple | None:
+        """World-pixel rect touched by a paint at grid (col,row) with `radius` cells.
+
+        +1/+2 margin because a vertex affects the tiles straddling it on both sides,
+        clamped to the map -- see the terrain-paint design note for the derivation.
+        """
+        x0 = max(0, (col - radius - 1) * GRID_CELL)
+        y0 = max(0, (row - radius - 1) * GRID_CELL)
+        x1 = min(self.doc.width, (col + radius + 2) * GRID_CELL)
+        y1 = min(self.doc.height, (row + radius + 2) * GRID_CELL)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return (x0, y0, x1, y1)
+
+    def redraw_terrain_bounds(self, bounds: tuple) -> None:
+        """Re-render just `bounds` (x0,y0,x1,y1 in world pixels) into the terrain canvas
+        and composite that rectangle onto the on-screen pixmap."""
+        if bounds is None:
+            return
+        plasma = self.doc.root.get("Plasma Ground")
+        if not isinstance(plasma, ResourceNode):
+            return
+        x0, y0, x1, y1 = bounds
+        zr.render_terrain(self.terrain_canvas, self.data_root, plasma,
+                          elevation_textures=True, region=(x0, y0, x1, y1))
+        sub_img = terrain_region_image(self.terrain_canvas, x0, y0, x1, y1)
+        painter = QPainter(self.terrain_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.drawImage(x0, y0, sub_img)
+        painter.end()
+        # QPixmap is copy-on-write; painting into self.terrain_pixmap detaches it from
+        # whatever the item is currently showing, so the item needs the update pushed
+        # back to it explicitly.
+        self.terrain_item.setPixmap(self.terrain_pixmap)
+        self.terrain_item.update(QRectF(x0, y0, x1 - x0, y1 - y0))
+
+    def end_paint_stroke(self) -> None:
+        # Always settle the coalesced redraw, even on a no-op stroke -- otherwise the
+        # last few paint steps of a drag would stay invisible until the next one.
+        self.flush_pending_redraw()
+        if self.terrain_layer is None or self._paint_snapshot is None:
+            return
+        before = self._paint_snapshot
+        bounds = self._paint_stroke_bounds
+        self._paint_snapshot = None
+        self._paint_stroke_bounds = None
+        after = self.terrain_layer.snapshot()
+        if before == after:
+            return   # no vertex actually changed -- nothing to undo, nothing to save
+        self.undo_stack.push(PaintTerrainCommand(self, before, after, bounds))
+        self.setWindowTitle(self._title())
 
     def save(self):
         try:
