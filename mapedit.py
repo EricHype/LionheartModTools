@@ -387,6 +387,60 @@ class MapView(QGraphicsView):
         self._paint_cursor = None
         self._run_mode = False
         self._run_start = None      # scene coords of the piece the run grows from
+        self._pan_mode = False      # the Pan tool: plain left-drag pans
+        self._pan_from = None
+        self._space_held = False
+
+    # -- panning ------------------------------------------------------------
+    #
+    # The map is 4096x960, so getting around is constant. Three ways, because the
+    # obvious one is not available to everyone:
+    #
+    #   Space + left-drag   works in every mode, including mid-paint
+    #   middle-drag         the desktop-mouse habit
+    #   the Pan tool (H)    plain left-drag, for a laptop trackpad with no middle button
+    #
+    # Left-drag on empty canvas is deliberately NOT a pan here, unlike the dialogue
+    # editor: rubber-band selection is load-bearing in this window because multi-select
+    # feeds multi-delete. Hence the explicit tool rather than taking the gesture.
+    #
+    # Scrollbars are moved directly rather than switching to ScrollHandDrag, which only
+    # listens to the left button and would take entity dragging with it.
+
+    def pan_active(self) -> bool:
+        return self._pan_mode or self._space_held
+
+    def _start_pan(self, pos) -> None:
+        self._pan_from = pos
+        self.viewport().setCursor(Qt.ClosedHandCursor)
+
+    def _end_pan(self) -> None:
+        self._pan_from = None
+        if self.pan_active():
+            self.viewport().setCursor(Qt.OpenHandCursor)
+        else:
+            self.viewport().unsetCursor()
+            self._cursor_is_dropper = False
+            self.refresh_cursor()
+
+    def _pan_by(self, pos) -> None:
+        delta = pos - self._pan_from
+        self._pan_from = pos
+        h, v = self.horizontalScrollBar(), self.verticalScrollBar()
+        h.setValue(h.value() - delta.x())
+        v.setValue(v.value() - delta.y())
+
+    def set_pan_mode(self, enabled: bool) -> None:
+        self._pan_mode = enabled
+        self._pan_from = None
+        if enabled:
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.viewport().setCursor(Qt.OpenHandCursor)
+        else:
+            self.setDragMode(QGraphicsView.RubberBandDrag)
+            self.viewport().unsetCursor()
+            self._cursor_is_dropper = False
+            self.refresh_cursor()
 
     def refresh_cursor(self) -> None:
         """Show the pipette whenever the next click would pick -- sticky mode OR Alt.
@@ -420,18 +474,45 @@ class MapView(QGraphicsView):
             self.cancel_wall_run()
             event.accept()
             return
+        # isAutoRepeat: holding Space repeats the press, which would otherwise reset the
+        # cursor on every repeat while a drag is under way.
+        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+            self._space_held = True
+            if self._pan_from is None:
+                self.viewport().setCursor(Qt.OpenHandCursor)
+            event.accept()
+            return
         super().keyPressEvent(event)
         self.refresh_cursor()
 
     def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+            self._space_held = False
+            if self._pan_from is None:
+                self._end_pan()
+            event.accept()
+            return
         super().keyReleaseEvent(event)
         self.refresh_cursor()
+
+    def focusOutEvent(self, event):
+        # Alt-tabbing with Space down would otherwise strand the view in pan mode, with
+        # no key release ever arriving to clear it.
+        if self._space_held:
+            self._space_held = False
+            self._pan_from = None
+            self._end_pan()
+        super().focusOutEvent(event)
 
     def enterEvent(self, event):
         super().enterEvent(event)
         self.refresh_cursor()
 
     def mouseMoveEvent(self, event):
+        if self._pan_from is not None:
+            self._pan_by(event.position().toPoint())
+            event.accept()
+            return
         if self._paint_mode:
             if self._paint_active and (event.buttons() & Qt.LeftButton):
                 self._paint_at(event.position().toPoint())
@@ -571,6 +652,13 @@ class MapView(QGraphicsView):
         super().wheelEvent(event)
 
     def mousePressEvent(self, event):
+        # Checked before the tool modes so Space-drag and middle-drag pan even while
+        # painting terrain or laying a wall run.
+        if event.button() == Qt.MiddleButton or (
+                event.button() == Qt.LeftButton and self.pan_active()):
+            self._start_pan(event.position().toPoint())
+            event.accept()
+            return
         if self._paint_mode:
             if event.button() == Qt.LeftButton:
                 self._paint_active = True
@@ -617,6 +705,11 @@ class MapView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._pan_from is not None and event.button() in (
+                Qt.MiddleButton, Qt.LeftButton):
+            self._end_pan()
+            event.accept()
+            return
         if self._paint_mode:
             if self._paint_active and event.button() == Qt.LeftButton:
                 self._paint_active = False
@@ -922,6 +1015,14 @@ class MainWindow(QMainWindow):
         self.eyedropper_action.setStatusTip(
             "Click an object to select its model in the palette (or hold Alt)")
         self.eyedropper_action.toggled.connect(self.on_eyedropper_toggled)
+
+        self.pan_action = tools_menu.addAction("&Pan")
+        self.pan_action.setCheckable(True)
+        self.pan_action.setShortcut(QKeySequence("H"))
+        self.pan_action.setStatusTip(
+            "Left-drag to move around the map. Hold Space to pan without leaving the "
+            "current tool; middle-drag works too")
+        self.pan_action.toggled.connect(self.on_pan_toggled)
 
         self.wall_run_action = tools_menu.addAction("&Wall Run")
         self.wall_run_action.setCheckable(True)
@@ -1468,7 +1569,8 @@ class MainWindow(QMainWindow):
 
     def on_eyedropper_toggled(self, checked: bool) -> None:
         if checked:
-            for other in (self.terrain_paint_action, self.wall_run_action):
+            for other in (self.terrain_paint_action, self.wall_run_action,
+                          self.pan_action):
                 if other.isChecked():
                     other.setChecked(False)
         self.view.refresh_cursor()
@@ -1554,9 +1656,25 @@ class MainWindow(QMainWindow):
         if self.view._paint_mode:
             self.view.update_paint_cursor()
 
+    def on_pan_toggled(self, checked: bool) -> None:
+        if checked:
+            for other in (self.eyedropper_action, self.terrain_paint_action,
+                          self.wall_run_action):
+                if other.isChecked():
+                    other.setChecked(False)
+        self.set_entities_interactive(not checked)
+        self.view.set_pan_mode(checked)
+        if checked:
+            self.statusBar().showMessage(
+                "Pan: left-drag to move around. Space-drag and middle-drag pan from "
+                "any tool.")
+        else:
+            self.statusBar().clearMessage()
+
     def on_wall_run_toggled(self, checked: bool) -> None:
         if checked:
-            for other in (self.eyedropper_action, self.terrain_paint_action):
+            for other in (self.eyedropper_action, self.terrain_paint_action,
+                          self.pan_action):
                 if other.isChecked():
                     other.setChecked(False)
         self.set_entities_interactive(not checked)
@@ -1581,7 +1699,7 @@ class MainWindow(QMainWindow):
         if checked and self.terrain_layer is None:
             self.terrain_paint_action.setChecked(False)
             return
-        for other in (self.eyedropper_action, self.wall_run_action):
+        for other in (self.eyedropper_action, self.wall_run_action, self.pan_action):
             if checked and other.isChecked():
                 other.setChecked(False)
         self.set_entities_interactive(not checked)

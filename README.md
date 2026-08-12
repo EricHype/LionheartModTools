@@ -148,6 +148,7 @@ file in place under `mods/`, never the installed game.
 |---|---|
 | **Palette** | Every environment sprite, searchable, with previews. Pieces that tile are marked with their step; scatter-only families (the whole `Fence` set) are flagged so nobody builds a wall out of them again. |
 | **Place / drag / delete** | Drag from the palette or click to place; rubber-band select; `Delete` or `Backspace` to remove. Full undo. |
+| **Pan** (`H`) | Left-drag to move around. Hold `Space` to pan without leaving whatever tool you're in — middle-drag works too. |
 | **Wall Run** (`R`) | Drag to lay a whole run of a tiling piece in one undo step. Start on an existing piece to extend it; drag along a run with holes in it to fill only the holes. |
 | **Terrain Paint** (`T`) | Paint ground textures onto the terrain grid. `[` and `]` resize the brush. |
 | **Eyedropper** (`I`, or hold `Alt`) | Click anything on the map to select its model in the palette. |
