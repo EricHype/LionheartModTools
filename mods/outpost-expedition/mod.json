@@ -1,0 +1,15 @@
+{
+  "mod_format_version": 1,
+  "id": "outpost-expedition",
+  "name": "Outpost Expedition",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "Makes the game's unused Oupost map reachable. Oupost.zax ships with Lionheart but nothing links to it: 934 entities of finished Outpost / Dwarf Region level, with working doors and a spawn point, and no NPCs, dialogue or quests. Quinn the Herbalist gains a dialogue option that takes you there, and a door beside the arrival point brings you back. The map itself is the developers' own, unmodified apart from that door. Requires test-pocket and must load after it: both ship Quinn's dialogue, and this copy is built on top of that one so its option survives.",
+  "requires": [
+    "test-pocket"
+  ],
+  "files": [
+    "Levels/Oupost.zax",
+    "Resources/Levels/1 Barcelona/Dialog/Gate District/Herbalist Dialogue.DialogTree"
+  ]
+}
