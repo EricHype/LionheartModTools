@@ -16,10 +16,15 @@ official modding support or SDK for this game — this project exists to establi
 - **`mdl16_format.py`** — read, recolor, and author inventory icon art (`.mdl16`/`.frm16`
   2D sprites). Authoring genuinely new icon art works; see below.
 - **`gr2_format.py`** — the 3D character/model format (`.gr2`), with glTF round-tripping.
+- **`mapedit.py`** — a GUI map editor: place scenery, lay wall runs, paint ground
+  textures, and deploy to the game. See below.
+- **`mapedit_core.py`** / **`zax_render.py`** — the editor's headless half. Loading and
+  editing a `.zax`, the sprite catalogue, placement validation, and a `.zax`-to-PNG
+  renderer that needs no GUI at all.
 - **`mods/`** — real, working mods built with this toolkit (see below).
 - **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
-  the `.mdl16` icon format, the `.gr2` model format, and background on specific game
-  systems like the ending-branch structure.
+  the `.mdl16` icon format, the `.gr2` model format, the map/terrain format and editor
+  design, and background on specific game systems like the ending-branch structure.
 - **`.claude/skills/`** — the modding references, written as skills so an agent picks them
   up automatically. `lionheart-modding` is the main one: file formats, gotchas, confirmed
   working patterns for NPCs/quests/dialogue/maps, and the mistakes that cost real
@@ -34,6 +39,10 @@ official modding support or SDK for this game — this project exists to establi
 - Python 3.
 - The game closed whenever you repack `data.dat` — the file is locked while running, and
   writing to it while the game holds it open will fail.
+
+Everything is stdlib-only except the map editor's window, which needs PySide6
+(`pip install -r requirements.txt`). The editor's headless half — loading maps, validation,
+PNG rendering — has no third-party dependencies either.
 
 ## Quick start: installing a mod
 
@@ -117,6 +126,48 @@ in-game for static mesh edits; animated edits aren't proven yet. See
 [`docs/gr2-format.md`](docs/gr2-format.md) and
 [`docs/gltf-roundtrip.md`](docs/gltf-roundtrip.md).
 
+## The map editor
+
+The game's own editor was stripped from the retail build — the F6 handler is gone, not
+hidden — so hand-editing `.zax` text was the only way to author a map. `mapedit.py` is a
+replacement:
+
+```
+pip install -r requirements.txt
+python mapedit.py "mods/test-pocket/files/Levels/1 Barcelona/Test Pocket.zax"
+```
+
+It opens the map with its ground and all 4787 placeable environment sprites, and edits the
+file in place under `mods/`, never the installed game.
+
+| | |
+|---|---|
+| **Palette** | Every environment sprite, searchable, with previews. Pieces that tile are marked with their step; scatter-only families (the whole `Fence` set) are flagged so nobody builds a wall out of them again. |
+| **Place / drag / delete** | Drag from the palette or click to place; rubber-band select; `Delete` or `Backspace` to remove. Full undo. |
+| **Wall Run** (`R`) | Drag to lay a whole run of a tiling piece in one undo step. Start on an existing piece to extend it; drag along a run with holes in it to fill only the holes. |
+| **Terrain Paint** (`T`) | Paint ground textures onto the terrain grid. `[` and `]` resize the brush. |
+| **Eyedropper** (`I`, or hold `Alt`) | Click anything on the map to select its model in the palette. |
+| **Validation** | Live list of missing sprites, overlapping footprints, off-map coordinates, and gaps in wall runs — the checks that used to be throwaway assertions. |
+| **Deploy** (`Ctrl+B`) | Save, then `modmanager` install + build, with a progress bar. |
+
+Markers for spawn points, doors, generators and chests are drawn faded with name labels,
+because you place props *relative* to them — a chest ended up inside a rock once for
+exactly this reason.
+
+Two things it deliberately does not do: author interaction zones (`CFreeRangePoly` hover
+has never worked in a hand-built map, and a tool must not offer something whose output
+silently does nothing), or edit quests and dialogue (a different problem, well served by
+text editing).
+
+For a map render without the GUI:
+
+```
+python zax_render.py "<map>.zax" out.png --scale 0.25
+```
+
+Design notes, the terrain format, and the reasoning behind the editor's less obvious
+behaviour are in [`docs/map-editor-design.md`](docs/map-editor-design.md).
+
 ## Building your own mod
 
 1. Read [`.claude/skills/lionheart-modding/SKILL.md`](.claude/skills/lionheart-modding/SKILL.md)
@@ -124,7 +175,8 @@ in-game for static mesh edits; animated edits aren't proven yet. See
    adding maps, and the specific bugs/gotchas already found the hard way. For a weapon
    specifically, [`adding-a-new-weapon`](.claude/skills/adding-a-new-weapon/SKILL.md) is a
    complete worked recipe.
-2. Unpack, edit, repack (see above), testing in-game as you go.
+2. Unpack, edit, repack (see above), testing in-game as you go. If the mod touches a map,
+   use `mapedit.py` rather than hand-editing `.zax` text.
 3. Once it works, package it: create `mods/<your-mod-id>/mod.json` (see an existing mod
    for the schema) and copy only the files you actually changed into
    `mods/<your-mod-id>/files/`, mirroring their path under `data\`.
