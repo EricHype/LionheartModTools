@@ -25,6 +25,9 @@ official modding support or SDK for this game — this project exists to establi
   their fields, defaults and value sets, all derived from the shipped maps. Headless, and
   useful on its own for reading or generating scripts. `mapedit_script.py` is the editor
   dock over it.
+- **`dialogtree_format.py`** — reader/writer for `.DialogTree`, the one format
+  `resource_format.py` can't handle. Byte-identical round-trip on all 341 shipped files.
+  `dialogedit.py` is the visual editor over it; see below.
 - **`mods/`** — real, working mods built with this toolkit (see below).
 - **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
   the `.mdl16` icon format, the `.gr2` model format, the map/terrain format and editor
@@ -219,6 +222,53 @@ python zax_render.py "<map>.zax" out.png --scale 0.25
 
 Design notes, the terrain format, and the reasoning behind the editor's less obvious
 behaviour are in [`docs/map-editor-design.md`](docs/map-editor-design.md).
+
+## The dialogue editor
+
+Dialogue is a graph — NPC lines as nodes, player replies as edges — and a graph is the one
+shape a text editor shows badly. `dialogedit.py` draws it:
+
+```
+python dialogedit.py                      # opens the first dialogue under mods/
+python dialogedit.py "<path>.DialogTree"
+```
+
+A **Files** dock lists every `.DialogTree` your mods ship, grouped by mod, with a filter
+box. Click a node to edit its line and its replies; rewire a reply from a dropdown or by
+clicking its new target in the graph. Green is the entry node, amber means nothing links
+to it. Left-drag pans, the wheel zooms, `Ctrl+L` re-layouts, and there's full undo.
+
+Files inside the installed game open **read-only** — the toolchain layers mods over a
+pristine backup, so writing into the install would corrupt what every rebuild restores
+from. Copy one into a mod's `files/` tree to edit it.
+
+The **Problems** dock lists replies pointing at nodes that don't exist, and nodes nothing
+links to, each clickable to jump there. That is worth having: in-game a dangling reply
+just refuses to advance the conversation, and says nothing about why.
+
+### Two things about the format
+
+Both were established by measuring the 341 shipped files, and both are things a naive
+reader gets wrong.
+
+**Nothing in a `.DialogTree` is indented** — including inside the brace blocks embedded in
+`Custom Action` and `Custom Requirement`. So a line reading `Node ID=3 Angry` is a new
+dialogue node at brace depth 0 and a field of an embedded action at depth 5, textually
+identical. Not hypothetical: `Node ID` occurs 5323 times at depth 0 and 4 times deeper.
+`dialogtree_format.py` tracks brace depth; a line splitter invents four phantom nodes.
+
+**Node IDs are matched case-insensitively and trimmed.** Compared exactly, 369 replies in
+78 shipped files point at nothing — including the Goodbye reply of the first NPC in the
+game, which plainly works. 242 differ only in case (`10 Goodbye` vs `10 goodbye`), 31 only
+in trailing space. The leading number is *not* the key either, tempting as it looks: 534
+numbers are reused within their own file (`1 Conversation Start Male` / `Female` /
+`Angry`). The full normalised string is unique across all 341 files with no collisions.
+
+Under the correct rule, 96 replies in vanilla are genuinely broken (0.9%) — including a
+`5 goobye` typo in Goblin Sapper that dead-ends the conversation.
+
+The round-trip is byte-identical across all 341 shipped files, which was the gate for
+building anything on top of it.
 
 ## Building your own mod
 
