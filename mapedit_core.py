@@ -285,6 +285,134 @@ class MapDocument:
 # Validation
 # ---------------------------------------------------------------------------
 
+class TerrainLayer:
+    """Read/write access to a map's ground, for painting.
+
+    There is no separate paint layer: the `Elevations` byte at each grid vertex IS the
+    ground-texture index (see docs/map-editor-design.md, "Terrain"). Painting therefore
+    means writing elevation bytes, and each byte is written as the *centre* of its
+    index's band so that the engine's bilinear blend between neighbouring vertices lands
+    cleanly rather than on a boundary.
+
+    Row lengths are fixed -- one hex byte pair per vertex -- so a write must never change
+    a row's length. `MapDocument`'s byte-identical guarantee depends on it.
+    """
+
+    def __init__(self, doc: "MapDocument"):
+        self.doc = doc
+        node = doc.root.get("Plasma Ground")
+        if not isinstance(node, ResourceNode):
+            raise ValueError("map has no 'Plasma Ground' -- cannot paint terrain")
+        self.node = node
+        self.cols = doc.width // GRID_CELL + 1
+        self.rows = doc.height // GRID_CELL + 1
+        self._grid = self._read_grid()
+
+    # -- textures ---------------------------------------------------------
+
+    @property
+    def textures(self) -> list[str]:
+        try:
+            n = int(self.node.get("Num Textures") or 0)
+        except ValueError:
+            n = 0
+        out = []
+        for i in range(n):
+            name = self.node.get(f"Texture {i}")
+            if name:
+                out.append(name)
+        return out
+
+    def set_textures(self, names: list[str]) -> None:
+        """Replace the declared texture set, rewriting Num Textures and Texture N.
+
+        Order matters and is the caller's business: adjacent indices are what a blend
+        passes *through*, so a light-to-dark ordering gives soft edges while ordering by
+        name gives hard seams.
+        """
+        if not names:
+            raise ValueError("a map needs at least one ground texture")
+        keep = [(k, v) for k, v in self.node.fields
+                if k != "Num Textures" and not re.fullmatch(r"Texture \d+", k)]
+        # Rebuild in place, putting the texture block back where it was.
+        insert_at = next((i for i, (k, _) in enumerate(self.node.fields)
+                          if k == "Num Textures" or re.fullmatch(r"Texture \d+", k)),
+                         len(keep))
+        block = [("Num Textures", str(len(names)))]
+        block += [(f"Texture {i}", n) for i, n in enumerate(names)]
+        self.node.fields = keep[:insert_at] + block + keep[insert_at:]
+        self.doc.dirty = True
+
+    def band_value(self, index: int) -> int:
+        """The elevation byte that selects texture `index`, at its band's centre."""
+        n = max(1, len(self.textures))
+        band = 256 // n
+        return min(255, index * band + band // 2)
+
+    def index_at(self, col: int, row: int) -> int:
+        n = max(1, len(self.textures))
+        return min(self._grid[row][col] * n // 256, n - 1)
+
+    # -- elevation grid ---------------------------------------------------
+
+    def _read_grid(self) -> list[bytearray]:
+        grid = []
+        for r in range(self.rows):
+            raw = self.node.get(f"Elevations Row {r}")
+            if not isinstance(raw, str):
+                raise ValueError(f"missing 'Elevations Row {r}'")
+            grid.append(bytearray(bytes.fromhex(raw.strip())))
+        return grid
+
+    def value(self, col: int, row: int) -> int:
+        return self._grid[row][col]
+
+    def paint(self, col: int, row: int, index: int, radius: int = 0) -> bool:
+        """Set the vertices within `radius` (in grid cells) to texture `index`.
+
+        Returns True if anything actually changed, so the caller can skip a re-render
+        and avoid marking the document dirty for a no-op drag.
+        """
+        val = self.band_value(index)
+        changed = False
+        for r in range(row - radius, row + radius + 1):
+            if not (0 <= r < self.rows):
+                continue
+            for c in range(col - radius, col + radius + 1):
+                if not (0 <= c < self.cols):
+                    continue
+                if radius and math.hypot(c - col, r - row) > radius + 0.5:
+                    continue
+                if self._grid[r][c] != val:
+                    self._grid[r][c] = val
+                    changed = True
+        return changed
+
+    def snapshot(self) -> list[bytes]:
+        return [bytes(r) for r in self._grid]
+
+    def restore(self, snap: list[bytes]) -> None:
+        self._grid = [bytearray(r) for r in snap]
+        self.flush()
+
+    def flush(self) -> None:
+        """Write the grid back into the document's nodes."""
+        for r in range(self.rows):
+            hexed = self._grid[r].hex().upper()
+            key = f"Elevations Row {r}"
+            old = self.node.get(key)
+            if isinstance(old, str) and len(hexed) != len(old.strip()):
+                raise ValueError(
+                    f"{key}: refusing to change row length "
+                    f"({len(old.strip())} -> {len(hexed)})")
+            self.node.set(key, hexed)
+        self.doc.dirty = True
+
+    @staticmethod
+    def world_to_grid(x: float, y: float) -> tuple[int, int]:
+        return int(round(x / GRID_CELL)), int(round(y / GRID_CELL))
+
+
 @dataclass
 class Issue:
     severity: str            # "error" | "warning"
