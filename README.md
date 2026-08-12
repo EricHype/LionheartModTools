@@ -156,6 +156,7 @@ file in place under `mods/`, never the installed game.
 | **Terrain Paint** (`T`) | Paint ground textures onto the terrain grid. `[` and `]` resize the brush. |
 | **Eyedropper** (`I`, or hold `Alt`) | Click anything on the map to select its model in the palette. |
 | **Entity Script** | Edit the action tree on the selected chest, NPC, generator or door — see below. |
+| **Open dialogue** (`Ctrl+D`) | Double-click an NPC to open the `.DialogTree` its scripts point at, in the dialogue editor. |
 | **Validation** | Live list of missing sprites, overlapping footprints, off-map coordinates, and gaps in wall runs — the checks that used to be throwaway assertions. |
 | **Deploy** (`Ctrl+B`) | Save, then `modmanager` install + build, with a progress bar. |
 
@@ -232,6 +233,11 @@ shape a text editor shows badly. `dialogedit.py` draws it:
 python dialogedit.py                      # opens the first dialogue under mods/
 python dialogedit.py "<path>.DialogTree"
 ```
+
+It also opens from the map editor: double-click an NPC, or `Ctrl+D`. An NPC's dialogue
+isn't a field on the entity — it's buried in a `CDisplayDialogTreeAction` somewhere down
+the action tree — so the editor digs the reference out and resolves it the way the game
+would: the mod owning the map first, then any other mod, then the installed game.
 
 A **Files** dock lists every `.DialogTree` your mods ship, grouped by mod, with a filter
 box. Click a node to edit its line and its replies; rewire a reply from a dropdown or by

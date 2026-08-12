@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
     QGraphicsSimpleTextItem, QAbstractSpinBox, QProgressBar,
-    QDialogButtonBox,
+    QDialogButtonBox, QInputDialog,
 )
 
 import zax_render as zr
@@ -37,6 +37,8 @@ from mapedit_core import (
     TerrainLayer, GRID_CELL, plan_wall_run, MAX_RUN_PIECES,
     learn_vector_from_map,
 )
+from script_schema import dialog_refs, dialog_ref_to_relpath
+from dialogedit import DialogWindow
 from resource_format import ResourceNode
 from mapedit_script import ScriptDock
 
@@ -210,6 +212,15 @@ class EntityItem(QGraphicsPixmapItem):
     def mousePressEvent(self, event):
         self._press_pos = (self.entity.x, self.entity.y)
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        # Double-click opens this entity's dialogue. The obvious gesture, and it saves
+        # reading down an action tree to find which .DialogTree an NPC actually uses.
+        if event.button() == Qt.LeftButton:
+            self.window.open_dialogue_for(self.entity)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
@@ -785,6 +796,7 @@ class MainWindow(QMainWindow):
         self._run_preview_items: list[QGraphicsPixmapItem] = []
         self._run_preview_positions: list[tuple[int, int]] = []
         self._run_anchor_entity = None   # existing piece the run grows from, if any
+        self._dialog_windows = []        # kept alive; Qt does not own them
         self._run_vec = None             # step resolved at drag start
         self._suppress_autoselect = False
         self._updating_props = False
@@ -809,6 +821,9 @@ class MainWindow(QMainWindow):
             self._populate_scene()
             self._populate_palette()
             self._populate_terrain_dock()
+            # Directly, not via the validate timer: that is debounced by 300ms, so the
+            # dock would sit empty for the first moments after a map opens.
+            self.refresh_entity_list()
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -890,6 +905,19 @@ class MainWindow(QMainWindow):
         palette_dock = QDockWidget("Palette", self)
         palette_dock.setWidget(palette_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, palette_dock)
+
+        # Entity list. The map draws generators and spawn points as faded markers, but
+        # two of them can sit at exactly the same coordinates -- Test Pocket has two
+        # Lucia generators both at (900, 400) -- and then only the top one is clickable.
+        # A list reaches every entity by name regardless of what is stacked on what.
+        self.entity_list = QListWidget()
+        self.entity_list.itemClicked.connect(self.on_entity_list_clicked)
+        self.entity_list.itemDoubleClicked.connect(self.on_entity_list_double_clicked)
+        entity_dock = QDockWidget("Entities", self)
+        entity_dock.setWidget(self.entity_list)
+        self.addDockWidget(Qt.LeftDockWidgetArea, entity_dock)
+        self.tabifyDockWidget(palette_dock, entity_dock)
+        palette_dock.raise_()
 
         # Property dock
         prop_widget = QWidget()
@@ -1015,6 +1043,13 @@ class MainWindow(QMainWindow):
         self.eyedropper_action.setStatusTip(
             "Click an object to select its model in the palette (or hold Alt)")
         self.eyedropper_action.toggled.connect(self.on_eyedropper_toggled)
+
+        self.dialogue_action = tools_menu.addAction("Open &Dialogue for Selection")
+        self.dialogue_action.setShortcut(QKeySequence("Ctrl+D"))
+        self.dialogue_action.setStatusTip(
+            "Open the .DialogTree this entity's scripts point at (or double-click it)")
+        self.dialogue_action.triggered.connect(self.open_dialogue_for_selection)
+        tools_menu.addSeparator()
 
         self.pan_action = tools_menu.addAction("&Pan")
         self.pan_action.setCheckable(True)
@@ -1484,6 +1519,9 @@ class MainWindow(QMainWindow):
         # Placing the second copy of a piece is what makes its step learnable, so the
         # run cursor can go from forbidden to crosshair purely as a result of an edit.
         self.view.update_run_cursor()
+        # Adds, deletes and renames all land here, so this is the one place the entity
+        # list has to be kept in step with.
+        self.refresh_entity_list()
 
     def _refresh_issue_list(self):
         self.issue_list.clear()
@@ -1835,6 +1873,152 @@ class MainWindow(QMainWindow):
             8000)
 
     # -- deploy ----------------------------------------------------------
+
+    # -- entity list ---------------------------------------------------------
+
+    def refresh_entity_list(self) -> None:
+        """List the entities that carry meaning: anything named, plus every marker.
+
+        Scenery is excluded -- a thousand rocks and wall pieces would bury the handful
+        of things you actually navigate to.
+        """
+        self.entity_list.clear()
+        for ent in self.doc.entities():
+            name = (ent.name or "").strip()
+            is_marker = ent.model.startswith("Editor/")
+            if not name and not is_marker:
+                continue
+            label = name or ent.model.rsplit("/", 1)[-1]
+            refs = dialog_refs(ent.node)
+            if refs:
+                label += "   [dialogue]"
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, id(ent.node))
+            item.setToolTip(
+                f"{ent.node.type_name}  at ({ent.x:g}, {ent.y:g})\n{ent.model}"
+                + (f"\n\nDialogue: {refs[0]}" if refs else ""))
+            if refs:
+                item.setForeground(QBrush(QColor(150, 210, 235)))
+            elif is_marker:
+                item.setForeground(QBrush(QColor(235, 220, 150)))
+            self.entity_list.addItem(item)
+
+    def _entity_for_list_item(self, item):
+        node_id = item.data(Qt.UserRole)
+        for ent in self.doc.entities():
+            if id(ent.node) == node_id:
+                return ent
+        return None
+
+    def on_entity_list_clicked(self, item) -> None:
+        ent = self._entity_for_list_item(item)
+        if ent is None:
+            return
+        scene_item = self.entity_items.get(id(ent.node))
+        if scene_item is not None:
+            self.scene.clearSelection()
+            scene_item.setSelected(True)
+            self.view.centerOn(scene_item)
+        else:
+            # Invisible and markers-off: still worth showing its properties.
+            self.show_entity_properties(ent)
+            self.script_dock_widget.set_entity(ent)
+
+    def on_entity_list_double_clicked(self, item) -> None:
+        ent = self._entity_for_list_item(item)
+        if ent is not None:
+            self.open_dialogue_for(ent)
+
+    # -- dialogue ------------------------------------------------------------
+
+    def _mods_root(self) -> Path | None:
+        """The `mods/` directory this map lives under, if it lives under one."""
+        parts = self.doc.path.resolve().parts
+        try:
+            i = len(parts) - 1 - parts[::-1].index("files")
+        except ValueError:
+            return None
+        return Path(*parts[:i - 1]) if i >= 1 else None
+
+    def resolve_dialog_ref(self, ref: str):
+        """Find the file a `Dialog Tree File=` value names.
+
+        Searched in the order the game itself would resolve it: the mod that owns this
+        map first, then any other mod, then the installed game. A vanilla file is still
+        worth opening -- the dialogue editor takes it read-only -- because reading how
+        the shipped conversations are built is half of learning to write one.
+
+        Returns (path, is_game_file) or None.
+        """
+        rel = dialog_ref_to_relpath(ref)
+        mods_root = self._mods_root()
+        if mods_root is not None:
+            ctx = self._mod_context()
+            own = ctx[0] if ctx else None
+            candidates = []
+            if own:
+                candidates.append(mods_root / own / "files" / rel)
+            for mod_dir in sorted(mods_root.glob("*")):
+                if mod_dir.is_dir() and mod_dir.name != own:
+                    candidates.append(mod_dir / "files" / rel)
+            for path in candidates:
+                if path.is_file():
+                    return path, False
+        game = self.data_root / rel
+        if game.is_file():
+            return game, True
+        return None
+
+    def open_dialogue_for(self, entity) -> None:
+        """Open the dialogue an entity's scripts point at."""
+        refs = dialog_refs(entity.node)
+        name = entity.name or entity.model.rsplit("/", 1)[-1]
+        if not refs:
+            self.statusBar().showMessage(
+                f"{name} has no dialogue: nothing in its scripts sets a "
+                "Dialog Tree File.", 6000)
+            return
+
+        # More than one is normal -- a gendered or perk-gated NPC has a variant per
+        # branch. Ask rather than guess which one was meant.
+        ref = refs[0]
+        if len(refs) > 1:
+            choice, ok = QInputDialog.getItem(
+                self, "Which dialogue?", f"{name} has {len(refs)}:", refs, 0, False)
+            if not ok:
+                return
+            ref = choice
+
+        found = self.resolve_dialog_ref(ref)
+        if found is None:
+            QMessageBox.warning(
+                self, "Dialogue not found",
+                f"{name} points at:\n\n{ref}\n\nNo matching .DialogTree exists in any "
+                "mod or in the game directory. A dangling reference like this fails "
+                "in-game as a conversation that simply never opens.")
+            return
+
+        path, is_game_file = found
+        window = DialogWindow(path, self._mods_root(), self.data_root)
+        window.resize(1400, 900)
+        window.show()
+        # Held so Python does not collect the window the moment this returns.
+        self._dialog_windows.append(window)
+        self.statusBar().showMessage(
+            f"Opened {path.name}" + ("  --  read-only, this is the shipped game file"
+                                     if is_game_file else ""), 6000)
+
+    def open_dialogue_for_selection(self) -> None:
+        entity = self.selected_entity()
+        if entity is None:
+            self.statusBar().showMessage(
+                "Select an NPC or generator first, then open its dialogue.", 4000)
+            return
+        self.open_dialogue_for(entity)
+
+    def selected_entity(self):
+        items = [i for i in self.scene.selectedItems() if isinstance(i, EntityItem)]
+        return items[0].entity if items else None
 
     def _mod_context(self):
         """Work out which mod this file belongs to, and who else ships the same path.

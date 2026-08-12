@@ -322,6 +322,43 @@ def scalar_fields(node: ResourceNode) -> list[Field]:
             if not isinstance(v, ResourceNode) and k not in COUNT_KEYS]
 
 
+# Keys whose value names a .DialogTree, minus the extension and the leading
+# "Resources/". Both the full conversation window and the floating speech balloon use
+# the same key.
+DIALOG_REF_KEYS = ("Dialog Tree File",)
+
+
+def dialog_refs(node: ResourceNode) -> list[str]:
+    """Every DialogTree this entity's scripts point at, in order, without duplicates.
+
+    An NPC's dialogue is not a field on the entity -- it is buried in a
+    CDisplayDialogTreeAction somewhere down the action tree, often several levels into
+    an interaction specifier. Finding it by hand means reading the whole script, which
+    is why "which file is this NPC's dialogue?" has been an annoying question to answer.
+    """
+    found: list[str] = []
+
+    def walk(n: ResourceNode):
+        for key, value in n.fields:
+            if isinstance(value, ResourceNode):
+                walk(value)
+            elif key in DIALOG_REF_KEYS and value and value not in found:
+                found.append(value)
+
+    walk(node)
+    return found
+
+
+def dialog_ref_to_relpath(ref: str) -> str:
+    """`Levels/1 Barcelona/Dialog/X/Y` -> `Resources/Levels/1 Barcelona/Dialog/X/Y.DialogTree`."""
+    ref = ref.strip().replace("\\", "/").lstrip("/")
+    if not ref.lower().endswith(".dialogtree"):
+        ref += ".DialogTree"
+    if not ref.lower().startswith("resources/"):
+        ref = "Resources/" + ref
+    return ref
+
+
 def accepts_actions(parent: ResourceNode, key: str, value) -> bool:
     """Can this Array hold action nodes?
 
