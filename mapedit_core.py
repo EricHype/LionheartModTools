@@ -358,7 +358,7 @@ def validate(doc: MapDocument, cat: SpriteCatalogue, *,
                 else "ends here with nothing adjoining it")
         issues.append(Issue(
             "warning",
-            f"wall run {what} at ({ent.x:g}, {ent.y:g}) — gap, or an intended opening?",
+            f"wall run {what} at ({ent.x:g}, {ent.y:g}) - gap, or an intended opening?",
             [ent], (ent.x, ent.y)))
     return issues
 

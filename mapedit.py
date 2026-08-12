@@ -527,7 +527,7 @@ class MainWindow(QMainWindow):
         palette_widget = QWidget()
         palette_layout = QVBoxLayout(palette_widget)
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filter models…")
+        self.filter_edit.setPlaceholderText("Filter models...")
         self.filter_edit.textChanged.connect(lambda _: self.filter_timer.start(150))
         palette_layout.addWidget(self.filter_edit)
 
@@ -597,7 +597,7 @@ class MainWindow(QMainWindow):
         save_action.setShortcut(QKeySequence.Save)
         save_action.triggered.connect(self.save)
         file_menu.addSeparator()
-        self.deploy_action = file_menu.addAction("&Deploy to game…")
+        self.deploy_action = file_menu.addAction("&Deploy to game...")
         self.deploy_action.setShortcut(QKeySequence("Ctrl+B"))
         self.deploy_action.setStatusTip(
             "Save, then run modmanager install + build so the change reaches the game "
@@ -684,7 +684,7 @@ class MainWindow(QMainWindow):
                                    f"Hold Shift when placing to snap to it.")
             elif known_non_tiling(model):
                 leaf.setForeground(0, QBrush(QColor(220, 160, 120)))
-                leaf.setToolTip(0, f"{model}\nScatter decoration — does NOT tile into "
+                leaf.setToolTip(0, f"{model}\nScatter decoration - does NOT tile into "
                                    f"runs. Laying these end to end leaves visible gaps.")
             else:
                 leaf.setToolTip(0, model)
@@ -955,7 +955,7 @@ class MainWindow(QMainWindow):
 
     def _title(self) -> str:
         star = "*" if self.doc.dirty else ""
-        return f"{self.doc.path.name}{star} — Lionheart Map Editor"
+        return f"{self.doc.path.name}{star} - Lionheart Map Editor"
 
     def report_zoom(self, scale: float) -> None:
         self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
@@ -1100,7 +1100,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel(
             f"Installing and rebuilding <b>{mod_id}</b>.<br>"
             "A full repack takes several minutes. Do not launch the game until it "
-            "finishes — it locks data.dat and the final step will fail."))
+            "finishes - it locks data.dat and the final step will fail."))
         log = QPlainTextEdit()
         log.setReadOnly(True)
         log.setStyleSheet("font-family: Consolas, monospace;")
