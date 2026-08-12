@@ -308,6 +308,78 @@ The 90% case. Everything a scenery pass needs:
 - **Export** writing only the `Tree List` entries that changed, leaving the rest of the
   file byte-identical.
 
+### The wall-run tool
+
+Shift-snap places one piece per click, which is how the arena got built and how it
+shipped with an open south-east corner. The **Wall Run** tool (`R`) lays a whole run in
+one drag: press, drag, release, one undo step.
+
+The rule it works by is that **the drag chooses direction and length only — the piece's
+measured vector decides where every copy lands.** Those vectors carry a perpendicular
+component (`Wall 01 A` steps `(124, -7)`, so a ten-piece run genuinely climbs 70 units),
+and eyeballing that drift is precisely what produces crooked runs. The tool reports how
+far the drag missed the axis by rather than honouring it.
+
+### Where the step comes from
+
+Only **8 of the 4787** placeable sprites have a hand-measured vector, and a sweep of all
+200 vanilla maps for collinear runs turns up barely a dozen more — most environment art
+is scatter decoration, so the shipped corpus has no runs to measure. Of the fourteen
+candidates that sweep produced, only two were worth keeping (`Wall 03 A`, an 8-piece run
+that steps exactly like `Wall 01 A`; and `Supports F`, a 4-piece run). The rest rested on
+a single 3-piece chain, which three scattered props hit by coincidence — several were not
+even scenery. **This closes open question 5: automatic derivation from the corpus is not
+worth doing, because the corpus does not contain the answer.**
+
+So the step is resolved in two stages:
+
+1. the hand-measured table, if the model is in it;
+2. otherwise **learned from the map being edited** — `learn_vector_from_map`. Place two
+   copies where you want them and the spacing is defined, for any sprite in the game.
+   Two placements give exactly one candidate; three or more must actually chain, so a
+   handful of scattered props does not hand back a meaningless step.
+
+This is what makes the tool usable at all. The first version consulted only the 8-entry
+table, so it refused for 4779 sprites — and said so in the status bar only, which reads
+as "I clicked and nothing happened". The cursor now shows the forbidden sign whenever the
+selected piece has no step, so the refusal is visible before the click rather than after.
+
+### Two more behaviours worth knowing
+
+- **Pressing on an existing piece of the same model anchors the run to it**, using that
+  entity's exact coordinates as the origin. This is how you extend a wall without
+  starting a second lattice a few units off the first. The hit-test is by proximity, not
+  `scene.itemAt`: `QGraphicsPixmapItem` tests against the pixmap's alpha mask, and an
+  entity's position is its hotspot — for a wall that is the sprite's base, usually a
+  transparent pixel, so item hit-testing missed the piece being clicked on nearly every
+  time.
+
+- **Positions that already hold the piece are skipped**, and the tool says how many it
+  skipped. This started as a bug fix and turned into a feature. Anchoring alone dropped
+  only the first position, so dragging back along a wall you had already built placed a
+  second copy of *every* piece, exactly on top of the first — invisible duplicate
+  geometry. Skipping all occupied positions kills that, and as a side effect makes a drag
+  along a holed run **fill just the holes** and leave the rest untouched. That is the
+  arena's open-corner case, repaired in one drag.
+
+  The same episode is why every outcome now produces a status message. A release that
+  added nothing used to report nothing at all, which is indistinguishable from a broken
+  tool — and was in fact reported as one. "Drag further — the next piece sits 124, -7
+  from here" is the message that was missing.
+- **A drag closer to perpendicular than parallel (|cos| < 0.5) is refused**, and names the
+  family members that do run that way. It cannot silently pick one for you: the letters
+  are compass facings, not directions of travel, so `A` (north) and `E` (south) both run
+  east-west and only the author knows which face they meant. Auto-picking would be a coin
+  flip, so the tool asks instead of guessing.
+
+`plan_wall_run` in `mapedit_core.py` is pure and headless. It reproduces all three
+multi-piece runs in the shipped maps (`StrateWall A` in both Druid Council levels,
+`Wall 01 G` in Chamber of Torment) exactly from their endpoints.
+
+Corner pieces are *not* placed automatically — nothing in the data model identifies a
+piece as a corner. Two runs meeting at a right angle still leave a gap, which is what
+`find_wall_gaps` exists to flag; validation reruns after every run is laid.
+
 ## Explicitly out of scope for v1
 
 - **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring
@@ -368,6 +440,8 @@ These are all documented in the `lionheart-modding` skill and all cost real debu
 4. `CUnderConstructionLayerPart` (15 instances in Gate District) and `CRenderablePolygon`
    (8) are unexamined. Probably editor leftovers, worth confirming before an editor
    silently drops or mangles them.
-5. Is the tiling-vector snap worth deriving automatically from shipped maps at startup, or
-   should it be a small hand-curated table? Automatic derivation is what found the correct
-   vectors originally, but it needs the corpus filtered to exclude work-in-progress maps.
+5. ~~Is the tiling-vector snap worth deriving automatically from shipped maps?~~
+   **Answered: no.** A sweep of all 200 vanilla maps yields 14 candidates, 12 of which
+   rest on a single 3-piece chain and are indistinguishable from coincidence. The corpus
+   has too few runs to be worth mining. Steps now come from the hand table plus
+   `learn_vector_from_map`, which reads the map being edited. See "The wall-run tool".

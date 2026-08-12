@@ -107,6 +107,13 @@ TILING_VECTORS: dict[str, tuple[int, int]] = {
     "Environments/Mountain/Inside/Walls/Wall 01 G": (11, 86),
     "Environments/Druid Grove/Walls/StrateWall/StrateWall A": (145, 28),
     "Environments/Outpost/Transformed Region/Walls/Wall 02/Wall 02 B": (63, -53),
+    # Found by sweeping all 200 vanilla maps for collinear runs. Only these two of the
+    # fourteen candidates are worth trusting: an 8-piece and a 4-piece run. The rest
+    # rested on a single 3-piece chain, which three scattered props hit by chance --
+    # several of the candidates were not even scenery (Editor/Relay, a church pew).
+    # Wall 03 A steps exactly like Wall 01 A: same geometry, different skin.
+    "Environments/Mountain/Inside/Walls/Wall 03 A": (124, -7),
+    "Environments/Outpost/Dwarf Region/Support Beams/Straight Supports/Supports F": (11, 83),
 }
 
 # Prefix match: nothing in these families forms a run anywhere in the shipped game.
@@ -123,6 +130,164 @@ def tiles(model: str) -> bool:
 
 def known_non_tiling(model: str) -> bool:
     return any(model.startswith(p) for p in NON_TILING_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
+# Wall runs
+# ---------------------------------------------------------------------------
+
+# A wall family is the set of tiling pieces sharing a stem, distinguished only by a
+# trailing letter: "Wall 01 A" / "C" / "E" / "G" are the four faces of one wall. The
+# letters are compass facings, not directions of travel -- A (north) and E (south) both
+# run east-west, C (east) and G (west) both run north-south. So the family tells you
+# which pieces *could* serve a given drag; it can never tell you which face you meant.
+_FAMILY_SUFFIX = re.compile(r"^(.*) ([A-Z])$")
+
+# Below this |cos| between the drag and the piece's tiling vector, the drag is closer to
+# perpendicular than parallel and laying the run would produce a line of pieces marching
+# off in a direction nobody asked for. cos 60 degrees.
+RUN_ALIGNMENT_FLOOR = 0.5
+
+MAX_RUN_PIECES = 256
+
+
+def wall_family(model: str) -> list[str]:
+    """Tiling pieces sharing this model's stem, including the model itself."""
+    m = _FAMILY_SUFFIX.match(model)
+    if not m:
+        return [model] if model in TILING_VECTORS else []
+    stem = m.group(1)
+    return sorted(k for k in TILING_VECTORS
+                  if (mm := _FAMILY_SUFFIX.match(k)) and mm.group(1) == stem)
+
+
+def _alignment(vec: tuple[int, int], drag: tuple[float, float]) -> float:
+    """|cos| of the angle between a tiling vector and a drag. 1.0 == same axis."""
+    vlen = math.hypot(*vec)
+    dlen = math.hypot(*drag)
+    if not vlen or not dlen:
+        return 0.0
+    return abs(vec[0] * drag[0] + vec[1] * drag[1]) / (vlen * dlen)
+
+
+MIN_LEARNED_STEP = 8        # shorter than this and two pieces are effectively stacked
+MAX_LEARNED_STEP = 400      # longer and they are two separate props, not a run
+
+
+def learn_vector_from_map(entities: list["Entity"], model: str) -> tuple[int, int] | None:
+    """Work out how `model` tiles from copies already placed in this map.
+
+    Only 8 of the 4787 placeable sprites have a hand-measured vector, and sweeping the
+    vanilla maps for more finds barely a dozen -- most environment art is scatter, so the
+    corpus simply has no runs to measure. But the map being edited does: place two pieces
+    by hand where you want them and the spacing is defined, for any sprite in the game.
+
+    Two placements give exactly one candidate. Three or more must agree: the most common
+    delta has to actually chain through the pieces, otherwise a handful of scattered
+    props would hand back a meaningless step.
+    """
+    pts = sorted({(round(e.x), round(e.y)) for e in entities if e.model == model})
+    if len(pts) < 2:
+        return None
+
+    def plausible(d):
+        return MIN_LEARNED_STEP <= math.hypot(*d) <= MAX_LEARNED_STEP
+
+    if len(pts) == 2:
+        d = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
+        return d if plausible(d) else None
+
+    counts: dict[tuple[int, int], int] = {}
+    for i, a in enumerate(pts):
+        for b in pts[i + 1:]:
+            d = (b[0] - a[0], b[1] - a[1])
+            if plausible(d):
+                counts[d] = counts.get(d, 0) + 1
+    if not counts:
+        return None
+    best = max(counts, key=lambda d: (counts[d], -abs(d[0]) - abs(d[1])))
+
+    # Require a real chain, not just a repeated coincidence.
+    seen = set(pts)
+    longest = 0
+    for a in pts:
+        if (a[0] - best[0], a[1] - best[1]) in seen:
+            continue
+        length, cur = 1, a
+        while (cur := (cur[0] + best[0], cur[1] + best[1])) in seen:
+            length += 1
+        longest = max(longest, length)
+    return best if longest >= 3 else None
+
+
+@dataclass
+class WallRun:
+    """A planned run of tiling pieces. Falsy when it could not be planned."""
+    model: str = ""
+    positions: list[tuple[int, int]] = field(default_factory=list)
+    off_axis: float = 0.0       # world units the drag's end missed the run's axis by
+    truncated: bool = False     # hit MAX_RUN_PIECES
+    reason: str = ""            # why there is nothing to place
+    alternatives: list[str] = field(default_factory=list)  # better-aligned family members
+
+    def __bool__(self) -> bool:
+        return bool(self.positions)
+
+
+def plan_wall_run(model: str, start: tuple[float, float], end: tuple[float, float],
+                  *, max_pieces: int = MAX_RUN_PIECES,
+                  vec: tuple[int, int] | None = None) -> WallRun:
+    """Lay `model` from `start` towards `end`, stepping along its measured tiling vector.
+
+    The drag only chooses how far and which way along that one axis -- the piece's vector
+    is authoritative for where each successive copy lands, because those vectors carry a
+    perpendicular component (Wall 01 A steps (124, -7), so a ten-piece run really does
+    climb 70 units) and eyeballing that drift is exactly what produced crooked runs by
+    hand. Off-axis drag distance is reported rather than honoured.
+
+    A drag closer to perpendicular than parallel is refused instead of being projected
+    down to one or two pieces: it means the wrong piece is selected for the direction
+    being drawn, and the family members that do run that way are named in `alternatives`.
+
+    `vec` overrides the hand-measured table, for a step learned from the open map.
+    """
+    vec = vec or tiling_vector(model)
+    if vec is None:
+        if known_non_tiling(model):
+            run = WallRun(model=model, reason=(
+                f"{model.rsplit('/', 1)[-1]} is from a family that does not tile -- "
+                "no run of it exists anywhere in the shipped game."))
+        else:
+            run = WallRun(model=model, reason=(
+                f"No tiling step known for {model.rsplit('/', 1)[-1]}. Place two of "
+                "them where you want them and the run tool will copy that spacing."))
+        run.alternatives = [m for m in wall_family(model) if m != model]
+        return run
+
+    drag = (end[0] - start[0], end[1] - start[1])
+    vlen2 = vec[0] ** 2 + vec[1] ** 2
+
+    # A click rather than a drag: one piece, no direction to judge.
+    if math.hypot(*drag) > 1e-6 and _alignment(vec, drag) < RUN_ALIGNMENT_FLOOR:
+        better = [m for m in wall_family(model)
+                  if m != model and (v := tiling_vector(m))
+                  and _alignment(v, drag) >= RUN_ALIGNMENT_FLOOR]
+        return WallRun(model=model, alternatives=better, reason=(
+            f"That drag runs across {model.rsplit('/', 1)[-1]}, not along it."))
+
+    steps = round((drag[0] * vec[0] + drag[1] * vec[1]) / vlen2)
+    step = vec if steps >= 0 else (-vec[0], -vec[1])
+    count = min(abs(steps) + 1, max_pieces)
+
+    positions = [(round(start[0] + i * step[0]), round(start[1] + i * step[1]))
+                 for i in range(count)]
+
+    # Perpendicular distance from the drag's end to the run's axis: how far the run will
+    # land from where the pointer actually was.
+    off_axis = abs(drag[0] * vec[1] - drag[1] * vec[0]) / math.sqrt(vlen2)
+
+    return WallRun(model=model, positions=positions, off_axis=off_axis,
+                   truncated=abs(steps) + 1 > max_pieces)
 
 
 # ---------------------------------------------------------------------------

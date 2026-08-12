@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -33,7 +34,8 @@ from PySide6.QtWidgets import (
 import zax_render as zr
 from mapedit_core import (
     MapDocument, SpriteCatalogue, validate, tiling_vector, known_non_tiling,
-    TerrainLayer, GRID_CELL,
+    TerrainLayer, GRID_CELL, plan_wall_run, MAX_RUN_PIECES,
+    learn_vector_from_map,
 )
 from resource_format import ResourceNode
 
@@ -382,6 +384,8 @@ class MapView(QGraphicsView):
         self._paint_mode = False
         self._paint_active = False
         self._paint_cursor = None
+        self._run_mode = False
+        self._run_start = None      # scene coords of the piece the run grows from
 
     def refresh_cursor(self) -> None:
         """Show the pipette whenever the next click would pick -- sticky mode OR Alt.
@@ -409,6 +413,12 @@ class MapView(QGraphicsView):
             self.window.nudge_brush_radius(step)
             event.accept()
             return
+        # Escape abandons a run in progress. Same reasoning as above for handling it
+        # here: a window-wide Escape would also close dialogs and clear the filter box.
+        if self._run_mode and event.key() == Qt.Key_Escape and self._run_start is not None:
+            self.cancel_wall_run()
+            event.accept()
+            return
         super().keyPressEvent(event)
         self.refresh_cursor()
 
@@ -426,8 +436,52 @@ class MapView(QGraphicsView):
                 self._paint_at(event.position().toPoint())
             event.accept()
             return
+        if self._run_mode and self._run_start is not None:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            self.window.preview_wall_run(self._run_start,
+                                         (scene_pos.x(), scene_pos.y()))
+            event.accept()
+            return
         super().mouseMoveEvent(event)
         self.refresh_cursor()
+
+    # -- wall run mode ------------------------------------------------------
+
+    def set_wall_run_mode(self, enabled: bool) -> None:
+        """Switch the view between normal interaction and laying wall runs.
+
+        Like paint mode this takes over left-drag, so RubberBandDrag goes off. The
+        crosshair is the standard "you are drawing, not picking" cursor and reads as
+        clearly different from both the arrow and the brush circle.
+        """
+        self._run_mode = enabled
+        self.cancel_wall_run()
+        if enabled:
+            self.setDragMode(QGraphicsView.NoDrag)
+            self.update_run_cursor()
+        else:
+            self.setDragMode(QGraphicsView.RubberBandDrag)
+            self.viewport().unsetCursor()
+            self._cursor_is_dropper = False
+            self.refresh_cursor()
+
+    def update_run_cursor(self) -> None:
+        """Crosshair when a run can be laid, forbidden sign when it cannot.
+
+        Only 8 of 4787 sprites have a hand-measured step, so "this piece cannot run" is
+        the common case, not the exception. The first version said so in the status bar
+        only, and the honest result was a tool that looked broken: you click, and
+        nothing visible happens. The cursor makes the refusal impossible to miss before
+        the click rather than after it.
+        """
+        if not self._run_mode:
+            return
+        can = self.window.run_vector_for(self.window.selected_palette_model) is not None
+        self.viewport().setCursor(Qt.CrossCursor if can else Qt.ForbiddenCursor)
+
+    def cancel_wall_run(self) -> None:
+        self._run_start = None
+        self.window.clear_wall_run_preview()
 
     # -- terrain paint mode -------------------------------------------------
 
@@ -525,6 +579,16 @@ class MapView(QGraphicsView):
                 return
             super().mousePressEvent(event)
             return
+        if self._run_mode:
+            if event.button() == Qt.LeftButton:
+                scene_pos = self.mapToScene(event.position().toPoint())
+                self._run_start = self.window.begin_wall_run(scene_pos.x(), scene_pos.y())
+                if self._run_start is not None:
+                    self.window.preview_wall_run(self._run_start, self._run_start)
+                event.accept()
+                return
+            super().mousePressEvent(event)
+            return
         if event.button() == Qt.LeftButton:
             # position() not pos(): the latter is deprecated in Qt 6 and warns on every
             # click, which is a lot of noise in a tool you click constantly.
@@ -556,6 +620,14 @@ class MapView(QGraphicsView):
             if self._paint_active and event.button() == Qt.LeftButton:
                 self._paint_active = False
                 self.window.end_paint_stroke()
+            event.accept()
+            return
+        if self._run_mode:
+            if event.button() == Qt.LeftButton and self._run_start is not None:
+                scene_pos = self.mapToScene(event.position().toPoint())
+                self.window.commit_wall_run(self._run_start,
+                                            (scene_pos.x(), scene_pos.y()))
+                self.cancel_wall_run()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -615,6 +687,12 @@ class MainWindow(QMainWindow):
         self.issues = []
         self.selected_palette_model: str | None = None
         self.last_placed_by_model: dict[str, tuple[float, float]] = {}
+        # Wall run state
+        self._run_preview_items: list[QGraphicsPixmapItem] = []
+        self._run_preview_positions: list[tuple[int, int]] = []
+        self._run_anchor_entity = None   # existing piece the run grows from, if any
+        self._run_vec = None             # step resolved at drag start
+        self._suppress_autoselect = False
         self._updating_props = False
         self._palette_leaf_items: list[QTreeWidgetItem] = []
 
@@ -834,6 +912,14 @@ class MainWindow(QMainWindow):
             "Click an object to select its model in the palette (or hold Alt)")
         self.eyedropper_action.toggled.connect(self.on_eyedropper_toggled)
 
+        self.wall_run_action = tools_menu.addAction("&Wall Run")
+        self.wall_run_action.setCheckable(True)
+        self.wall_run_action.setShortcut(QKeySequence("R"))
+        self.wall_run_action.setStatusTip(
+            "Drag to lay a run of the selected wall piece along its measured tiling "
+            "vector; start on an existing piece to extend a run")
+        self.wall_run_action.toggled.connect(self.on_wall_run_toggled)
+
         self.terrain_paint_action = tools_menu.addAction("&Terrain Paint")
         self.terrain_paint_action.setCheckable(True)
         self.terrain_paint_action.setShortcut(QKeySequence("T"))
@@ -964,10 +1050,174 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(cmd)
         self.last_placed_by_model[model] = (x, y)
 
+    # -- wall runs ------------------------------------------------------------
+
+    def run_vector_for(self, model: str | None) -> tuple[int, int] | None:
+        """The step to lay `model` at: hand-measured if known, else learned from the map."""
+        if not model:
+            return None
+        return tiling_vector(model) or learn_vector_from_map(self.doc.entities(), model)
+
+    ANCHOR_RADIUS = 48      # world units; how close a click must be to snap to a piece
+
+    def _anchor_near(self, model: str, x: float, y: float):
+        """The placed piece of `model` nearest (x, y), within ANCHOR_RADIUS.
+
+        Proximity rather than scene.itemAt: QGraphicsPixmapItem hit-tests against the
+        pixmap's alpha mask, and an entity's own position is its hotspot -- for a wall
+        that is the base of the sprite, which is usually a transparent pixel. Hit-testing
+        there missed the piece being clicked on almost every time.
+        """
+        best, best_d = None, self.ANCHOR_RADIUS
+        for ent in self.doc.entities():
+            if ent.model != model:
+                continue
+            d = math.hypot(ent.x - x, ent.y - y)
+            if d <= best_d:
+                best, best_d = ent, d
+        return best
+
+    def begin_wall_run(self, x: float, y: float):
+        """Start a run at (x, y), or at the piece already under the cursor.
+
+        Anchoring to an existing piece of the same model is what makes the tool usable
+        for extending a wall: click the last piece of a run, drag, and the new pieces
+        continue the exact lattice instead of starting a parallel one a few units off.
+        Returns the start point, or None if there is nothing to lay.
+        """
+        model = self.selected_palette_model
+        if not model:
+            self.statusBar().showMessage(
+                "Wall run: select a wall piece in the palette first.", 6000)
+            return None
+        if self.run_vector_for(model) is None:
+            probe = plan_wall_run(model, (x, y), (x, y))
+            self.statusBar().showMessage(
+                self._run_message(probe, probe.positions, 0), 8000)
+            return None
+
+        # Resolve the step once per drag. Learning it walks every entity and counts
+        # pairwise deltas, and preview runs on every mouse-move -- doing it per move
+        # would make a long drag crawl. It also cannot change mid-drag: ghosts are not
+        # entities, so there is nothing new for it to learn from until release.
+        self._run_vec = self.run_vector_for(model)
+        anchor = self._anchor_near(model, x, y)
+        self._run_anchor_entity = anchor
+        return (anchor.x, anchor.y) if anchor is not None else (x, y)
+
+    def _run_message(self, run, placements, skipped) -> str:
+        """Always says something. A run that adds nothing is the case most in need of
+        explaining -- silence there is what makes the tool look broken."""
+        if run.reason:
+            msg = run.reason
+            if run.alternatives:
+                names = ", ".join(m.rsplit("/", 1)[-1] for m in run.alternatives)
+                msg += f"  Pieces that do: {names}."
+            return msg
+
+        name = run.model.rsplit("/", 1)[-1]
+        if not placements:
+            step = self._run_vec or (0, 0)
+            if skipped:
+                return (f"{name}: nothing to add, all {skipped} position"
+                        f"{'' if skipped == 1 else 's'} already filled. "
+                        f"Drag past the end of the run to extend it.")
+            return (f"{name}: drag further -- the next piece sits "
+                    f"{step[0]}, {step[1]} from here.")
+
+        n = len(placements)
+        msg = f"{name}: {n} piece{'' if n == 1 else 's'}"
+        if skipped:
+            msg += f" ({skipped} already there)"
+        if run.off_axis >= 1:
+            msg += f", {run.off_axis:.0f} px off the drag"
+        if run.truncated:
+            msg += f" (capped at {MAX_RUN_PIECES})"
+        return msg
+
+    OCCUPIED_EPS = 4        # world units; closer than this counts as the same spot
+
+    def _plan_run(self, start, end):
+        """Plan the run, then drop every position that already holds this piece.
+
+        Skipping occupied positions rather than just the anchor is what stops the tool
+        stacking invisible duplicates: dragging back along a wall you already built used
+        to place a second copy of every piece, exactly on top of the first. As a bonus
+        the same rule makes the tool fill *gaps* in an existing run and leave the rest
+        alone, which is the case that let the arena ship with an open corner.
+
+        Returns (run, placements, skipped).
+        """
+        model = self.selected_palette_model
+        run = plan_wall_run(model, start, end, vec=self._run_vec)
+        if not run.positions:
+            return run, [], 0
+        taken = [(e.x, e.y) for e in self.doc.entities() if e.model == model]
+        placements = [
+            p for p in run.positions
+            if not any(math.hypot(p[0] - tx, p[1] - ty) <= self.OCCUPIED_EPS
+                       for tx, ty in taken)
+        ]
+        return run, placements, len(run.positions) - len(placements)
+
+    def preview_wall_run(self, start, end) -> None:
+        run, placements, skipped = self._plan_run(start, end)
+        self.statusBar().showMessage(self._run_message(run, placements, skipped))
+
+        # Rebuild only when the plan actually changed. A drag fires hundreds of moves and
+        # most land on the same step, so re-creating a 40-item ghost each time is wasted
+        # work that shows up as lag on a long run.
+        if placements == self._run_preview_positions:
+            return
+        self._run_preview_positions = list(placements)
+        self.clear_wall_run_preview(keep_positions=True)
+        pixmap = self.make_pixmap(run.model)
+        info = self.cat.info(run.model) if pixmap is not None else None
+        if pixmap is None or info is None:
+            return
+        for px, py in placements:
+            ghost = QGraphicsPixmapItem(pixmap)
+            ghost.setPos(px - info.hotspot_x, py - info.hotspot_y)
+            ghost.setZValue(py)
+            ghost.setOpacity(0.5)
+            self.scene.addItem(ghost)
+            self._run_preview_items.append(ghost)
+
+    def clear_wall_run_preview(self, *, keep_positions: bool = False) -> None:
+        for ghost in self._run_preview_items:
+            self.scene.removeItem(ghost)
+        self._run_preview_items = []
+        if not keep_positions:
+            self._run_preview_positions = []
+
+    def commit_wall_run(self, start, end) -> None:
+        run, placements, skipped = self._plan_run(start, end)
+        if not placements:
+            # Always report. A release that adds nothing used to say nothing at all,
+            # which is indistinguishable from the tool being broken.
+            self.statusBar().showMessage(self._run_message(run, placements, skipped), 8000)
+            return
+        label = f"Lay {len(placements)} x {run.model.rsplit('/', 1)[-1]}"
+        self._suppress_autoselect = True
+        try:
+            self.undo_stack.beginMacro(label)
+            for px, py in placements:
+                self.undo_stack.push(AddEntityCommand(self, run.model, px, py))
+            self.undo_stack.endMacro()
+        finally:
+            self._suppress_autoselect = False
+        self.last_placed_by_model[run.model] = placements[-1]
+        self.statusBar().showMessage(f"{label}. Ctrl+Z undoes the whole run.", 5000)
+
     def push_move(self, entity, item, old, new):
         self.undo_stack.push(MoveEntityCommand(self, entity, item, old, new))
 
     def select_item(self, item: EntityItem):
+        # Laying a run pushes one Add per piece, and each would otherwise select and
+        # centre on itself -- forty selection changes and forty view jumps for one drag,
+        # ending with the camera parked on the last piece.
+        if self._suppress_autoselect:
+            return
         self.scene.clearSelection()
         item.setSelected(True)
         self.view.centerOn(item)
@@ -1118,6 +1368,9 @@ class MainWindow(QMainWindow):
         self._refresh_issue_list()
         self._refresh_overlay()
         self.setWindowTitle(self._title())
+        # Placing the second copy of a piece is what makes its step learnable, so the
+        # run cursor can go from forbidden to crosshair purely as a result of an edit.
+        self.view.update_run_cursor()
 
     def _refresh_issue_list(self):
         self.issue_list.clear()
@@ -1158,12 +1411,22 @@ class MainWindow(QMainWindow):
             self.select_item(item)
 
     def _show_tiling_status(self, model: str):
-        vec = tiling_vector(model)
+        name = model.rsplit("/", 1)[-1]
+        measured = tiling_vector(model)
+        vec = measured or learn_vector_from_map(self.doc.entities(), model)
         if vec:
+            source = "tiling step" if measured else "step learned from this map"
             self.statusBar().showMessage(
-                f"{model.rsplit('/', 1)[-1]}: tiling step ({vec[0]}, {vec[1]})")
+                f"{name}: {source} ({vec[0]}, {vec[1]}). Press R and drag to lay a run.")
+        elif known_non_tiling(model):
+            self.statusBar().showMessage(f"{name}: scatter decoration, does not tile.")
         else:
-            self.statusBar().clearMessage()
+            self.statusBar().showMessage(
+                f"{name}: no tiling step known. Place two where you want them and the "
+                "run tool (R) will copy that spacing.")
+        # The palette drives the run cursor: which piece is selected decides whether a
+        # run is possible at all.
+        self.view.update_run_cursor()
 
     # -- save / close ----------------------------------------------------
 
@@ -1192,8 +1455,10 @@ class MainWindow(QMainWindow):
         return bool(modifiers is not None and (modifiers & Qt.AltModifier))
 
     def on_eyedropper_toggled(self, checked: bool) -> None:
-        if checked and self.terrain_paint_action.isChecked():
-            self.terrain_paint_action.setChecked(False)
+        if checked:
+            for other in (self.terrain_paint_action, self.wall_run_action):
+                if other.isChecked():
+                    other.setChecked(False)
         self.view.refresh_cursor()
         if checked:
             self.statusBar().showMessage(
@@ -1277,12 +1542,36 @@ class MainWindow(QMainWindow):
         if self.view._paint_mode:
             self.view.update_paint_cursor()
 
+    def on_wall_run_toggled(self, checked: bool) -> None:
+        if checked:
+            for other in (self.eyedropper_action, self.terrain_paint_action):
+                if other.isChecked():
+                    other.setChecked(False)
+        self.set_entities_interactive(not checked)
+        self.view.set_wall_run_mode(checked)
+        if not checked:
+            self.statusBar().clearMessage()
+            return
+        model = self.selected_palette_model
+        if model and self.run_vector_for(model) is not None:
+            self.statusBar().showMessage(
+                f"Wall run: drag to lay {model.rsplit('/', 1)[-1]}. Start on an "
+                "existing piece to extend that run; Escape cancels.")
+        elif model:
+            self.statusBar().showMessage(
+                f"Wall run: no step known for {model.rsplit('/', 1)[-1]} (cursor shows "
+                "the forbidden sign). Place two of them and the spacing is learned.")
+        else:
+            self.statusBar().showMessage(
+                "Wall run: select a piece in the palette first.")
+
     def on_terrain_paint_toggled(self, checked: bool) -> None:
         if checked and self.terrain_layer is None:
             self.terrain_paint_action.setChecked(False)
             return
-        if checked and self.eyedropper_action.isChecked():
-            self.eyedropper_action.setChecked(False)
+        for other in (self.eyedropper_action, self.wall_run_action):
+            if checked and other.isChecked():
+                other.setChecked(False)
         self.set_entities_interactive(not checked)
         self.view.set_terrain_paint_mode(checked)
         if checked:
