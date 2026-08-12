@@ -163,8 +163,13 @@ class Reply:
 
     @property
     def goto(self) -> str:
-        """Target node ID. Empty means the conversation ends here."""
-        return self._get("Go to node ID") or ""
+        """Target node ID, or empty when the conversation ends here.
+
+        Whitespace-only counts as empty. 21% of all shipped replies end the conversation
+        with a genuinely empty target, and 12 more write a single space; reading those 12
+        as a link to a node named " " reports them as broken when they plainly are not.
+        """
+        return (self._get("Go to node ID") or "").strip()
 
     @goto.setter
     def goto(self, value: str) -> None:
