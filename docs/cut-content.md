@@ -147,8 +147,9 @@ contain — plus `Sewers/Thief entrance fight winner`, `8 Alamut/Chaos Dragon Fi
 
 ## Quests
 
-151 quest definitions; **6 are referenced by nothing.** They are not all empty, which is
-worth stating carefully because the filenames alone suggest they are:
+151 quest definitions. **33 are unfinished**, in three distinct ways — this section starts
+with the narrowest and widens. First, **6 are referenced by nothing.** They are not all
+empty, which is worth stating carefully because the filenames alone suggest they are:
 
 | Quest file | Display name | States |
 |---|---|---|
@@ -167,6 +168,78 @@ and whose display name says Druid forces.
 
 The four with a display name but no states were written far enough to appear in a quest
 log and no further.
+
+### Quests you can never be given — 21 more
+
+"Referenced by nothing" understates the problem, because a reference is not the same as an
+offer. **`6 Barcelona Attack/Temple District Siege.zax` fails 123 quests in one sweep**
+with `CSetQuestSatusToFailedIfActiveAction` — the "Barcelona has fallen, your outstanding
+city business is now impossible" cleanup. It names quests in order to close them.
+
+So a quest whose *only* reference is that sweep is one the game can close and never open.
+There are **21 of them**, all with zero states:
+
+| Area / folder | Quest | Display name if different |
+|---|---|---|
+| Calle Perdida | `Seek out the ancient relics protected by the Knights Templar` | **FIND THE RELICS FOR THE DARK WIELDERS** |
+| Calle Perdida | `Determine the nature of the magic crystal` | |
+| Calle Perdida | `Recover the Tome of Geomancy for Cedric` | *(blank)* |
+| Calle Perdida | `Find and rescue Galileo` | also referenced by a test map |
+| Wielder Initiation | `Convince DaVinci to Join the Dark Wielders` | |
+| Wielder Initiation | `Find the Yellow Node within the Sewers` | |
+| Inquisition Initiation | `Investigate Quinn the Herbalist for suspicion of heresy` | |
+| Inquisition Initiation | `Find the Hair of a Saint` | |
+| Temple District | `Discover the location of La Calle Perdida` | *(blank)* |
+| Temple District | `Investigate the Beggar Menace in the Sewers` | |
+| Gate District | `Create Mechanical Gears for DaVinci's Siege Tank` | |
+| Gate District | `Create mechanical gears for Cortes Arm Quest` | *(blank)* |
+| Gate District | `Gather Nightshade Root for Quinn` | |
+| Gate District | `Speak with Quinn the Herbalist about wizards` | |
+| Gate District | `Deliver the History of the Crusades books` | |
+| Gate District | `Bring exotic creature parts back to Weng Choi` | Bring exotic creature parts back to Exotic Goods Merchant. |
+| Port District | `Gather the drunken sailors from the tavern` | |
+| Sewers | `Rob the Thief Guildhouse` | |
+| Sewers | `Convine the Thief Guildmistress to leave the Sewers` | *(filename typo is the game's)* |
+| 2 Montserrat | `Save the Shepherd from the Rock Titans` | |
+| Wilderness | `Save the Shepherd from the Rock Titans` | the same quest, duplicated across two areas |
+
+Four of these are the **Dark Wielder and Inquisition initiation ladders** —
+`FIND THE RELICS FOR THE DARK WIELDERS`, the DaVinci recruitment, the Yellow Node, and
+denouncing Quinn for heresy. Two more are a **rob-or-persuade pair** for the Thieves'
+Guild. Those six are the evil path's missing content, and the rest are ordinary Barcelona
+errands.
+
+### Six more that are given, but display nothing
+
+Different failure again: these *are* activated by real dialogue or scripts, and have no
+states, so the player receives an empty log entry.
+
+| Quest | Activated by |
+|---|---|
+| **`INITIATION QUESTS FOR THE INQUISITION`** | CedricAlsen, InquisitorRaphael, LordJavier |
+| **`INITIATION QUEST OF THE KNIGHTS TEMPLAR`** | the same three |
+| `Rescue Inquisitor Darsh from the Goblin Camp` (Templar copy) | GoblinEntranceGuard |
+| `Prevent the Inquisitor from killing the Cathars` | 02 Hamlet Burned |
+| `Root out the heretic Cathars` | 02 Hamlet Burned |
+| `Release the Doomed Knights from their Torment` | 02 Hamlet Burned |
+
+The first two matter most: **the Inquisition and Templar umbrella quests are empty**, while
+`INITIATION RITES FOR THE DARK WIELDERS` has six states and `INITIATION QUEST OF THE
+WIELDERS` has seven. Of the four joinable orders, only the Wielders — including their evil
+branch — got a finished quest spine.
+
+`Rescue Inquisitor Darsh` is a duplicate: the Knights Templar folder's copy is empty, and
+the Inquisition folder's copy has four states.
+
+The two Cathar quests are the most valuable pair here. `Root out the heretic Cathars`
+against `Prevent the Inquisitor from killing the Cathars` is a massacre-or-save choice,
+both already wired into `02 Hamlet Burned` — the map that *is* the aftermath — in the one
+late act that still works.
+
+**Totals.** Of 151 quest definitions, **32 have no states**, splitting exactly three ways:
+21 unofferable, 6 given-but-empty, and 5 referenced by nothing at all. Add the Titan quest
+— which is fully written but unreachable — and **33 quests are unfinished in some way**,
+just over a fifth of the game's total.
 
 ## Items and media
 
