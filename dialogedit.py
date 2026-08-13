@@ -1223,6 +1223,17 @@ class DialogWindow(QMainWindow):
             item.setForeground(QBrush(QColor(224, 90, 78)))
             item.setData(Qt.UserRole, source)
             self.issue_list.addItem(item)
+        # A soft-lock rather than a broken link: nothing dangles, the file is valid, and
+        # the player still cannot get out. There is no cancel key in Lionheart dialogue --
+        # every conversation is left by choosing a reply that ends it -- so a node with no
+        # route to one is a trap.
+        for node_id in self.tree.no_way_out():
+            item = QListWidgetItem(
+                f"no way out: {node_id} -- no sequence of replies from here ever ends "
+                "the conversation")
+            item.setForeground(QBrush(QColor(224, 90, 78)))
+            item.setData(Qt.UserRole, node_id)
+            self.issue_list.addItem(item)
         for node_id in self.tree.unreachable_nodes():
             item = QListWidgetItem(f"unreachable: nothing links to {node_id}")
             item.setForeground(QBrush(QColor(210, 170, 100)))

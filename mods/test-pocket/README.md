@@ -43,6 +43,39 @@ reaching it. Once you're in it, though, Lucia and the chest are new entities *wi
 level, so if you've already visited Test Pocket on a save before this update, you'll need
 a save that's never entered Test Pocket at all (or a new game) to see them.
 
+## The reactivity experiment
+
+Lucia carries a live test of whether **a brand-new `Game Scripting Variable` works without
+sweeping the whole archive**. That question gates a lot of Lionheart Fixt: the game tracks
+choices as derived character attributes (`Herbalist Dead`, `Goblin Kill Counter`,
+`FACTION LEADERS KILLED`), but the full attribute list is written out inline in all 1698
+`.can` templates and in every `.zax`, so it is not obvious that a new one can simply be
+dropped in.
+
+Three files, mirroring the shipped structures exactly:
+
+| File | Role |
+|---|---|
+| `.../Game Scripting Variables/Fixt Reactivity Test.DerivedCharacterAttribute` | the variable, shaped like `Herbalist Dead` |
+| `Resources/Dialog/Requirements/Fixt Reactivity Test IS.can` | the gate, shaped like `Faction/Templar IS` |
+| Lucia's `.DialogTree` | sets it on one reply, reads it on another |
+
+**To run it.** Talk to Lucia and ask *"Who are you?"*. Her introduction offers
+*"Remember me, Lucia."* — choosing it raises the flag and returns to the start. Re-open the
+conversation: a reply reading *"You said you would remember me."* should now be there, and
+should have been absent before.
+
+| Outcome | What it means |
+|---|---|
+| Reply absent, then present | It works. New variables are free; no sweep needed. |
+| Reply never appears | The engine did not pick the attribute up. Fixt needs a bulk edit or another mechanism. |
+| Reply present from the start | The gate reads a missing attribute as satisfied — the comparison is not safe to build on. |
+| Dialogue fails to open | One of the two new resource files does not parse. |
+
+Try it on an **existing save first** — that is the harder case, because the character was
+created before the attribute existed. If it fails there, retry on a new character; the
+difference tells us whether the problem is the archive or the save.
+
 ## Known limitations (why this is still WIP)
 
 - **The ground is flat and uses a single, unblended texture**, so it looks visibly tiled

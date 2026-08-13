@@ -12,6 +12,8 @@
     "Resources/Levels/1 Barcelona/Character Templates/Test Pocket/Lucia Wererat.can",
     "Resources/Levels/1 Barcelona/Dialog/Test Pocket/Lucia Dialogue.DialogTree",
     "Resources/Levels/1 Barcelona/Quests/Test Pocket/Lucia's Necklace.Quest.txt",
-    "Resources/Levels/1 Barcelona/Quests/Test Pocket/Lucia's Necklace XP.can"
+    "Resources/Levels/1 Barcelona/Quests/Test Pocket/Lucia's Necklace XP.can",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Reactivity Test.DerivedCharacterAttribute",
+    "Resources/Dialog/Requirements/Fixt Reactivity Test IS.can"
   ]
 }

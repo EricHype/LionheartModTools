@@ -319,6 +319,50 @@ class DialogTree:
         return [n.node_id for n in self.nodes[1:]
                 if normalise_id(n.node_id) not in targets]
 
+    def ends_here(self, node: Node) -> bool:
+        """Can the conversation close on this node?
+
+        Either a reply that goes nowhere, or no replies at all: 1813 shipped nodes have
+        no replies, so the engine plainly closes on them rather than hanging.
+        """
+        return not node.replies or any(not r.goto for r in node.replies)
+
+    def no_way_out(self) -> list[str]:
+        """Nodes from which no sequence of replies ever ends the conversation.
+
+        Worked backwards to a fixed point: a node escapes if it can end, or if any reply
+        leads to a node that escapes. Whatever is left cannot be left.
+
+        Vanilla ships 21 of these in 11 files, most of them `400 NIS` cutscene nodes, so
+        this is rare enough to report as an error. Note it is *not* the same as "you must
+        go deeper to leave" -- 1695 shipped nodes are like that and it is perfectly normal.
+        """
+        by_id = {normalise_id(n.node_id): n for n in self.nodes}
+        escapes = {id(n) for n in self.nodes if self.ends_here(n)}
+        changed = True
+        while changed:
+            changed = False
+            for node in self.nodes:
+                if id(node) in escapes:
+                    continue
+                for reply in node.replies:
+                    target = by_id.get(normalise_id(reply.goto)) if reply.goto else None
+                    if target is not None and id(target) in escapes:
+                        escapes.add(id(node))
+                        changed = True
+                        break
+        return [n.node_id for n in self.nodes if id(n) not in escapes]
+
+    # There is deliberately no check here for "this node offers no way out on its own".
+    # It looks like a defect and is not: 1695 shipped nodes require going deeper to
+    # leave, and only 46% of entry nodes offer a clickable goodbye at all -- the Acolyte,
+    # Jafar and the Barcelona vendors all make you walk back out through a topic. Nor is
+    # `Is Default Reply` the cancel binding, which was a plausible theory until an
+    # in-game test disproved it: the conversation could still only be left by choosing a
+    # reply that ends it. What the flag actually does is unsettled; the one solid clue is
+    # that 874 of the 959 blank, unclickable replies carry it, which reads as
+    # auto-advance rather than anything the player chooses.
+
     # -- authoring ---------------------------------------------------------
 
     def unique_node_id(self, label: str = "new node") -> str:

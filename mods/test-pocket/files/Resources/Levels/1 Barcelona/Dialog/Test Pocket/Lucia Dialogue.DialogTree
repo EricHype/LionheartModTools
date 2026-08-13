@@ -45,12 +45,19 @@ Icon=Quest Icon
 Requirement=!None
 Reply Text=Not yet. I'll return when I have it.
 Go to node ID=1 Conversation Start
-Is Default Reply=1
 
 Requirement=!None
 Reply Text=Who are you?
 Go to node ID=20 Introduction
 
+Requirement=Fixt Reactivity Test IS
+Reply Text=You said you would remember me.
+Go to node ID=30 Remembered
+
+Requirement=!None
+Reply Text=I should be going.
+Go to node ID=
+Is Default Reply=1
 ------------------------------------------------------------
 Node ID=10 Transformation
 Text=At last... I can feel it. The weight lifting... no - settling deeper. Thank you, traveler. You've done me a service you'll come to regret.
@@ -123,6 +130,48 @@ Go to node ID=1 Conversation Start
 
 Requirement=!None
 Reply Text=I'm sorry for your family. Good day.
+Go to node ID=
+Is Default Reply=1
+
+Requirement=!None
+Reply Text=Remember me, Lucia.
+Go to node ID=1 Conversation Start
+Custom Action=CForEachPlayerAction
+{
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=1
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Reactivity Test
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+}
+------------------------------------------------------------
+Node ID=30 Remembered
+Text=Of course I remember you. It is not every day a stranger opens a cursed chest for me.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Just checking.
+Go to node ID=1 Conversation Start
+
+Requirement=!None
+Reply Text=Goodbye, Lucia.
 Go to node ID=
 Is Default Reply=1
 }
