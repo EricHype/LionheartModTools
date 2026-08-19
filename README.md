@@ -99,6 +99,13 @@ Each mod's own README has install notes and anything specific to that mod (e.g. 
 requirements for newly-added content — see below). Some mods depend on another being
 installed and loaded first; their READMEs say so.
 
+**[Lionheart Fixt](https://github.com/EricHype/LionheartFixt) lives in its own
+repository.** It is the large restoration-and-repair project built with this toolkit — the
+one that fixes the game's broken dialogue links, restores cut content, and writes new
+content for the acts where the game ran out. The mods above are scratch work and worked
+examples for the tools; Fixt is the real thing, and it outgrew living here. It still needs
+this repo checked out to build.
+
 ## A gotcha worth knowing before you install anything
 
 New entities (NPCs, generators, triggers) added to a level do **not** appear on a save

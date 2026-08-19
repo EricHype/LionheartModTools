@@ -1,7 +1,8 @@
 """Per-map inventory of Lionheart's shipped content, read straight out of an archive.
 
-Every figure in `docs/lionheart-fixt-plan.md` comes from here, so the plan can be checked
-rather than believed. Point it at `data.dat.vanilla.bak`, never the installed `data.dat`:
+Every figure in Lionheart Fixt's plan document comes from here, so the plan can be checked
+rather than believed (that project lives at https://github.com/EricHype/LionheartFixt).
+Point it at `data.dat.vanilla.bak`, never the installed `data.dat`:
 the install carries whatever mods are enabled, and measuring it has produced wrong
 conclusions in this project before.
 
