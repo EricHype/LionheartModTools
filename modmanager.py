@@ -18,6 +18,7 @@ Registry lives inside the game directory:
 from __future__ import annotations
 
 import argparse
+import stat
 import json
 import os
 import shutil
@@ -124,6 +125,20 @@ def cmd_package(args: argparse.Namespace) -> None:
         print(f"  {rel}")
 
 
+# A mod source may be a whole git repository -- Lionheart Fixt is one, with the
+# mod package at its root. None of this belongs in the installed copy, and .git
+# in particular makes the install un-removable: git marks its objects read-only,
+# so the rmtree on the next install dies with WinError 5.
+_NOT_MOD_CONTENT = (".git", ".gitattributes", ".gitignore", ".github",
+                    "__pycache__", ".venv", "docs")
+
+
+def _force_remove(func, path, _exc):
+    """rmtree onerror hook: clear the read-only bit and retry."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def cmd_install(args: argparse.Namespace) -> None:
     paths = _game_paths(args.game_dir)
     source = Path(args.mod_source)
@@ -151,8 +166,8 @@ def cmd_install(args: argparse.Namespace) -> None:
     mod_id = manifest["id"]
     dest = paths["installed_dir"] / mod_id
     if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(source, dest)
+        shutil.rmtree(dest, onerror=_force_remove)
+    shutil.copytree(source, dest, ignore=shutil.ignore_patterns(*_NOT_MOD_CONTENT))
 
     enabled = _read_enabled(paths)
     if mod_id not in enabled:
