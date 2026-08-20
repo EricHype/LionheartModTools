@@ -212,6 +212,17 @@ The wrapper is only for `Custom Requirement=` fields, which need an Expression. 
 this backwards produces *"tried to use a CActionExpression for a If when a CAction is
 expected"* at runtime, not at load.
 
+**Two adapter classes exist and their names are nearly identical. They go opposite ways:**
+
+| Class | Converts | Belongs in |
+|---|---|---|
+| `CActionExpression` | an **Action** -> an Expression | `Custom Requirement=`, `.can` `Object=` |
+| `CExpressionAction` | an **Expression** -> an Action | `If=`, and action arrays generally |
+
+So `If=CExpressionAction{Expression=<a comparison>, Character to get attributes from=$Instigator}`
+is correct and `If=CActionExpression{...}` is the error above. One letter of difference,
+opposite meanings, and only one of them fails loudly.
+
 ---
 
 ## Inline checks with `Custom Requirement=`
@@ -390,6 +401,54 @@ answer.
   -- rather than handing out a skeleton key.
 
 ---
+
+## Check that your reply can actually be reached
+
+A gate on a reply in a node no player can open is invisible, and nothing about the file
+will tell you. Two ways this happens, both found the hard way:
+
+**Balloons have no reply list.** A node fired by `CDisplayDialogBalloonAction` renders the
+NPC's line and nothing else. Replies authored inside it -- gated or not -- never appear.
+The same tree can be opened both ways: `GoblinVillager` is a real conversation in the
+goblin house interiors and balloon-only at the Crossroads, so "this tree is talkable"
+is not the same as "this node is talkable".
+
+**Orphan nodes.** Plenty of shipped nodes have zero inbound `Go to node ID` links and are
+never invoked by a map either. `Goblin Sapper`'s `30 goblin name` is one. Vanilla is full
+of them, and a repair or a gate placed in one does nothing.
+
+So before shipping, walk reachability from the real entry points:
+
+1. Collect the node IDs that some `.zax` opens with **`CDisplayDialogTreeAction`** for that
+   tree -- these are the entry points. `CDisplayDialogBalloonAction` invocations do not
+   count.
+2. Walk `Go to node ID` transitively from that set.
+3. Any node holding your new content that is not in the closure is unreachable.
+
+Two traps when writing that walker: match invocations with a **non-greedy, brace-balanced**
+scan rather than a fixed character window, or one entity's block will bleed into the next
+and report a tree as reachable when it is not; and compare node IDs **case-folded**,
+because the engine's lookup is case-insensitive.
+
+**Multi-greeting NPCs are the sharp edge.** An NPC whose tree has several entry-point
+greetings -- first meeting, return visit, post-quest -- gets exactly the ones its generator
+names. Wiring only the first two silently strands every branch that hangs off the others.
+If the greetings are conditional rather than sequential, select them with `CIfAction` on
+the relevant flag instead of a `CSeriesAction`:
+
+```
+Action=CIfAction
+{
+    If=CExpressionAction
+    {
+        Expression=CIsGreaterThanOrEqual { ...some Game Scripting Variables flag... }
+        Character to get attributes from=$Instigator
+    }
+    Then=CDisplayDialogTreeAction { ...the post-quest greeting... }
+    Else=CSeriesAction { ...first meeting, then return visit... }
+    Return failure if the If failes=0
+}
+```
 
 ## Verifying before you play
 
