@@ -116,6 +116,12 @@ Node ID=<next node>
 No indentation inside `.DialogTree` files (flat, left-aligned), unlike other resource
 files.
 
+**Making a reply depend on the player's build** — skill, SPECIAL, derived attribute, perk
+or trait — is its own subject, including the `.can` gate anatomy, AND/OR/NOT composites,
+how bare `Requirement=` names resolve (and which folders are unproven), which 46 shipped
+gate files nothing in the game reads, and the two shipped files that are *named* for one
+stat and test another. See `docs/skill-and-attribute-checks.md`.
+
 **CRITICAL when creating a brand-new `.DialogTree` from scratch (not editing an existing
 one): the `CDialogTree{Name=, Portrait=, Should Have Voiceovers=0, Default Canceled Node
 Action=, ---dashes---, ...nodes..., }` root wrapper above is mandatory, including the

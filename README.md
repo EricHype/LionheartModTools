@@ -30,8 +30,9 @@ official modding support or SDK for this game — this project exists to establi
   `dialogedit.py` is the visual editor over it; see below.
 - **`mods/`** — real, working mods built with this toolkit (see below).
 - **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
-  the `.mdl16` icon format, the `.gr2` model format, the map/terrain format and editor
-  design, and background on specific game systems like the ending-branch structure.
+  [authoring skill and attribute checks](docs/skill-and-attribute-checks.md), the `.mdl16`
+  icon format, the `.gr2` model format, the map/terrain format and editor design, and
+  background on specific game systems like the ending-branch structure.
 - **`.claude/skills/`** — the modding references, written as skills so an agent picks them
   up automatically. `lionheart-modding` is the main one: file formats, gotchas, confirmed
   working patterns for NPCs/quests/dialogue/maps, and the mistakes that cost real
