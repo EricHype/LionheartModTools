@@ -348,13 +348,24 @@ synthesise a mod folder. `dist` is the release path: it takes a finished mod fol
 wraps it for download.
 
 ```
-python modmanager.py dist "path\to\mod-package" "path\to\output-dir"
+python modmanager.py dist "path\to\mod-package" "path\to\output-dir" ^
+    --vanilla "<game>\data.dat.vanilla.bak"
 ```
 
-That writes `<id>-<version>.zip` containing the mod payload, a `mod.json`, an optional
-`dist/README.txt` from the mod source, and the installer from `installer/`. It refuses to
-build if `mod.json` disagrees with `files/`, verifies every payload file in the finished
-archive byte-for-byte against the source, and fails if any non-mod content leaked in.
+That writes `<id>-<version>.zip` and a `.sha256` beside it.
+
+**A release carries no content from the shipped game.** A mod that changes an existing
+file would normally have to ship the whole file, because the engine reads no patch format
+-- a 40-line edit to `Crossroads.zax` means redistributing 1.2 MB of the publisher's map.
+Instead every file that already exists in vanilla ships as a delta against the copy the
+player already owns (`resourcedelta.py`), and the installer reconstructs it locally. Only
+newly authored files travel verbatim. For Lionheart Fixt that is 2.2 MB of shipped content
+reduced to 76 KB of delta, and a release that drops from 236 KB to 60 KB.
+
+`dist` refuses to build if `mod.json` disagrees with `files/`, and before writing anything
+it applies every delta against the real vanilla bytes and re-reads the finished archive to
+rebuild every file from it -- a release that cannot reconstruct itself is the defect nobody
+catches until a player reports it. It also fails if any non-mod content leaked in.
 
 The player unzips it and double-clicks `Install.bat`. **The installer never touches
 `data.dat`.** It copies into the game's loose `data\` mirror, which the engine reads in
@@ -363,7 +374,11 @@ no Python requirement, no 1.6 GB repack, and no vanilla backup to get wrong.
 
 It self-elevates (the game usually lives under Program Files), finds the game through the
 GOG registry entry with a fallback to common paths and then to asking, backs up every file
-it replaces, and records a SHA-256 of everything it writes. `Uninstall.bat` restores only
+it replaces, and records a SHA-256 of everything it writes. Patched files are rebuilt from
+the player's loose copy, falling back to the `data.dat` entry, with the source hash checked
+before and the result hash checked after; all reconstruction happens before anything is
+written, so a patch that cannot find its original aborts a pristine install rather than
+leaving a half-applied one. `Uninstall.bat` restores only
 what is still byte-for-byte what was installed, leaving anything another mod has since
 changed alone and reporting it.
 

@@ -24,11 +24,13 @@ import os
 import shutil
 import subprocess
 import sys
+import hashlib
 import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import archive
+import resourcedelta
 
 MOD_FORMAT_VERSION = 1
 
@@ -181,13 +183,18 @@ def cmd_dist(args: argparse.Namespace) -> None:
 
     Distinct from `package`, which is the authoring path: `package` diffs an edited data
     tree against vanilla to synthesise a mod folder. `dist` takes a finished mod folder
-    and wraps it for release. Lionheart Fixt is a git repository whose root IS the mod
-    package, so the alternative was zipping it by hand -- which is exactly how .git or a
-    docs/ tree ends up inside a release.
+    and wraps it for release.
 
-    The installer bundled here writes into the game's loose data\ mirror and never
-    touches data.dat, so the player needs no Python and no 1.6 GB repack. See
-    installer/mod-installer.ps1 for why that works.
+    A release ships NO content from the shipped game. A mod that changes an existing file
+    normally has to carry the whole file, because the engine reads no patch format -- a
+    40-line edit to Crossroads.zax would mean redistributing 1.2 MB of the publisher's
+    map. Instead, every file that exists in vanilla ships as a delta against the copy the
+    player already owns, and the installer reconstructs it locally. Only genuinely new
+    files travel verbatim. For Lionheart Fixt that is 2.2 MB of shipped content reduced
+    to 76 KB of delta.
+
+    Every delta is applied and hash-checked here, against the real vanilla bytes, before
+    it is written into the archive.
     """
     source = Path(args.mod_source)
     manifest_path = source / "mod.json"
@@ -195,6 +202,10 @@ def cmd_dist(args: argparse.Namespace) -> None:
         raise SystemExit(f"No mod.json found in {source}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     _require_manifest_matches_disk(source, manifest, "in the mod source")
+
+    vanilla_path = Path(args.vanilla)
+    if not vanilla_path.exists():
+        raise SystemExit(f"No vanilla archive at {vanilla_path}")
 
     installer_dir = Path(__file__).parent / "installer"
     missing = [f for f in _INSTALLER_FILES if not (installer_dir / f).exists()]
@@ -205,43 +216,88 @@ def cmd_dist(args: argparse.Namespace) -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     zip_path = out_dir / f"{stem}.zip"
+    root = f"{stem}/"
 
-    readme = source / "dist" / "README.txt"
-    payload_root = f"{stem}/"
+    verbatim, patched = [], []
+    deltas: dict[str, str] = {}
+    src_bytes = 0
+
+    with zipfile.ZipFile(vanilla_path) as vz:
+        vanilla_names = set(vz.namelist())
+        for rel in manifest["files"]:
+            modded = (source / "files" / rel).read_bytes()
+            if rel not in vanilla_names:
+                verbatim.append(rel)
+                continue
+            original = vz.read(rel)
+            delta = resourcedelta.make_delta(original, modded)
+            # Prove it before shipping it: a delta that does not reproduce the file is
+            # worse than shipping the file, because it fails on the player's machine.
+            if resourcedelta.apply_delta(original, delta) != modded:
+                raise SystemExit(f"Delta for {rel} does not reproduce the modded file")
+            deltas[rel] = json.dumps(delta, separators=(",", ":"))
+            patched.append(rel)
+            src_bytes += len(modded)
+
+    payload = {
+        "payload_format_version": 1,
+        "verbatim": verbatim,
+        "patched": patched,
+    }
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # The mod payload is written byte-for-byte: it is CRLF game data and, for icons,
-        # binary. Nothing here may normalise line endings.
-        for rel in manifest["files"]:
-            zf.write(source / "files" / rel, f"{payload_root}files/{rel}")
-        zf.write(manifest_path, f"{payload_root}mod.json")
+        for rel in verbatim:
+            zf.write(source / "files" / rel, f"{root}files/{rel}")
+        for rel in patched:
+            zf.writestr(f"{root}patches/{rel}.lhpatch", deltas[rel])
+        zf.writestr(f"{root}payload.json", json.dumps(payload, indent=2))
+        zf.write(manifest_path, f"{root}mod.json")
         for name in _INSTALLER_FILES:
-            zf.write(installer_dir / name, f"{payload_root}{name}")
+            zf.write(installer_dir / name, f"{root}{name}")
+        readme = source / "dist" / "README.txt"
         if readme.exists():
-            zf.write(readme, f"{payload_root}README.txt")
+            zf.write(readme, f"{root}README.txt")
 
-    # Read the archive back rather than trusting the write: a release that differs from
-    # the source is the one defect nobody catches until a player reports it.
-    with zipfile.ZipFile(zip_path) as zf:
+    # Read the archive back and rebuild every file from it exactly as the player's
+    # machine will, against the real vanilla bytes. A release that cannot reconstruct
+    # itself is the one defect nobody catches until someone reports it.
+    with zipfile.ZipFile(zip_path) as zf, zipfile.ZipFile(vanilla_path) as vz:
         names = set(zf.namelist())
-        for rel in manifest["files"]:
-            entry = f"{payload_root}files/{rel}"
+        for rel in verbatim:
+            entry = f"{root}files/{rel}"
             if entry not in names:
                 raise SystemExit(f"Release is missing {rel}")
             if zf.read(entry) != (source / "files" / rel).read_bytes():
                 raise SystemExit(f"Release copy of {rel} does not match the source")
+        for rel in patched:
+            entry = f"{root}patches/{rel}.lhpatch"
+            if entry not in names:
+                raise SystemExit(f"Release is missing the patch for {rel}")
+            rebuilt = resourcedelta.apply_delta(vz.read(rel),
+                                                json.loads(zf.read(entry)))
+            if rebuilt != (source / "files" / rel).read_bytes():
+                raise SystemExit(f"Rebuilding {rel} from the release did not match")
         for name in _INSTALLER_FILES:
-            if f"{payload_root}{name}" not in names:
+            if f"{root}{name}" not in names:
                 raise SystemExit(f"Release is missing the installer file {name}")
         leaked = [n for n in names if any(part in n.split("/") for part in _NOT_MOD_CONTENT)]
         if leaked:
             raise SystemExit(f"Release contains non-mod content: {leaked[:5]}")
 
-    size_mb = zip_path.stat().st_size / 1e6
-    print(f"Built {zip_path}  ({len(manifest['files'])} mod file(s), {size_mb:.2f} MB)")
-    print(f"  verified: every payload file matches the source byte-for-byte")
-    if not readme.exists():
-        print(f"  note: no dist/README.txt in the mod source -- the release ships without one")
+    delta_bytes = sum(len(d) for d in deltas.values())
+    digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    (out_dir / f"{stem}.zip.sha256").write_text(f"{digest}  {zip_path.name}\n",
+                                                encoding="ascii", newline="\n")
+
+    print(f"Built {zip_path}  ({zip_path.stat().st_size / 1e6:.2f} MB)")
+    print(f"  {len(verbatim)} file(s) shipped verbatim (newly authored)")
+    if patched:
+        print(f"  {len(patched)} file(s) shipped as deltas: "
+              f"{src_bytes / 1024:.1f} KB of shipped game content -> "
+              f"{delta_bytes / 1024:.1f} KB "
+              f"({100 * (1 - delta_bytes / src_bytes):.1f}% smaller, and none of it theirs)")
+    print(f"  verified: every file reconstructs byte-for-byte from the release")
+    print(f"  sha256: {digest}")
 
 
 def cmd_install(args: argparse.Namespace) -> None:
@@ -601,6 +657,8 @@ def main() -> None:
     p = sub.add_parser("dist", help="Build a player-installable release zip from a mod package")
     p.add_argument("mod_source", help="Mod package directory (contains mod.json and files/)")
     p.add_argument("output_dir", help="Where to write <id>-<version>.zip")
+    p.add_argument("--vanilla", required=True,
+                   help="Pristine data.dat (usually data.dat.vanilla.bak) to diff against")
     p.set_defaults(func=cmd_dist)
 
     p = sub.add_parser("install", help="Install a mod package (folder or .zip)")

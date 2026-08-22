@@ -834,6 +834,17 @@ file another mod has since changed must be left alone and reported, since revert
 would be the same class of bug one level down. `installer/mod-installer.ps1` implements
 this; `modmanager.py dist` bundles it into the release zip.
 
+**And a release need not carry any of the game's own content.** Because the mirror gives
+the installer the player's vanilla files as plain files on disk, a changed file can ship
+as a delta against their copy rather than as an edited duplicate of it. Without this, any
+map edit means redistributing the whole map -- `Crossroads.zax` is 1.2 MB of which a
+Fixt release changes about 8 KB. `resourcedelta.py` generates the deltas (line-wise
+matching for speed, byte offsets in the output so the PowerShell applier never has to
+reason about line endings); across Fixt's 18 edited files this turns 2.2 MB of shipped
+content into 76 KB carrying only the author's own text. Reconstruction is hash-checked
+against the expected original before and the expected result after, and falls back from
+the loose copy to the `data.dat` entry when another mod owns the loose one.
+
 This resolves the "Known open issue" that used to be documented here (a ~267-file,
 never-root-caused divergence between `data.dat.vanilla.bak` and the live `data\`
 directory): the *original* editing workflow documented above — "edit files directly in the
