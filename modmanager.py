@@ -453,6 +453,44 @@ def _finalize_build(paths: dict, tmp_dat: str, touched_by: dict, scratch=None) -
         if synced:
             print(f"Synced {synced} touched file(s) into the loose mirror at {paths['loose_dir']}")
 
+        # Disabling a mod rebuilds data.dat without it, but the loose copy it wrote is
+        # still sitting in the mirror shadowing the archive -- so the mod stays live and
+        # `disable` appears to do nothing. Revert any path an INSTALLED mod provides that
+        # this build did not write: vanilla contents if the archive has them, otherwise
+        # delete, because a mod-added file has no vanilla original to fall back to.
+        #
+        # Derived from what is installed rather than from build history on purpose: it is
+        # stateless, it matches what `restore` already does, and reverting a path for a
+        # mod that was installed but never built is harmless.
+        provided: set[str] = set()
+        if paths["installed_dir"].is_dir():
+            for mod_dir in paths["installed_dir"].iterdir():
+                mj = mod_dir / "mod.json"
+                if not mj.exists():
+                    continue
+                provided.update(json.loads(mj.read_text(encoding="utf-8")).get("files", []))
+
+        stale = sorted(provided - set(touched_by))
+        if stale:
+            reverted = removed = 0
+            with zipfile.ZipFile(paths["vanilla_bak"]) as vz:
+                vanilla = set(vz.namelist())
+                for rel in stale:
+                    dst = paths["loose_dir"] / rel
+                    if not dst.exists():
+                        continue
+                    if rel in vanilla:
+                        data = vz.read(rel)
+                        if dst.read_bytes() != data:
+                            dst.write_bytes(data)
+                            reverted += 1
+                    else:
+                        dst.unlink()
+                        removed += 1
+            if reverted or removed:
+                print(f"Cleaned {reverted + removed} stale loose file(s) from disabled mods "
+                      f"({reverted} reverted to vanilla, {removed} removed)")
+
 
 def cmd_build(args: argparse.Namespace) -> None:
     paths = _game_paths(args.game_dir)
