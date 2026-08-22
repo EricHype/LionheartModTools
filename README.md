@@ -340,3 +340,34 @@ building anything on top of it.
    `mods/<your-mod-id>/files/`, mirroring their path under `data\`.
 4. `modmanager.py install` it into your local game to confirm the packaged version still
    works, same as any other mod.
+
+## Shipping a mod to someone who does not have any of this
+
+`package` is the authoring path -- it diffs an edited data tree against vanilla to
+synthesise a mod folder. `dist` is the release path: it takes a finished mod folder and
+wraps it for download.
+
+```
+python modmanager.py dist "path\to\mod-package" "path\to\output-dir"
+```
+
+That writes `<id>-<version>.zip` containing the mod payload, a `mod.json`, an optional
+`dist/README.txt` from the mod source, and the installer from `installer/`. It refuses to
+build if `mod.json` disagrees with `files/`, verifies every payload file in the finished
+archive byte-for-byte against the source, and fails if any non-mod content leaked in.
+
+The player unzips it and double-clicks `Install.bat`. **The installer never touches
+`data.dat`.** It copies into the game's loose `data\` mirror, which the engine reads in
+preference to the archive -- see SKILL.md's "The mirror ships with the game". So there is
+no Python requirement, no 1.6 GB repack, and no vanilla backup to get wrong.
+
+It self-elevates (the game usually lives under Program Files), finds the game through the
+GOG registry entry with a fallback to common paths and then to asking, backs up every file
+it replaces, and records a SHA-256 of everything it writes. `Uninstall.bat` restores only
+what is still byte-for-byte what was installed, leaving anything another mod has since
+changed alone and reporting it.
+
+One sharp edge to warn players about: some resource paths run to ~110 characters, so
+unzipping into a deep folder pushes them past Windows' 260-character limit and the
+extractor drops them **without reporting it**. The installer detects the resulting gap and
+says so, but the fix is to unzip somewhere short.

@@ -130,13 +130,118 @@ def cmd_package(args: argparse.Namespace) -> None:
 # in particular makes the install un-removable: git marks its objects read-only,
 # so the rmtree on the next install dies with WinError 5.
 _NOT_MOD_CONTENT = (".git", ".gitattributes", ".gitignore", ".github",
-                    "__pycache__", ".venv", "docs")
+                    "__pycache__", ".venv", "docs", "dist")
 
 
 def _force_remove(func, path, _exc):
     """rmtree onerror hook: clear the read-only bit and retry."""
     os.chmod(path, stat.S_IWRITE)
     func(path)
+
+
+def _require_manifest_matches_disk(mod_dir: Path, manifest: dict, where: str) -> None:
+    """Refuse to proceed when mod.json and files/ disagree about what the mod contains.
+
+    `install` copies the whole files/ tree, but `build` packs only what mod.json lists.
+    A file added to files/ without regenerating the manifest therefore installs fine,
+    looks present in the installed copy, and is then silently omitted from data.dat --
+    which is how a Lionheart Fixt edit shipped a map referencing an attribute file that
+    never made it into the game. Nothing anywhere reported a problem; the mod was simply
+    wrong in play.
+
+    Cheap to check and impossible to notice by eye, so it is enforced at both ends.
+    """
+    files_dir = mod_dir / "files"
+    on_disk = set()
+    if files_dir.is_dir():
+        on_disk = {p.relative_to(files_dir).as_posix()
+                   for p in files_dir.rglob("*") if p.is_file()}
+    listed = set(manifest.get("files", []))
+    unlisted, absent = sorted(on_disk - listed), sorted(listed - on_disk)
+    if not unlisted and not absent:
+        return
+
+    lines = [f"{mod_dir.name}: mod.json does not match files/ ({where})."]
+    if unlisted:
+        lines.append(f"  {len(unlisted)} file(s) present but NOT listed -- these would be "
+                     f"installed and then silently left out of data.dat:")
+        lines += [f"      {r}" for r in unlisted]
+    if absent:
+        lines.append(f"  {len(absent)} file(s) listed but MISSING from files/:")
+        lines += [f"      {r}" for r in absent]
+    lines.append("  Regenerate the manifest's \"files\" list from files/ and reinstall.")
+    raise SystemExit("\n".join(lines))
+
+
+_INSTALLER_FILES = ("Install.bat", "Uninstall.bat", "mod-installer.ps1")
+
+
+def cmd_dist(args: argparse.Namespace) -> None:
+    r"""Build the release zip a player can download, unzip and double-click.
+
+    Distinct from `package`, which is the authoring path: `package` diffs an edited data
+    tree against vanilla to synthesise a mod folder. `dist` takes a finished mod folder
+    and wraps it for release. Lionheart Fixt is a git repository whose root IS the mod
+    package, so the alternative was zipping it by hand -- which is exactly how .git or a
+    docs/ tree ends up inside a release.
+
+    The installer bundled here writes into the game's loose data\ mirror and never
+    touches data.dat, so the player needs no Python and no 1.6 GB repack. See
+    installer/mod-installer.ps1 for why that works.
+    """
+    source = Path(args.mod_source)
+    manifest_path = source / "mod.json"
+    if not manifest_path.exists():
+        raise SystemExit(f"No mod.json found in {source}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _require_manifest_matches_disk(source, manifest, "in the mod source")
+
+    installer_dir = Path(__file__).parent / "installer"
+    missing = [f for f in _INSTALLER_FILES if not (installer_dir / f).exists()]
+    if missing:
+        raise SystemExit(f"Installer files missing from {installer_dir}: {missing}")
+
+    stem = f"{manifest['id']}-{manifest['version']}"
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = out_dir / f"{stem}.zip"
+
+    readme = source / "dist" / "README.txt"
+    payload_root = f"{stem}/"
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # The mod payload is written byte-for-byte: it is CRLF game data and, for icons,
+        # binary. Nothing here may normalise line endings.
+        for rel in manifest["files"]:
+            zf.write(source / "files" / rel, f"{payload_root}files/{rel}")
+        zf.write(manifest_path, f"{payload_root}mod.json")
+        for name in _INSTALLER_FILES:
+            zf.write(installer_dir / name, f"{payload_root}{name}")
+        if readme.exists():
+            zf.write(readme, f"{payload_root}README.txt")
+
+    # Read the archive back rather than trusting the write: a release that differs from
+    # the source is the one defect nobody catches until a player reports it.
+    with zipfile.ZipFile(zip_path) as zf:
+        names = set(zf.namelist())
+        for rel in manifest["files"]:
+            entry = f"{payload_root}files/{rel}"
+            if entry not in names:
+                raise SystemExit(f"Release is missing {rel}")
+            if zf.read(entry) != (source / "files" / rel).read_bytes():
+                raise SystemExit(f"Release copy of {rel} does not match the source")
+        for name in _INSTALLER_FILES:
+            if f"{payload_root}{name}" not in names:
+                raise SystemExit(f"Release is missing the installer file {name}")
+        leaked = [n for n in names if any(part in n.split("/") for part in _NOT_MOD_CONTENT)]
+        if leaked:
+            raise SystemExit(f"Release contains non-mod content: {leaked[:5]}")
+
+    size_mb = zip_path.stat().st_size / 1e6
+    print(f"Built {zip_path}  ({len(manifest['files'])} mod file(s), {size_mb:.2f} MB)")
+    print(f"  verified: every payload file matches the source byte-for-byte")
+    if not readme.exists():
+        print(f"  note: no dist/README.txt in the mod source -- the release ships without one")
 
 
 def cmd_install(args: argparse.Namespace) -> None:
@@ -162,6 +267,8 @@ def cmd_install(args: argparse.Namespace) -> None:
             f"Unsupported mod_format_version {manifest.get('mod_format_version')!r} "
             f"(expected {MOD_FORMAT_VERSION})"
         )
+
+    _require_manifest_matches_disk(source, manifest, "in the mod source")
 
     mod_id = manifest["id"]
     dest = paths["installed_dir"] / mod_id
@@ -236,6 +343,7 @@ def _collect_touched(paths: dict, enabled: list, scratch=None, announce: bool = 
     for mod_id in enabled:
         mod_dir = paths["installed_dir"] / mod_id
         manifest = json.loads((mod_dir / "mod.json").read_text(encoding="utf-8"))
+        _require_manifest_matches_disk(mod_dir, manifest, "in the installed copy")
         files_dir = mod_dir / "files"
         for rel in manifest["files"]:
             if rel in touched_by and announce:
@@ -451,6 +559,11 @@ def main() -> None:
     p.add_argument("--author", default="")
     p.add_argument("--description", default="")
     p.set_defaults(func=cmd_package)
+
+    p = sub.add_parser("dist", help="Build a player-installable release zip from a mod package")
+    p.add_argument("mod_source", help="Mod package directory (contains mod.json and files/)")
+    p.add_argument("output_dir", help="Where to write <id>-<version>.zip")
+    p.set_defaults(func=cmd_dist)
 
     p = sub.add_parser("install", help="Install a mod package (folder or .zip)")
     p.add_argument("mod_source")

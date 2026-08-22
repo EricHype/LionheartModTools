@@ -806,6 +806,34 @@ first read — which then shadows all *future* `data.dat` rebuilds the same way,
 isn't a one-time gap that closes itself; it recurs for every new resource the first time
 it's actually read in-game.
 
+### The mirror ships with the game -- which is how mods are distributed to players
+
+Worth stating separately, because it was left open above ("unpacked once and left in
+place" implies it happened locally) and because a whole distribution strategy rests on
+it. Measured on a GOG install: **19,077 loose files against 19,030 archive entries**, and
+their timestamps are 5 from 2001, 3,374 from 2002, 15,084 from 2003 -- the game's own
+build dates, preserved by the installer. Only 614 carried recent dates, exactly matching
+the set that local mod builds had touched.
+
+Two things rule out the alternative explanation that the game accumulated the mirror by
+writing loose copies on first read. Coverage is ~100%, and no amount of partial play
+reads every asset in the game; and had the engine written them, they would carry the
+dates they were written, not 2003.
+
+**Consequence: a player-facing mod installer does not need to touch `data.dat` at all.**
+Copy the mod's files into `<game-dir>\data\` and the engine reads them in preference to
+the archive. That turns installation from a multi-minute 1.6 GB repack requiring Python
+into a sub-second file copy requiring nothing, and it removes the worst failure mode of
+the developer workflow -- `init` adopting an already-modded `data.dat` as its "vanilla"
+baseline, which silently destroys the player's only route back. An installer that never
+writes `data.dat` cannot corrupt it.
+
+The cost is that uninstall must be exact: back up every file overwritten, hash every file
+written, and on removal restore only what is still byte-for-byte what was installed. A
+file another mod has since changed must be left alone and reported, since reverting it
+would be the same class of bug one level down. `installer/mod-installer.ps1` implements
+this; `modmanager.py dist` bundles it into the release zip.
+
 This resolves the "Known open issue" that used to be documented here (a ~267-file,
 never-root-caused divergence between `data.dat.vanilla.bak` and the live `data\`
 directory): the *original* editing workflow documented above — "edit files directly in the
