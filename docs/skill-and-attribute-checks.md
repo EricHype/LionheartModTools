@@ -413,6 +413,22 @@ The same tree can be opened both ways: `GoblinVillager` is a real conversation i
 goblin house interiors and balloon-only at the Crossroads, so "this tree is talkable"
 is not the same as "this node is talkable".
 
+**Map-side node references are matched EXACTLY, and a miss is a hard crash.** The
+`Node ID=` inside a map's `CDisplayDialogTreeAction` or `CDisplayDialogBalloonAction` is
+compared byte-for-byte against the tree's node ID -- unlike the in-tree `Go to node ID`
+lookup, which is case-insensitive and forgiving. **Vanilla node IDs contain trailing
+spaces**, so a reference that looks identical can still be fatal:
+
+```
+tree:  Node ID=200 Returning after killing the woodsman     <- trailing space
+map:   Node ID=200 Returning after killing the woodsman     <- without it
+```
+
+That exact pair crashed Goblin Warrens on entry with a *"Fatal Not Found Error"* naming the
+node and listing the ones it did find. Copy node IDs by extracting the bytes, never by
+retyping them, and compare unstripped. A validator that strips whitespace before comparing
+-- the obvious way to write one -- is structurally blind to this entire class of bug.
+
 **Orphan nodes.** Plenty of shipped nodes have zero inbound `Go to node ID` links and are
 never invoked by a map either. `Goblin Sapper`'s `30 goblin name` is one. Vanilla is full
 of them, and a repair or a gate placed in one does nothing.
