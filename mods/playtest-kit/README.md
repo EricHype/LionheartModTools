@@ -10,7 +10,8 @@ Talk to **Merchant Lope** or **Jafar** in the Barcelona Gate District. Their con
 
 | | |
 |---|---|
-| Send me to the Goblin Warrens (direct) | `CTeleportAction` straight to the map's `Start Here` |
+| Send me to the goblin camp gate | `CTeleportAction` to Mongol Camp, where the entrance encounter is |
+| Send me straight into the Warrens | the same, one map further in &mdash; **skips the gate** |
 | Send me to the Goblin Warrens (world map) | via a point of interest this mod adds |
 | Unlock the wilderness on my world map | Crossroads, Woodcutter Forest, Goblin Warrens |
 | Make me stronger | +40,000 experience |
@@ -26,6 +27,17 @@ observation that settles whether the three faction tiers stack or replace each o
 
 The menu loops, so effects stack — three presses of the rank option reaches Champion, and
 does it through the accumulation cascade rather than around it.
+
+## Travel goes to the gate, not past it
+
+Landing inside the Warrens skips the entrance encounter on Mongol Camp, where you talk your
+way past the guard and he deactivates `entrance guards attack relay`. Skip it and the camp
+never learns you are welcome, so it turns on you the moment you walk back out -- which looks
+like a mod bug and is not one. The gate is a piece of the content under test, not travel
+time, and it is one screen from the Warrens.
+
+The direct option is still there for when the Warrens itself is what you are testing and the
+camp's mood does not matter. The menu says what it skips.
 
 ## Requires Lionheart Fixt
 

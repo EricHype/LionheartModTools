@@ -1458,7 +1458,15 @@ Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world 
 Should Have Voiceover=0
 
 Requirement=!None
-Reply Text=Send me to the Goblin Warrens.
+Reply Text=Send me to the goblin camp gate.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Camp Gate
+}
+
+Requirement=!None
+Reply Text=Send me straight into the Warrens. (skips the gate; the camp stays hostile)
 Go to node ID=9000 playtest menu
 Custom Action=CUseCannedActionAction
 {
