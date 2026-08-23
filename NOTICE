@@ -1,0 +1,16 @@
+Lionheart Mod Tools is an unofficial, independent toolkit for modifying the
+video game "Lionheart: Legacy of the Crusader".
+
+It is not affiliated with, endorsed by, or connected to Black Isle Studios,
+Reflexive Entertainment, Interplay Entertainment, GOG, or any current or former
+rights holder in the game. All trademarks are the property of their respective
+owners.
+
+The MIT license in LICENSE covers this project's own work: the tools, the file
+format implementations, and the documentation. It does not and cannot grant any
+rights in "Lionheart: Legacy of the Crusader" itself.
+
+This repository contains no content from the game. The file formats documented
+here were determined by reverse engineering for the purpose of interoperability.
+The tools operate on a copy of the game that the user already owns; they neither
+include nor redistribute any part of it.

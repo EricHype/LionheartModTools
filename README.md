@@ -367,10 +367,13 @@ it applies every delta against the real vanilla bytes and re-reads the finished 
 rebuild every file from it -- a release that cannot reconstruct itself is the defect nobody
 catches until a player reports it. It also fails if any non-mod content leaked in.
 
-The player unzips it and double-clicks `Install.bat`. **The installer never touches
-`data.dat`.** It copies into the game's loose `data\` mirror, which the engine reads in
-preference to the archive -- see SKILL.md's "The mirror ships with the game". So there is
-no Python requirement, no 1.6 GB repack, and no vanilla backup to get wrong.
+The player unzips it and double-clicks `Install.bat`, which rebuilds their `data.dat`
+with the mod applied. There is no Python requirement and no vanilla backup to get wrong.
+
+It does not install by copying into a loose `data\` directory. That works -- the engine
+reads loose files in preference to the archive -- but only on a machine that has one, and
+**a stock install does not**: GOG's manifest lists 16 files and zero directories. See
+SKILL.md's "The mirror does NOT ship with the game".
 
 It self-elevates (the game usually lives under Program Files), finds the game through the
 GOG registry entry with a fallback to common paths and then to asking, backs up every file
