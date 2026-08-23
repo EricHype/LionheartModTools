@@ -1518,7 +1518,7 @@ Reply Text=Raise my standing with the goblins by one rank.
 Go to node ID=9000 playtest menu
 Custom Action=CUseCannedActionAction
 {
-Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Goblin Rank Up
+Canned Object=Levels/Wilderness/Quests/Advance Goblin Rank
 }
 
 Requirement=!None
@@ -1555,6 +1555,10 @@ Go to node ID=9000 playtest menu
 
 Requirement=Rank at least 3
 Reply Text=(reading) my goblin standing is 3.
+Go to node ID=9000 playtest menu
+
+Requirement=Kept Blooded Bonus
+Reply Text=(reading) I still have the Blooded disease resistance (so the tiers stack).
 Go to node ID=9000 playtest menu
 
 Requirement=Met Girl

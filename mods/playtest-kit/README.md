@@ -15,9 +15,14 @@ Talk to **Merchant Lope** or **Jafar** in the Barcelona Gate District. Their con
 | Unlock the wilderness on my world map | Crossroads, Woodcutter Forest, Goblin Warrens |
 | Make me stronger | +40,000 experience |
 | Heal me | +500 health |
-| Raise my standing with the goblins | +1 goblin rank, repeatable |
+| Raise my standing with the goblins | dispatches Fixt's own `Advance Goblin Rank` cascade, so a press does exactly what a service does |
 | The woodcutter is dead / the river dryad is dead | sets the flags the goblin dialogue reads |
 | I have already met the goblin girl | sets Fixt's first-meeting flag |
+
+It also reads state back. The `(reading)` lines appear only when their condition
+holds, so which ones show *is* the measurement -- goblin rank, the greeting flags, and
+whether the Blooded disease resistance survives promotion to Champion, which is the one
+observation that settles whether the three faction tiers stack or replace each other.
 
 The menu loops, so effects stack — three presses of the rank option reaches Champion, and
 does it through the accumulation cascade rather than around it.

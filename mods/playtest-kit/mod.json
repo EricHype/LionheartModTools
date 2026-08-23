@@ -7,6 +7,7 @@
   "description": "A testing tool, not content. Adds a menu to Farshid in the Barcelona Gate District that grants experience, unlocks and travels to wilderness destinations, raises goblin standing, and sets the world flags the goblin dialogue keys on -- so late content can be reached and its states set up in minutes instead of hours. Hosted on an existing NPC so it works on a save you already have. Remove it before testing a release for real.",
   "files": [
     "Resources/Dialog/Requirements/Playtest/Dryad Is Dead.can",
+    "Resources/Dialog/Requirements/Playtest/Kept Blooded Bonus.can",
     "Resources/Dialog/Requirements/Playtest/Met Girl.can",
     "Resources/Dialog/Requirements/Playtest/Rank at least 1.can",
     "Resources/Dialog/Requirements/Playtest/Rank at least 2.can",
@@ -18,7 +19,6 @@
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Flag Met Goblin Girl.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Flag River Dryad Dead.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Flag Woodcutter Dead.can",
-    "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Goblin Rank Up.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Grant Experience.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Heal.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Level Up.can",
