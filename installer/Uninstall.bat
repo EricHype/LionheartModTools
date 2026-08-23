@@ -1,18 +1,30 @@
 @echo off
-REM Restores every file the installer replaced and removes every file it added. See the
-REM note in Install.bat for why this needs administrator rights.
+REM Double-clickable uninstaller.
+REM
+REM Restores every file the installer replaced and removes every file it added.
+REM Elevation is requested only if it turns out to be needed -- see Install.bat.
 setlocal
 
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Requesting administrator rights...
+if "%~1"=="elevated" goto :run
+
+call :run
+if errorlevel 2 (
+    echo.
+    echo This game folder needs administrator rights.
     powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Start-Process -FilePath '%~f0' -WorkingDirectory '%~dp0' -Verb RunAs"
-    exit /b
+        "Start-Process -FilePath '%~f0' -ArgumentList 'elevated' -WorkingDirectory '%~dp0' -Verb RunAs"
 )
+goto :eof
 
-cd /d "%~dp0"
+:run
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0mod-installer.ps1" -Action uninstall -ModDir "%~dp0."
-
-echo.
-pause
+if "%~1"=="elevated" (
+    echo.
+    pause
+) else (
+    if not errorlevel 2 (
+        echo.
+        pause
+    )
+)
+goto :eof

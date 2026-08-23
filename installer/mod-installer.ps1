@@ -343,6 +343,22 @@ function Assert-GameClosed {
     }
 }
 
+# Exit code 2 means "this would work with administrator rights", and Install.bat re-launches
+# elevated on seeing it. Checked by actually writing a file rather than by asking whether
+# the user is an administrator: a GOG Galaxy install grants the logged-in user write access
+# to its Games folder, so the common case needs no elevation at all and should not be made
+# to click through a UAC prompt for nothing.
+function Test-GameDirWritable ($ctx) {
+    $probe = Join-Path $ctx.Game ".mod-install-probe"
+    try {
+        [System.IO.File]::WriteAllText($probe, "probe")
+        Remove-Item -LiteralPath $probe -Force
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Assert-DiskSpace ($ctx) {
     $needed = (Get-Item -LiteralPath $ctx.Dat).Length + 200MB
     $drive = (Get-Item -LiteralPath $ctx.Game).PSDrive
@@ -555,6 +571,12 @@ function Invoke-Uninstall ($ctx, [switch]$Quiet) {
 try {
     Assert-GameClosed
     $ctx = Get-Context $GameDir
+    if (-not (Test-GameDirWritable $ctx)) {
+        Write-Host ""
+        Write-Warn "Cannot write to $($ctx.Game) -- administrator rights are needed."
+        Write-Host "  Nothing has been changed."
+        exit 2
+    }
     if ($Action -eq 'install') { Invoke-Install $ctx } else { Invoke-Uninstall $ctx }
     exit 0
 } catch {
