@@ -49,6 +49,28 @@ with zipfile.ZipFile(path) as zf:
     assert set(zf.getinfo(n).compress_type for n in zf.namelist()) == {0}
 ```
 
+### Writing the archive yourself, without Python
+
+Confirmed in play: the game loads a `data.dat` written by a hand-rolled ZIP writer, not
+just one produced by Python's `zipfile`. This matters because the player-facing installer
+cannot assume Python, and **.NET Framework cannot write a stored entry at all** --
+`CompressionLevel.NoCompression` emits method 8 carrying stored blocks, which is both
+larger than its input (1,249,226 bytes for 1,249,031) and rejected outright by the parser
+above. PowerShell 5.1 has no way around that.
+
+`installer/mod-installer.ps1` therefore compiles a small stored-only writer at run time via
+`Add-Type` (the `csc.exe` that ships with .NET Framework; pass `-ReferencedAssemblies
+System.IO.Compression, System.IO.Compression.FileSystem` or the compile fails on
+`ZipArchive`). What the engine accepted:
+
+- local header version 1.0, flags 0, method 0, CRC-32 and both sizes in the header
+- central directory version-made-by 20, version-needed 1.0, external attrs 0
+- no ZIP64, no data descriptors, no directory entries, ASCII names with forward slashes
+- entries in source order, new entries appended
+
+No ZIP64 is needed and none should be added: the archive is 1.58 GB across 19,030 entries,
+far inside the 32-bit limits, and the parser would not read it.
+
 Store-mode `data.dat` ends up close to the original's uncompressed size (~1.6GB) — that's
 expected and fine (659GB+ free is typical on modern drives).
 
