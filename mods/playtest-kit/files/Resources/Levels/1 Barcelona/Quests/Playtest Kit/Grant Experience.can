@@ -1,0 +1,9 @@
+CCannedObject
+{
+	Object=CGiveExperiencePointsToAllPlayersAction
+	{
+		Get XP Frome=Playtest Kit
+		Experience Points To Add=40000
+	}
+	Use=Shared Global Instance
+}

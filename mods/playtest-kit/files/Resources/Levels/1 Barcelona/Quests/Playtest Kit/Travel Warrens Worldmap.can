@@ -1,0 +1,9 @@
+CCannedObject
+{
+	Object=CGotoPointOfInterestOnWorldMapAction
+	{
+		Point Of Interest to go to=Interface/World Map/Goblin Warrens
+		Player Who Will See Map=$instigator
+	}
+	Use=Shared Global Instance
+}

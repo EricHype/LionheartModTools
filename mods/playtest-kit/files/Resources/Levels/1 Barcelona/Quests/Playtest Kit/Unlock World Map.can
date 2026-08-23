@@ -1,0 +1,23 @@
+CCannedObject
+{
+	Object=CMultipleActionsAction
+	{
+		Action=Array
+		{
+			Item Count=3
+			Action=CEnablePointOfInterestOnWorldMapAction
+			{
+				Point Of Interest to Enable=Interface/World Map/Crossroads
+			}
+			Action=CEnablePointOfInterestOnWorldMapAction
+			{
+				Point Of Interest to Enable=Interface/World Map/Woodcutter Forest
+			}
+			Action=CEnablePointOfInterestOnWorldMapAction
+			{
+				Point Of Interest to Enable=Interface/World Map/Goblin Warrens
+			}
+		}
+	}
+	Use=Shared Global Instance
+}

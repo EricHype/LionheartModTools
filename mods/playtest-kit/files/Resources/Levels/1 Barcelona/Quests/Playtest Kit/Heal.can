@@ -1,0 +1,12 @@
+CCannedObject
+{
+	Object=CGiveHealthToCharacterAction
+	{
+		Character=$Instigator
+		Health To Give=CConstant
+		{
+			Constant Value=500
+		}
+	}
+	Use=Shared Global Instance
+}

@@ -108,6 +108,7 @@ anything else with a fatal error — see the `lionheart-modding` skill for why.
 | [`great-healing-potion`](mods/great-healing-potion/) | Three new healing potions above vanilla's Extra Healing, each with its own recolored icon. |
 | [`ratsbane-sword`](mods/ratsbane-sword/) | Lucia Wererat drops a unique short sword that deals bonus disease damage against wererats. |
 | [`bloodletter-scimitar`](mods/bloodletter-scimitar/) | A unique scimitar with a 30% chance on hit to inflict a bleeding wound. Ships the project's first genuinely new icon art. |
+| [`playtest-kit`](mods/playtest-kit/) | *(a tool, not content)* Adds a menu to an NPC on the starting map that grants levels, unlocks and travels to wilderness destinations, and sets the world flags the goblin dialogue reads -- so late content can be reached and its states set up in minutes rather than hours. Requires Lionheart Fixt. |
 | [`test-pocket`](mods/test-pocket/) | *(work in progress)* A brand-new standalone map, reachable through Quinn's shop, with its own NPC and a fetch quest that turns into a fight. |
 
 Each mod's own README has install notes and anything specific to that mod (e.g. save

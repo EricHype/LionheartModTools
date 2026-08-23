@@ -1,0 +1,31 @@
+CPointOfInterest
+{
+	Display Name=Goblin Warrens
+	World Map Icon=Interface/World Map/Points Of Interest/CrossRoads02
+	Icon Position=250,330
+	Is Selectable=1
+	Main Map File Name=Wilderness Maps/Goblin Warrens
+	Main Spawn Point=Start Here
+	Spawn Points=Array
+	{
+		Interface/World Map/!Unknown=Start Here
+		Interface/World Map/Alamut=Start Here
+		Interface/World Map/Barcelona=Start Here
+		Interface/World Map/Cavern Nostradamus=Start Here
+		Interface/World Map/Coast=Start Here
+		Interface/World Map/Crossroads=Start Here
+		Interface/World Map/Crypt=Start Here
+		Interface/World Map/Lake=Start Here
+		Interface/World Map/Mongol Village=Start Here
+		Interface/World Map/Montaillou=Start Here
+		Interface/World Map/Montserrat=Start Here
+		Interface/World Map/Plains=Start Here
+		Interface/World Map/Pyranees Mountains=Start Here
+		Interface/World Map/River=Start Here
+		Interface/World Map/Scar Ravine=Start Here
+		Interface/World Map/Silbury Hill=Start Here
+		Interface/World Map/Slave Pits=Start Here
+		Interface/World Map/Titan Village=Start Here
+		Interface/World Map/Woodcutter Forest=Start Here
+	}
+}

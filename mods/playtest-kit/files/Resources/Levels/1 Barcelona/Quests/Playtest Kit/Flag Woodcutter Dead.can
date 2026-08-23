@@ -1,0 +1,26 @@
+CCannedObject
+{
+	Object=CAddCharacterModifierToCharacterAction
+	{
+		Modifier Description=Playtest Kit
+		Modification is permanent=1
+		Character to modify=Player#1-9#
+		Modifiers=Array
+		{
+			Item Count=1
+			Modifier=CCharacterModifierDerivedAttribute
+			{
+				Modification Amount=CConstant
+				{
+					Constant Value=1
+				}
+				Modification amount is a percent=0
+				Allow Accumulation=0
+				Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Woodcutter Dead
+			}
+		}
+		OPTIONAL Duration=
+		Expression Context=$Instigator
+	}
+	Use=Shared Global Instance
+}
