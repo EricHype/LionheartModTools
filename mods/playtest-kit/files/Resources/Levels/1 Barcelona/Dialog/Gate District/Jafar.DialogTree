@@ -2457,7 +2457,7 @@ Reply Text=(reading) my goblin standing is 3.
 Go to node ID=9000 playtest menu
 
 Requirement=Kept Blooded Bonus
-Reply Text=(reading) I still have the Blooded disease resistance (so the tiers stack).
+Reply Text=(reading) I have the disease resistance (Blooded's, and Champion should keep it).
 Go to node ID=9000 playtest menu
 
 Requirement=Met Girl
