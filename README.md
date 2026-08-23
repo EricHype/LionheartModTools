@@ -361,6 +361,8 @@ building anything on top of it.
 synthesise a mod folder. `dist` is the release path: it takes a finished mod folder and
 wraps it for download.
 
+A worked example: [Lionheart Fixt](https://github.com/EricHype/LionheartFixt/releases) is built and released with exactly this command, and its release zip is what the sections above describe.
+
 ```
 python modmanager.py dist "path\to\mod-package" "path\to\output-dir" ^
     --vanilla "<game>\data.dat.vanilla.bak"
