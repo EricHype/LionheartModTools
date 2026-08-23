@@ -498,12 +498,25 @@ function Invoke-Install ($ctx) {
             if (-not $source) { $source = @() }
             $rebuilt = Invoke-Delta $source $delta
             if (-not $rebuilt) {
-                throw ("Could not rebuild $rel.`n" +
-                       "  This mod patches your own game files rather than shipping copies of " +
-                       "them, so it needs the original.`n" +
-                       "  Your data.dat does not hold the version this patch expects -- usually " +
-                       "because another mod changed it first.`n" +
-                       "  Remove other mods or reinstall the game, then try again. " +
+                # A delta records the hash of its result as well as its source, so the
+                # commonest failure can be named exactly instead of guessed at: if what is
+                # already in the archive IS the patched version, this mod is installed
+                # already and the user needs to remove it, not hunt for a conflicting one.
+                if ((Get-BytesHash $source) -eq $delta.dstSha256) {
+                    throw ("$($m.name) is already installed.`n`n" +
+                           "$rel in your data.dat is already the modded version, so there is " +
+                           "no original left to patch.`n" +
+                           "Uninstall it first, then install again. If it does not appear in " +
+                           "the list above, it was installed with a different tool " +
+                           "(modmanager.py) -- use that to remove it.`n`n" +
+                           "Nothing has been changed.")
+                }
+                throw ("Could not rebuild $rel.`n`n" +
+                       "This mod patches your own game files rather than shipping copies of " +
+                       "them, so it needs the original, and your data.dat holds neither the " +
+                       "original nor this mod's version of that file.`n" +
+                       "Another mod has probably changed it. Remove other mods or reinstall " +
+                       "the game, then try again.`n`n" +
                        "Nothing has been changed.")
             }
             $content[$rel] = $rebuilt
