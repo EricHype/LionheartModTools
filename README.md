@@ -381,8 +381,18 @@ it applies every delta against the real vanilla bytes and re-reads the finished 
 rebuild every file from it -- a release that cannot reconstruct itself is the defect nobody
 catches until a player reports it. It also fails if any non-mod content leaked in.
 
-The player unzips it and double-clicks `Install.bat`, which rebuilds their `data.dat`
-with the mod applied. There is no Python requirement and no vanilla backup to get wrong.
+The player unzips it and double-clicks **`Mod Manager.bat`** -- a WinForms window that
+finds the game, lists what is installed, and installs or removes a release. `Install.bat`
+and `Uninstall.bat` do the same job without a window. Either way their `data.dat` is
+rebuilt with the mod applied; there is no Python requirement and no vanilla backup to get
+wrong.
+
+WinForms rather than anything richer because it is already on every Windows machine: a
+player installing a 60 KB mod should not download a 90 MB runtime to do it, and an
+unsigned `.exe` is a harder thing to ask someone to trust than a script they can read. The
+window is presentation only -- `installer/lh-core.ps1` holds everything that knows about
+the game, the archive or the mod format, and is shared with the command-line installer so
+the two cannot disagree about what installing means.
 
 It does not install by copying into a loose `data\` directory. That works -- the engine
 reads loose files in preference to the archive -- but only on a machine that has one, and

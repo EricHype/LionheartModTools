@@ -174,7 +174,8 @@ def _require_manifest_matches_disk(mod_dir: Path, manifest: dict, where: str) ->
     raise SystemExit("\n".join(lines))
 
 
-_INSTALLER_FILES = ("Install.bat", "Uninstall.bat", "mod-installer.ps1")
+_INSTALLER_FILES = ("Install.bat", "Uninstall.bat", "Mod Manager.bat",
+                    "mod-installer.ps1", "ModManager.ps1", "lh-core.ps1")
 
 
 def cmd_dist(args: argparse.Namespace) -> None:
@@ -387,6 +388,7 @@ def cmd_install(args: argparse.Namespace) -> None:
     if not paths["data_dat"].exists():
         raise SystemExit(f"No data.dat found at {paths['data_dat']}")
     source = Path(args.mod_source)
+    cleanup_extract = None
 
     if source.suffix == ".zip":
         tmp_extract = paths["mods_dir"] / ".install_tmp"
@@ -397,6 +399,7 @@ def cmd_install(args: argparse.Namespace) -> None:
         # a zip may contain the mod folder itself, or its contents directly
         candidates = [p for p in tmp_extract.iterdir() if (p / "mod.json").exists()]
         source = candidates[0] if candidates else tmp_extract
+        cleanup_extract = tmp_extract
 
     manifest_path = source / "mod.json"
     if not manifest_path.exists():
@@ -431,6 +434,9 @@ def cmd_install(args: argparse.Namespace) -> None:
     if mod_id not in enabled:
         enabled.append(mod_id)
         _write_enabled(paths, enabled)
+
+    if cleanup_extract and cleanup_extract.exists():
+        shutil.rmtree(cleanup_extract, onerror=_force_remove)
 
     print(f"Installed {manifest['name']!r} ({mod_id}) v{manifest['version']} "
           f"-- {len(contents)} file(s)")
