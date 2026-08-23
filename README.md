@@ -409,6 +409,15 @@ leaving a half-applied one. `Uninstall.bat` restores only
 what is still byte-for-byte what was installed, leaving anything another mod has since
 changed alone and reporting it.
 
+**Several mods can be installed at once**, provided no two of them change the same file.
+Each is recorded separately and can be removed on its own, in any order; removing one
+leaves the others in place, and removing all of them returns `data.dat` byte-exactly to
+where it started. A mod that wants a file another mod already changed is refused with the
+clashing filename, and nothing is written -- the installer has no way to merge two edits
+of the same file, so the choice is the user's. (`modmanager.py` is the more capable path
+here: it has an explicit load order and resolves conflicts last-wins, at the cost of
+needing Python.)
+
 One sharp edge to warn players about: some resource paths run to ~110 characters, so
 unzipping into a deep folder pushes them past Windows' 260-character limit and the
 extractor drops them **without reporting it**. The installer detects the resulting gap and
