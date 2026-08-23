@@ -28,6 +28,52 @@ def unpack(dat_path: str, out_dir: str) -> None:
         zf.extractall(out_dir)
 
 
+def rebuild(src_dat: str, dst_dat: str, replace: dict[str, bytes] | None = None,
+            drop: set[str] | None = None) -> tuple[int, int]:
+    """Write a new archive from an existing one, substituting and adding entries.
+
+    Returns (entries written, entries added).
+
+    This exists because unpack-then-repack is the wrong shape for the job. Building
+    data.dat from vanilla plus a handful of mod files does not require materialising
+    19,030 files on disk and reading them all back; it requires copying a stream and
+    swapping a few entries out of it. The scratch tree cost several minutes and ~3.2 GB
+    of I/O per build, on a workload that is inherently a single pass.
+
+    Always stored, never deflated -- see the module docstring for why the game insists.
+    """
+    replace = replace or {}
+    drop = drop or set()
+    written = added = 0
+    tmp_path = f"{dst_dat}.tmp"
+
+    with zipfile.ZipFile(src_dat, "r") as src, \
+            zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_STORED) as out:
+        seen = set()
+        for info in src.infolist():
+            if info.filename in drop:
+                continue
+            seen.add(info.filename)
+            data = replace.get(info.filename)
+            if data is None:
+                data = src.read(info.filename)
+            # Carry the original timestamp so untouched entries stay identical to the
+            # source in every field a comparison might look at.
+            new_info = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+            new_info.compress_type = zipfile.ZIP_STORED
+            new_info.external_attr = info.external_attr
+            out.writestr(new_info, data)
+            written += 1
+        for name in replace:
+            if name in seen:
+                continue
+            out.writestr(name, replace[name])
+            added += 1
+
+    os.replace(tmp_path, dst_dat)
+    return written, added
+
+
 def repack(in_dir: str, dat_path: str, compression: str = "deflate") -> None:
     compress_type = _COMPRESSION[compression]
     in_dir = Path(in_dir)

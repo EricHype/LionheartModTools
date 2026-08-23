@@ -55,22 +55,36 @@ PNG rendering — has no third-party dependencies either.
 ## Quick start: installing a mod
 
 ```
-cd LionheartModTools
-python modmanager.py init "<path to game folder>"
 python modmanager.py install "mods/<mod-name>" "<path to game folder>"
-python modmanager.py build "<path to game folder>"
 ```
 
-`init` takes a one-time backup of your vanilla `data.dat` (so it can always be restored)
-and sets up the mod registry. `install` registers a mod and enables it. `build` rebuilds
-`data.dat` fresh from the vanilla backup plus every enabled mod, in load order — it never
-layers on top of a previous build, so re-running it is always safe.
+That is the whole thing. It handles its own prerequisites: creates the registry and the
+vanilla backup if they are missing, enables the mod, and rebuilds `data.dat`. Pass
+`--no-build` to stage an install without applying it.
 
-To go back to an unmodified game at any point:
+It accepts either a development checkout or a release zip. A release ships deltas rather
+than copies of the game's own files (see "Shipping a mod" below); `install` rebuilds those
+from the vanilla archive and stores a full-form copy, so nothing downstream needs to know
+the difference.
 
 ```
-python modmanager.py restore "<path to game folder>"
+python modmanager.py uninstall <mod-id> "<path to game folder>"
+python modmanager.py list "<path to game folder>"
+python modmanager.py disable <mod-id> "<path to game folder>"   # keep it, stop applying it
+python modmanager.py restore "<path to game folder>"            # back to pristine vanilla
 ```
+
+**On the vanilla backup.** `install` will create one from the current `data.dat`, but only
+when it can justify doing so. If any mod is already installed it refuses outright, because
+adopting an already-modded archive as the baseline is silently unrecoverable -- `restore`
+would then faithfully restore the mod. And when the mod ships deltas, their recorded source
+hashes are checked against `data.dat` first, so the archive is verified unmodded in the
+regions that matter rather than assumed to be.
+
+**Builds are a single streaming pass** over the vanilla archive, substituting the enabled
+mods' entries -- about 2.5 seconds. It used to unpack all 19,030 entries to a scratch tree
+and read them back, which took minutes and needed ~3.2 GB of scratch space for a job that
+is inherently one pass.
 
 ## Quick start: manual editing
 

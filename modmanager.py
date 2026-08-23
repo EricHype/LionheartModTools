@@ -44,7 +44,6 @@ def _game_paths(game_dir: str) -> dict:
         "mods_dir": game_dir / "mods",
         "installed_dir": game_dir / "mods" / "installed",
         "enabled_json": game_dir / "mods" / "enabled.json",
-        "scratch_dir": game_dir / "mods" / ".build_scratch",
         "loose_dir": game_dir / "data",
     }
 
@@ -300,14 +299,99 @@ def cmd_dist(args: argparse.Namespace) -> None:
     print(f"  sha256: {digest}")
 
 
+def _ensure_initialized(paths: dict, expect_sources: dict | None = None,
+                        registry_only: bool = False) -> None:
+    """Create the registry and vanilla backup if they are missing, but only when safe.
+
+    `init` used to be a separate step the caller had to know about, and it adopted
+    whatever data.dat it found as "vanilla" without checking. That is silently
+    catastrophic for anyone who had already modded: the baseline is poisoned and
+    `restore` faithfully restores them to the mod.
+
+    So: refuse to invent a baseline when mods are already installed, and where the mod
+    being installed ships deltas, use their recorded source hashes to actually verify the
+    archive is unmodded in the regions that matter, instead of assuming it.
+    """
+    paths["installed_dir"].mkdir(parents=True, exist_ok=True)
+    if not paths["enabled_json"].exists():
+        _write_enabled(paths, [])
+    if registry_only or paths["vanilla_bak"].exists():
+        return
+
+    existing = [d.name for d in paths["installed_dir"].iterdir() if (d / "mod.json").exists()]
+    if existing:
+        raise SystemExit(
+            f"No vanilla backup at {paths['vanilla_bak']}, but these mods are already "
+            f"installed: {', '.join(existing)}.\nRefusing to treat the current data.dat as "
+            f"vanilla -- it is probably not. Restore the game's original data.dat and rerun."
+        )
+
+    if expect_sources:
+        with zipfile.ZipFile(paths["data_dat"]) as dz:
+            names = set(dz.namelist())
+            mismatched = [rel for rel, want in expect_sources.items()
+                          if rel not in names
+                          or hashlib.sha256(dz.read(rel)).hexdigest() != want]
+        if mismatched:
+            raise SystemExit(
+                f"This data.dat is not the version the mod expects to patch "
+                f"({len(mismatched)} of {len(expect_sources)} file(s) differ, e.g. "
+                f"{mismatched[0]}).\nIt has probably been modified already. Nothing was "
+                f"changed, and no backup was made from it."
+            )
+        print(f"Verified {len(expect_sources)} file(s) against the mod's expected "
+              f"originals -- data.dat looks unmodded.")
+
+    shutil.copy2(paths["data_dat"], paths["vanilla_bak"])
+    print(f"Created vanilla backup: {paths['vanilla_bak']}")
+
+
+def _materialize_payload(source: Path, manifest: dict, paths: dict) -> dict:
+    """Return {rel: bytes} for every file the mod provides.
+
+    A release ships no content from the game: files that already exist in the player's
+    archive travel as deltas and are reconstructed here from the vanilla backup. A
+    development checkout has no payload.json and carries everything verbatim.
+    """
+    payload_path = source / "payload.json"
+    if not payload_path.exists():
+        _require_manifest_matches_disk(source, manifest, "in the mod source")
+        return {rel: (source / "files" / rel).read_bytes() for rel in manifest["files"]}
+
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    verbatim, patched = payload.get("verbatim", []), payload.get("patched", [])
+    if set(verbatim) | set(patched) != set(manifest["files"]):
+        raise SystemExit("payload.json does not describe the same files as mod.json")
+
+    contents = {rel: (source / "files" / rel).read_bytes() for rel in verbatim}
+    if not patched:
+        return contents
+
+    deltas = {rel: json.loads((source / "patches" / f"{rel}.lhpatch").read_text(encoding="ascii"))
+              for rel in patched}
+    _ensure_initialized(paths, {rel: d["srcSha256"] for rel, d in deltas.items()})
+
+    with zipfile.ZipFile(paths["vanilla_bak"]) as vz:
+        names = set(vz.namelist())
+        for rel, delta in deltas.items():
+            if rel not in names:
+                raise SystemExit(f"Cannot rebuild {rel}: not present in the vanilla archive")
+            contents[rel] = resourcedelta.apply_delta(vz.read(rel), delta)
+    print(f"Rebuilt {len(patched)} file(s) from the vanilla archive "
+          f"({len(verbatim)} shipped verbatim)")
+    return contents
+
+
 def cmd_install(args: argparse.Namespace) -> None:
     paths = _game_paths(args.game_dir)
+    if not paths["data_dat"].exists():
+        raise SystemExit(f"No data.dat found at {paths['data_dat']}")
     source = Path(args.mod_source)
 
     if source.suffix == ".zip":
         tmp_extract = paths["mods_dir"] / ".install_tmp"
         if tmp_extract.exists():
-            shutil.rmtree(tmp_extract)
+            shutil.rmtree(tmp_extract, onerror=_force_remove)
         with zipfile.ZipFile(source) as zf:
             zf.extractall(tmp_extract)
         # a zip may contain the mod folder itself, or its contents directly
@@ -324,20 +408,54 @@ def cmd_install(args: argparse.Namespace) -> None:
             f"(expected {MOD_FORMAT_VERSION})"
         )
 
-    _require_manifest_matches_disk(source, manifest, "in the mod source")
+    _ensure_initialized(paths, registry_only=True)
+    contents = _materialize_payload(source, manifest, paths)
+    # A full-form source carries no delta hashes, so there is nothing to verify against;
+    # the baseline is whatever data.dat is, which is why the check above matters.
+    _ensure_initialized(paths)
 
+    # The installed copy is always full-form, whatever shape the source arrived in, so
+    # nothing downstream has to know that deltas exist.
     mod_id = manifest["id"]
     dest = paths["installed_dir"] / mod_id
     if dest.exists():
         shutil.rmtree(dest, onerror=_force_remove)
-    shutil.copytree(source, dest, ignore=shutil.ignore_patterns(*_NOT_MOD_CONTENT))
+    (dest / "files").mkdir(parents=True)
+    for rel, data in contents.items():
+        dst = dest / "files" / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(data)
+    (dest / "mod.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     enabled = _read_enabled(paths)
     if mod_id not in enabled:
         enabled.append(mod_id)
         _write_enabled(paths, enabled)
 
-    print(f"Installed {manifest['name']!r} ({mod_id}) v{manifest['version']}")
+    print(f"Installed {manifest['name']!r} ({mod_id}) v{manifest['version']} "
+          f"-- {len(contents)} file(s)")
+    if args.no_build:
+        print("Skipped the rebuild (--no-build); run `build` to apply it.")
+    else:
+        cmd_build(args)
+
+
+def cmd_uninstall(args: argparse.Namespace) -> None:
+    paths = _game_paths(args.game_dir)
+    dest = paths["installed_dir"] / args.id
+    if not dest.exists():
+        raise SystemExit(f"{args.id!r} is not installed")
+
+    manifest = json.loads((dest / "mod.json").read_text(encoding="utf-8"))
+    shutil.rmtree(dest, onerror=_force_remove)
+    enabled = [m for m in _read_enabled(paths) if m != args.id]
+    _write_enabled(paths, enabled)
+    print(f"Removed {manifest.get('name', args.id)!r} ({args.id})")
+
+    if args.no_build:
+        print("Skipped the rebuild (--no-build); run `build` to apply it.")
+    else:
+        cmd_build(args)
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -413,139 +531,65 @@ def _collect_touched(paths: dict, enabled: list, scratch=None, announce: bool = 
     return touched_by
 
 
-def _validate_archive(tmp_dat: str) -> None:
-    with zipfile.ZipFile(tmp_dat) as zf:
+def _validate_archive(dat_path: str) -> None:
+    with zipfile.ZipFile(dat_path) as zf:
         bad = zf.testzip()
         methods = {zf.getinfo(n).compress_type for n in zf.namelist()}
     if bad is not None or methods != {0}:
         raise SystemExit(
-            f"Built archive failed validation (testzip={bad!r}, compress_types={methods}) -- "
-            f"leaving existing data.dat untouched."
+            f"Built archive failed validation (testzip={bad!r}, compress_types={methods})."
         )
 
 
-def _pending_build_is_usable(paths: dict, tmp_dat: str) -> bool:
-    """True if a leftover .build.tmp is a complete archive that is still current.
+def _sync_loose_mirror(paths: dict, touched_by: dict, contents: dict) -> None:
+    r"""Keep <game-dir>\data\ in step with the archive, if it exists at all.
 
-    A build that repacked successfully but failed to swap (the game was reopened during
-    the several minutes of repacking, locking data.dat) leaves a perfectly good archive
-    behind. Reusing it turns "close the game and rerun" into a rename instead of another
-    full repack. Conservative: any mod content newer than the archive means it is stale,
-    so fall through to a normal rebuild.
+    A stock install has no such directory -- the game ships data.dat alone. Where one does
+    exist (someone extracted the archive), it SHADOWS data.dat for every path it holds, so
+    a rebuild that ignored it would be silently ineffective.
     """
-    tmp = Path(tmp_dat)
-    if not tmp.exists():
-        return False
-    try:
-        _validate_archive(tmp_dat)
-    except (SystemExit, zipfile.BadZipFile, OSError):
-        # A build killed partway through leaves a truncated file that is not a readable
-        # archive at all (BadZipFile), not merely one that fails validation.
-        print(f"Discarding incomplete {tmp.name} from an interrupted run.")
-        tmp.unlink(missing_ok=True)
-        return False
-    built = tmp.stat().st_mtime
-    newer = [paths["vanilla_bak"]]
-    if paths["enabled_json"].exists():
-        newer.append(paths["enabled_json"])
-    for p in paths["installed_dir"].rglob("*"):
-        if p.is_file():
-            newer.append(p)
-    stale = [p for p in newer if p.stat().st_mtime > built]
-    if stale:
-        print(f"Ignoring leftover {tmp.name}: {len(stale)} file(s) changed since it was built.")
-        return False
-    return True
+    loose = paths["loose_dir"]
+    if not loose.is_dir():
+        return
 
+    synced = 0
+    for rel, data in contents.items():
+        dst = loose / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(data)
+        synced += 1
+    if synced:
+        print(f"Synced {synced} file(s) into the loose mirror at {loose}")
 
-def _finalize_build(paths: dict, tmp_dat: str, touched_by: dict, scratch=None) -> None:
-    """Swap the built archive into place and sync the loose mirror.
-
-    The game must not be running: data.dat is locked while it is open, and os.replace
-    fails with WinError 5. That check happens here, immediately before the swap, rather
-    than only at the start of the build -- a repack takes minutes, which is ample time to
-    launch the game and lose the whole run.
-    """
-    if _is_game_running():
-        raise SystemExit(
-            f"Lionheart.exe is running -- cannot replace data.dat while the game has it open.\n"
-            f"The finished archive is kept at {tmp_dat}\n"
-            f"Close the game and rerun `build`; it will finish from that file without repacking."
-        )
-    try:
-        os.replace(tmp_dat, paths["data_dat"])
-    except PermissionError as exc:
-        raise SystemExit(
-            f"Could not replace data.dat ({exc.strerror}).\n"
-            f"Something still has it open -- usually Lionheart.exe, sometimes an antivirus "
-            f"scan or an open archive viewer.\n"
-            f"The finished archive is kept at {tmp_dat}\n"
-            f"Close whatever holds the file and rerun `build`; it will finish from that file "
-            f"without repacking."
-        ) from None
-
-    # This install ships (or has accumulated) a COMPLETE loose mirror of data.dat's
-    # contents at <game-dir>\data\ -- confirmed by direct comparison, not assumption:
-    # every file the game reads loose (present since the original 2001 install, going
-    # by preserved timestamps) is read from there INSTEAD of data.dat, permanently
-    # shadowing it. Any path with no pre-existing loose copy gets one written the first
-    # time the game reads it via data.dat, which then shadows all FUTURE data.dat
-    # changes too. Net effect: rebuilding data.dat alone is silently ineffective for any
-    # path that already has (or ever gets) a loose copy -- see SKILL.md's "Loose file
-    # mirror" section. Sync every touched path here so `build` alone is sufficient.
-    if paths["loose_dir"].is_dir():
-        synced = 0
-        with zipfile.ZipFile(paths["data_dat"]) as zf:
-            for rel in touched_by:
-                dst = paths["loose_dir"] / rel
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if scratch is not None and (scratch / rel).exists():
-                    shutil.copy2(scratch / rel, dst)
-                else:
-                    # Resumed build: the scratch tree is long gone, so take the bytes
-                    # from the archive we just installed.
-                    dst.write_bytes(zf.read(rel))
-                synced += 1
-        if synced:
-            print(f"Synced {synced} touched file(s) into the loose mirror at {paths['loose_dir']}")
-
-        # Disabling a mod rebuilds data.dat without it, but the loose copy it wrote is
-        # still sitting in the mirror shadowing the archive -- so the mod stays live and
-        # `disable` appears to do nothing. Revert any path an INSTALLED mod provides that
-        # this build did not write: vanilla contents if the archive has them, otherwise
-        # delete, because a mod-added file has no vanilla original to fall back to.
-        #
-        # Derived from what is installed rather than from build history on purpose: it is
-        # stateless, it matches what `restore` already does, and reverting a path for a
-        # mod that was installed but never built is harmless.
-        provided: set[str] = set()
-        if paths["installed_dir"].is_dir():
-            for mod_dir in paths["installed_dir"].iterdir():
-                mj = mod_dir / "mod.json"
-                if not mj.exists():
-                    continue
+    # Anything an installed-but-disabled mod provides has to go back to vanilla, or
+    # disabling it would leave its loose copy shadowing the archive and doing nothing.
+    provided: set[str] = set()
+    if paths["installed_dir"].is_dir():
+        for mod_dir in paths["installed_dir"].iterdir():
+            mj = mod_dir / "mod.json"
+            if mj.exists():
                 provided.update(json.loads(mj.read_text(encoding="utf-8")).get("files", []))
-
-        stale = sorted(provided - set(touched_by))
-        if stale:
-            reverted = removed = 0
-            with zipfile.ZipFile(paths["vanilla_bak"]) as vz:
-                vanilla = set(vz.namelist())
-                for rel in stale:
-                    dst = paths["loose_dir"] / rel
-                    if not dst.exists():
-                        continue
-                    if rel in vanilla:
-                        data = vz.read(rel)
-                        if dst.read_bytes() != data:
-                            dst.write_bytes(data)
-                            reverted += 1
-                    else:
-                        dst.unlink()
-                        removed += 1
-            if reverted or removed:
-                print(f"Cleaned {reverted + removed} stale loose file(s) from disabled mods "
-                      f"({reverted} reverted to vanilla, {removed} removed)")
+    stale = sorted(provided - set(touched_by))
+    if not stale:
+        return
+    reverted = removed = 0
+    with zipfile.ZipFile(paths["vanilla_bak"]) as vz:
+        vanilla = set(vz.namelist())
+        for rel in stale:
+            dst = loose / rel
+            if not dst.exists():
+                continue
+            if rel in vanilla:
+                data = vz.read(rel)
+                if dst.read_bytes() != data:
+                    dst.write_bytes(data)
+                    reverted += 1
+            else:
+                dst.unlink()
+                removed += 1
+    if reverted or removed:
+        print(f"Cleaned {reverted + removed} stale loose file(s) from disabled mods "
+              f"({reverted} reverted to vanilla, {removed} removed)")
 
 
 def cmd_build(args: argparse.Namespace) -> None:
@@ -559,31 +603,16 @@ def cmd_build(args: argparse.Namespace) -> None:
     if not enabled:
         print("No mods enabled -- build will just restore vanilla data.dat")
 
-    tmp_dat = str(paths["data_dat"]) + ".build.tmp"
-    if _pending_build_is_usable(paths, tmp_dat):
-        print("Found a complete archive from an interrupted build -- finishing it "
-              "(no repack needed).")
-        touched_by = _collect_touched(paths, enabled, scratch=None, announce=False)
-        _finalize_build(paths, tmp_dat, touched_by, scratch=None)
-        print(f"Built data.dat with {len(enabled)} mod(s) enabled: {', '.join(enabled) or '(none)'}")
-        return
+    touched_by = _collect_touched(paths, enabled)
+    contents = {rel: (paths["installed_dir"] / mod_id / "files" / rel).read_bytes()
+                for rel, mod_id in touched_by.items()}
 
-    scratch = paths["scratch_dir"]
-    if scratch.exists():
-        shutil.rmtree(scratch)
-    archive.unpack(str(paths["vanilla_bak"]), str(scratch))
+    written, added = archive.rebuild(str(paths["vanilla_bak"]), str(paths["data_dat"]),
+                                     replace=contents)
+    _validate_archive(str(paths["data_dat"]))
+    print(f"Rebuilt data.dat: {written} entries from vanilla, {added} added by mods")
 
-    touched_by = _collect_touched(paths, enabled, scratch=scratch)
-
-    archive.repack(str(scratch), tmp_dat, compression="store")
-    try:
-        _validate_archive(tmp_dat)
-    except SystemExit as exc:
-        raise SystemExit(f"{exc} Scratch dir left at {scratch} for inspection.") from None
-
-    _finalize_build(paths, tmp_dat, touched_by, scratch=scratch)
-
-    shutil.rmtree(scratch)
+    _sync_loose_mirror(paths, touched_by, contents)
     print(f"Built data.dat with {len(enabled)} mod(s) enabled: {', '.join(enabled) or '(none)'}")
 
 
@@ -661,10 +690,21 @@ def main() -> None:
                    help="Pristine data.dat (usually data.dat.vanilla.bak) to diff against")
     p.set_defaults(func=cmd_dist)
 
-    p = sub.add_parser("install", help="Install a mod package (folder or .zip)")
+    p = sub.add_parser("install",
+                       help="Install a mod (folder or .zip), then rebuild data.dat")
     p.add_argument("mod_source")
     p.add_argument("game_dir")
+    p.add_argument("--no-build", action="store_true",
+                   help="Install without rebuilding data.dat")
     p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("uninstall",
+                       help="Remove an installed mod, then rebuild data.dat")
+    p.add_argument("id")
+    p.add_argument("game_dir")
+    p.add_argument("--no-build", action="store_true",
+                   help="Remove without rebuilding data.dat")
+    p.set_defaults(func=cmd_uninstall)
 
     p = sub.add_parser("list", help="List installed mods")
     p.add_argument("game_dir")
@@ -687,6 +727,7 @@ def main() -> None:
 
     p = sub.add_parser("build", help="Rebuild data.dat from vanilla + enabled mods")
     p.add_argument("game_dir")
+    p.add_argument("--no-build", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("restore", help="Revert data.dat to the pristine vanilla backup")
