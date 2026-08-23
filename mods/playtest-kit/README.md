@@ -5,7 +5,7 @@ Fixt cost hours of play before the test could even begin: the Goblin Warrens sit
 journey a starting character does not survive, and several of the cases to check depend on
 world state that only a completed quest chain sets.
 
-Talk to **Farshid ibn Almassizad** in the Barcelona Gate District. His conversation gains
+Talk to **Merchant Lope** or **Jafar** in the Barcelona Gate District. Their conversations gain
 `[TEST KIT] Open the playtest menu`, offering:
 
 | | |
@@ -31,10 +31,18 @@ not been tested.
 
 ## Two decisions worth knowing
 
-**It is hosted on an existing NPC rather than adding one.** New map entities never appear
-on a save that has already visited the level, so a new NPC would force a new game —
-exactly the cost this is meant to remove. Dialogue changes *do* apply to existing saves,
-so this works on the character you already have.
+**It is hosted on existing NPCs rather than adding one.** New map entities never appear on
+a save that has already visited the level, so a new NPC would force a new game — exactly
+the cost this is meant to remove. Dialogue changes *do* apply to existing saves, so this
+works on the character you already have.
+
+**Two hosts, because the first attempt picked badly.** It originally hung off Farshid, who
+turns out to be a Knight of Saladin sparring when the game opens: the map routes you to a
+node reading *"<The knight ignores you, his attention is fixed on his opponent.>"* until
+the Saladin initiation. The splice was correct; the menu was simply never shown. A merchant
+always trades and Jafar is central to the opening, so between them one is always reachable.
+The check that would have caught it — that the menu sits on the node the *map* opens, not
+merely somewhere in the file — is now part of validating the kit.
 
 **Every action dispatches from a `.can`.** Inline dialogue Custom Actions silently no-op
 for several action classes, `CGiveExperiencePointsToAllPlayersAction` among them; see
