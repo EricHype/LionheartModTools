@@ -6,6 +6,12 @@
   "author": "vkays",
   "description": "A testing tool, not content. Adds a menu to Farshid in the Barcelona Gate District that grants experience, unlocks and travels to wilderness destinations, raises goblin standing, and sets the world flags the goblin dialogue keys on -- so late content can be reached and its states set up in minutes instead of hours. Hosted on an existing NPC so it works on a save you already have. Remove it before testing a release for real.",
   "files": [
+    "Resources/Dialog/Requirements/Playtest/Dryad Is Dead.can",
+    "Resources/Dialog/Requirements/Playtest/Met Girl.can",
+    "Resources/Dialog/Requirements/Playtest/Rank at least 1.can",
+    "Resources/Dialog/Requirements/Playtest/Rank at least 2.can",
+    "Resources/Dialog/Requirements/Playtest/Rank at least 3.can",
+    "Resources/Dialog/Requirements/Playtest/Woodcutter Is Dead.can",
     "Resources/Interface/World Map/Goblin Warrens.PointOfInterest.txt",
     "Resources/Levels/1 Barcelona/Dialog/Gate District/Jafar.DialogTree",
     "Resources/Levels/1 Barcelona/Dialog/Gate District/Merchant Lope.DialogTree",
@@ -15,6 +21,8 @@
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Goblin Rank Up.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Grant Experience.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Heal.can",
+    "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Level Up.can",
+    "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Make Viable.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Direct.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Worldmap.can",
     "Resources/Levels/1 Barcelona/Quests/Playtest Kit/Unlock World Map.can"

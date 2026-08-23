@@ -1,0 +1,124 @@
+CCannedObject
+{
+	Object=CMultipleActionsAction
+	{
+		Action=Array
+		{
+			Item Count=13
+			Action=CAddCharacterModifierToCharacterAction
+			{
+				Modifier Description=Playtest Kit
+				Modification is permanent=1
+				Character to modify=$Instigator
+				Modifiers=Array
+				{
+					Item Count=1
+					Modifier=CCharacterModifierSkill
+					{
+						Modification Amount=CConstant
+						{
+							Constant Value=100
+						}
+						Modification amount is a percent=0
+						Allow Accumulation=1
+						Skill to modify=Skills/Fighting/Unarmed
+					}
+				}
+				OPTIONAL Duration=
+				Expression Context=$Instigator
+			}
+			Action=CAddCharacterModifierToCharacterAction
+			{
+				Modifier Description=Playtest Kit
+				Modification is permanent=1
+				Character to modify=$Instigator
+				Modifiers=Array
+				{
+					Item Count=1
+					Modifier=CCharacterModifierSkill
+					{
+						Modification Amount=CConstant
+						{
+							Constant Value=30
+						}
+						Modification amount is a percent=0
+						Allow Accumulation=1
+						Skill to modify=Skills/Fighting/Evasion
+					}
+				}
+				OPTIONAL Duration=
+				Expression Context=$Instigator
+			}
+			Action=CAddCharacterModifierToCharacterAction
+			{
+				Modifier Description=Playtest Kit
+				Modification is permanent=1
+				Character to modify=$Instigator
+				Modifiers=Array
+				{
+					Item Count=1
+					Modifier=CCharacterModifierSkill
+					{
+						Modification Amount=CConstant
+						{
+							Constant Value=70
+						}
+						Modification amount is a percent=0
+						Allow Accumulation=1
+						Skill to modify=Skills/Magic Divine/Fortitude
+					}
+				}
+				OPTIONAL Duration=
+				Expression Context=$Instigator
+			}
+			Action=CActionGiveStandardInventoryItem
+			{
+				Who to give to=$instigator
+				Delete Trigger=0
+				Notify Player=1
+				Inventory Item To Give=Inventory Items/ArmorFullPlate
+				Additions to add=Array
+				{
+					Item Count=0
+				}
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+			Action=CGiveEnoughExperiencePointsToLevelUpAction
+			{
+				Character to give experiecne to=$Instigator
+			}
+		}
+	}
+	Use=Shared Global Instance
+}

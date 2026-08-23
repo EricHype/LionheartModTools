@@ -98,6 +98,10 @@ Node ID=1 Conversation Start Tainted
 Text=It is a sad day for me and my grandchildren that a tainted creature like you walks the streets of the Gate District. Why don't you leave El Mercado, and slither back to the ports with the other animals.
 Should Have Voiceover=0
 
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
 Requirement=Barter moreequal 35
 Reply Text=This town is full of merchants who would be glad to take my gold. If you are not one of them, all the worse for you.
 Go to node ID=86 Speech skill
@@ -223,6 +227,10 @@ Node ID=3 Welcome if female
 Text=Bievenidos, senora! Welcome to el Mercado. Perhaps you would like to see what Lope has for sale, eh amiga?
 Should Have Voiceover=0
 
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
 Requirement=Barter moreequal 30
 Reply Text=No doubt your items are of the finest craftsmanship. Show me your best stock, and perhaps we can do business.
 Go to node ID=100 see low inventory goods
@@ -331,6 +339,10 @@ Icon=Exit Icon
 Node ID=10 tainted return high
 Text=I see the guards still allow you to roam in the streets of the Gate District unchained. Speak your business quickly.
 Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
 
 Requirement=!None
 Custom Requirement=CUseCannedExpressionExpression
@@ -468,6 +480,10 @@ Text=We can discuss business, but you'll receive no bargains from me, tainted on
 Should Have Voiceover=0
 
 Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
 Custom Requirement=CUseCannedExpressionExpression
 {
 Canned Expression=Dialog/Requirements/Skills/Barter/Barter moreequal 40
@@ -576,6 +592,10 @@ Text=You again? Lope is...errmm...*pleased* that you have returned. What do you 
 Should Have Voiceover=0
 
 Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
 Reply Text=Show me what you have for sale today. 
 Go to node ID=100 see low inventory goods
 Action work in progress=Show low inventory
@@ -682,10 +702,18 @@ Is Default Reply=1
 Node ID=40 after shop
 Text=I trust that you found what you were looking for. Safe travels.
 Should Have Voiceover=0
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
 ------------------------------------------------------------
 Node ID=5 return male
 Text=Welcome back senor! Would you be interested in purchasing some quality items?
 Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
 
 Requirement=Barter moreequal 30
 Reply Text=No doubt your items are of the finest craftsmanship. Show me your best stock, and perhaps we can do business.
@@ -789,6 +817,10 @@ Icon=Exit Icon
 Node ID=5 return female
 Text=Welcome back senora! Can I interest you in some of my goods?
 Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
 
 Requirement=Barter moreequal 30
 Reply Text=No doubt your items are of the finest craftsmanship. Show me your best stock, and perhaps we can do business.
@@ -1416,13 +1448,17 @@ Is Default Reply=1
 Node ID=100 after tainted purchases
 Text=Look, don't tell anyone that Lope even spoke with you, eh? I have a reputation to uphold. Now, just go.
 Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
 ------------------------------------------------------------
 Node ID=9000 playtest menu
 Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world to look at its seams. Tell me what you need and it is done.
 Should Have Voiceover=0
 
 Requirement=!None
-Reply Text=Send me to the Goblin Warrens (direct).
+Reply Text=Send me to the Goblin Warrens.
 Go to node ID=9000 playtest menu
 Custom Action=CUseCannedActionAction
 {
@@ -1446,7 +1482,23 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Unlock World Map
 }
 
 Requirement=!None
-Reply Text=Make me stronger. (+40000 experience)
+Reply Text=Make me able to survive out there. (the developers' own level-10 package)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Make Viable
+}
+
+Requirement=!None
+Reply Text=Raise me one level.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Level Up
+}
+
+Requirement=!None
+Reply Text=Grant me experience. (4000)
 Go to node ID=9000 playtest menu
 Custom Action=CUseCannedActionAction
 {
@@ -1492,6 +1544,30 @@ Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Met Goblin Girl
 }
+
+Requirement=Rank at least 1
+Reply Text=(reading) my goblin standing is 1 or more.
+Go to node ID=9000 playtest menu
+
+Requirement=Rank at least 2
+Reply Text=(reading) my goblin standing is 2 or more (the contract needs this).
+Go to node ID=9000 playtest menu
+
+Requirement=Rank at least 3
+Reply Text=(reading) my goblin standing is 3.
+Go to node ID=9000 playtest menu
+
+Requirement=Met Girl
+Reply Text=(reading) the goblin girl has met me before.
+Go to node ID=9000 playtest menu
+
+Requirement=Woodcutter Is Dead
+Reply Text=(reading) the woodcutter is dead.
+Go to node ID=9000 playtest menu
+
+Requirement=Dryad Is Dead
+Reply Text=(reading) the river dryad is dead.
+Go to node ID=9000 playtest menu
 
 Requirement=!None
 Reply Text=Nothing more.

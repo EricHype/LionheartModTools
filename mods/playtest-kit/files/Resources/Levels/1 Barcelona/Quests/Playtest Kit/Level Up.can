@@ -1,0 +1,8 @@
+CCannedObject
+{
+	Object=CGiveEnoughExperiencePointsToLevelUpAction
+	{
+		Character to give experiecne to=$Instigator
+	}
+	Use=Shared Global Instance
+}

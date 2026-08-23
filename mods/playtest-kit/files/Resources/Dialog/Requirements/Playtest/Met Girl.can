@@ -1,0 +1,16 @@
+CCannedObject
+{
+	Object=CIsGreaterThanOrEqual
+	{
+		Operand1=CVariableDerivedCharacterAttribute
+		{
+			Character Attribute=Derived Character Attributes/Game Scripting Variables/Met the Goblin Girl
+		}
+		Operator=
+		Operand2=CConstant
+		{
+			Constant Value=1
+		}
+	}
+	Use=Shared Global Instance
+}

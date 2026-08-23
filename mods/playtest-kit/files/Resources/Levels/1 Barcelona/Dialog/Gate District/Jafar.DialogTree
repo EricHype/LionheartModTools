@@ -71,6 +71,10 @@ Text=Salaam and welcome friend. What can Amir do for you?
 Should Have Voiceover=1
 
 Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
 Custom Requirement=CAND
 {
 Operand1=CActionExpression
@@ -1823,6 +1827,10 @@ Text=Oh, well done! You have completed the trials. It is my honor to call you a 
 Should Have Voiceover=1
 
 Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
 Reply Text=
 Go to node ID=
 Custom Action=CMultipleActionsAction
@@ -2160,6 +2168,10 @@ Text=Hello there. Have you decided that you are ready to face the Dream Djinn?
 Should Have Voiceover=0
 
 Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
 Custom Requirement=CExpressionNot
 {
 Operand1=CActionExpression
@@ -2299,6 +2311,10 @@ Text=Hello again Favored One. It is good to see you again. I trust you are well.
 Should Have Voiceover=0
 
 Requirement=!None
+Reply Text=[TEST KIT] Open the playtest menu.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
 Custom Requirement=CActionExpression
 {
 Action=CCheckExistenceAction
@@ -2333,7 +2349,7 @@ Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world 
 Should Have Voiceover=0
 
 Requirement=!None
-Reply Text=Send me to the Goblin Warrens (direct).
+Reply Text=Send me to the Goblin Warrens.
 Go to node ID=9000 playtest menu
 Custom Action=CUseCannedActionAction
 {
@@ -2357,7 +2373,23 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Unlock World Map
 }
 
 Requirement=!None
-Reply Text=Make me stronger. (+40000 experience)
+Reply Text=Make me able to survive out there. (the developers' own level-10 package)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Make Viable
+}
+
+Requirement=!None
+Reply Text=Raise me one level.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Level Up
+}
+
+Requirement=!None
+Reply Text=Grant me experience. (4000)
 Go to node ID=9000 playtest menu
 Custom Action=CUseCannedActionAction
 {
@@ -2403,6 +2435,30 @@ Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Met Goblin Girl
 }
+
+Requirement=Rank at least 1
+Reply Text=(reading) my goblin standing is 1 or more.
+Go to node ID=9000 playtest menu
+
+Requirement=Rank at least 2
+Reply Text=(reading) my goblin standing is 2 or more (the contract needs this).
+Go to node ID=9000 playtest menu
+
+Requirement=Rank at least 3
+Reply Text=(reading) my goblin standing is 3.
+Go to node ID=9000 playtest menu
+
+Requirement=Met Girl
+Reply Text=(reading) the goblin girl has met me before.
+Go to node ID=9000 playtest menu
+
+Requirement=Woodcutter Is Dead
+Reply Text=(reading) the woodcutter is dead.
+Go to node ID=9000 playtest menu
+
+Requirement=Dryad Is Dead
+Reply Text=(reading) the river dryad is dead.
+Go to node ID=9000 playtest menu
 
 Requirement=!None
 Reply Text=Nothing more.
