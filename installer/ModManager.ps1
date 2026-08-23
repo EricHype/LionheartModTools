@@ -85,21 +85,38 @@ $modList.Anchor = 'Top,Left,Right,Bottom'
 $modGroup.Controls.Add($modList)
 
 # Buttons --------------------------------------------------------------------
+# A release ships this manager alongside the mod itself, so when it is launched from
+# inside an unzipped release the mod to install is sitting right there. Offering it by
+# name removes the silly step of browsing back to the archive you just unpacked.
+$bundled = $null
+$bundledDir = Split-Path -Parent $PSCommandPath
+if (Test-Path -LiteralPath (Join-Path $bundledDir 'mod.json')) {
+    try { $bundled = Get-Content -LiteralPath (Join-Path $bundledDir 'mod.json') -Raw | ConvertFrom-Json }
+    catch { $bundled = $null }
+}
+
 $btnInstall = New-Object System.Windows.Forms.Button
-$btnInstall.Text = 'Install mod...'
-$btnInstall.SetBounds(12, 254, 130, 30)
+$btnInstall.Text = if ($bundled) { "Install $($bundled.name) $($bundled.version)" } else { 'Install mod...' }
+$btnInstall.SetBounds(12, 254, $(if ($bundled) { 250 } else { 130 }), 30)
 $btnInstall.Anchor = 'Top,Left'
 $form.Controls.Add($btnInstall)
 
+$btnOther = New-Object System.Windows.Forms.Button
+$btnOther.Text = 'Other mod...'
+$btnOther.SetBounds($btnInstall.Right + 8, 254, 110, 30)
+$btnOther.Anchor = 'Top,Left'
+$btnOther.Visible = [bool]$bundled
+$form.Controls.Add($btnOther)
+
 $btnUninstall = New-Object System.Windows.Forms.Button
 $btnUninstall.Text = 'Uninstall'
-$btnUninstall.SetBounds(150, 254, 110, 30)
+$btnUninstall.SetBounds($(if ($bundled) { $btnOther.Right + 8 } else { 150 }), 254, 110, 30)
 $btnUninstall.Anchor = 'Top,Left'
 $form.Controls.Add($btnUninstall)
 
 $hint = New-Object System.Windows.Forms.Label
 $hint.Text = 'or drop a release .zip onto this window'
-$hint.SetBounds(272, 261, 400, 18)
+$hint.SetBounds($btnUninstall.Right + 12, 261, 300, 18)
 $hint.ForeColor = [System.Drawing.SystemColors]::GrayText
 $hint.Anchor = 'Top,Left'
 $form.Controls.Add($hint)
@@ -145,6 +162,7 @@ $script:LhLogSink = { param($m, $l) Add-Log $m $l }
 function Set-Busy ([bool]$busy, $message = '') {
     $state.Busy = $busy
     $btnInstall.Enabled = -not $busy
+    $btnOther.Enabled = -not $busy
     $btnUninstall.Enabled = (-not $busy) -and ($modList.SelectedItems.Count -gt 0)
     $btnChange.Enabled = -not $busy
     $form.Cursor = if ($busy) { 'WaitCursor' } else { 'Default' }
@@ -300,12 +318,18 @@ $btnChange.Add_Click({
     }
 })
 
-$btnInstall.Add_Click({
+function Show-InstallPicker {
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Filter = 'Mod release (*.zip)|*.zip|All files (*.*)|*.*'
     $dlg.Title = 'Select a mod release'
     if ($dlg.ShowDialog() -eq 'OK') { Install-From $dlg.FileName }
+}
+
+$btnInstall.Add_Click({
+    if ($bundled) { Install-From $bundledDir } else { Show-InstallPicker }
 })
+
+$btnOther.Add_Click({ Show-InstallPicker })
 
 $btnUninstall.Add_Click({
     if ($modList.SelectedItems.Count -eq 0) { return }
@@ -362,6 +386,11 @@ if ($SelfTest) {
     Write-Output "SELFTEST game=$($gamePath.Text)"
     Write-Output "SELFTEST status=$($gameStatus.Text)"
     Write-Output "SELFTEST mods=$($rows -join '; ')"
+    # Report the decision, not $btnOther.Visible: WinForms returns the EFFECTIVE
+    # visibility, which is false for every control while the form has never been
+    # shown, so reading it here would say nothing about what was configured.
+    Write-Output "SELFTEST bundled=$(if ($bundled) { "$($bundled.id) $($bundled.version)" } else { 'none' })"
+    Write-Output "SELFTEST buttons=[$($btnInstall.Text)] [$($btnOther.Text)] [$($btnUninstall.Text)]"
     Write-Output "SELFTEST install_enabled=$($btnInstall.Enabled) uninstall_enabled=$($btnUninstall.Enabled)"
     Write-Output "SELFTEST logged=$($log.Lines.Count)"
     $form.Dispose()

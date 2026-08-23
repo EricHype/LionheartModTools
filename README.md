@@ -387,6 +387,14 @@ and `Uninstall.bat` do the same job without a window. Either way their `data.dat
 rebuilt with the mod applied; there is no Python requirement and no vanilla backup to get
 wrong.
 
+**Getting the manager.** It has no installer of its own and needs nothing installed: it is
+three files -- `Mod Manager.bat`, `ModManager.ps1`, `lh-core.ps1` -- that run from wherever
+they are unzipped. Every release built by `dist` bundles them, so a player who downloads
+any mod already has it, and when it is launched from inside a release the Install button
+names that release's mod rather than asking the user to browse back to the archive they
+just unpacked. To ship it on its own, copy those three files (plus `Install.bat` and
+`Uninstall.bat` if you want the console path) out of `installer/`.
+
 WinForms rather than anything richer because it is already on every Windows machine: a
 player installing a 60 KB mod should not download a 90 MB runtime to do it, and an
 unsigned `.exe` is a harder thing to ask someone to trust than a script they can read. The
