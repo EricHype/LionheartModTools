@@ -300,7 +300,7 @@ function Resolve-GameDir ($Supplied) {
     $found = Find-GameDir
     if ($found) { return $found }
     Write-Warn "Could not find Lionheart automatically."
-    Write-Host  "  Paste the folder containing Lionheart.exe, or press Enter to cancel."
+    Write-Lh "Paste the folder containing Lionheart.exe, or press Enter to cancel."
     $typed = Read-Host "  Game folder"
     if (-not $typed) { throw "Cancelled -- no game folder given." }
     $typed = $typed.Trim('"')
@@ -463,7 +463,7 @@ function Invoke-Install ($ctx) {
     # Reconstruct everything before touching the archive.
     $nPatched = @($ctx.Payload.patched).Count
     Write-Step "Preparing $($m.files.Count) file(s)"
-    if ($nPatched) { Write-Host "  Rebuilding $nPatched file(s) from your own game data..." }
+    if ($nPatched) { Write-Lh "Rebuilding $nPatched file(s) from your own game data..." }
 
     # Ordinal, not PowerShell's default case-insensitive hashtable: archive entry
     # names are matched byte-for-byte by the writer and must be here too.
