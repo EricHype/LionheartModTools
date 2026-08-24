@@ -422,7 +422,10 @@ anything cut, in this order — each one produced a false positive in practice:
    `160 Player Return G`, a fine-grained greeting matrix, all orphaned — because
    `2 Return Dialogue angry` (11 replies) and `3 Return Dialogue happy` (10) replaced the
    whole series with reply-level gates. A large orphaned *family* whose siblings are used
-   is usually a superseded draft.
+   is usually a superseded draft. **When grouping nodes into families, normalise the
+   trailing letter as well as the digits** — `100 Player Return B` and `110 Player Return C`
+   are one family, and keying on `\d+ -> #` alone splits them into singletons that then
+   surface as unexplained.
 3. **A terminal reply-less node is usually just a conversation-ender.** `400 jailor okays
    release` reads like a promise and is simply the jailor waving you through. The signal is
    the node *name describing a behaviour* the game does not perform (`90 Follow`,
