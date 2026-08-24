@@ -323,11 +323,89 @@ against the player; and the map-level `Max Allowed To Roam Anywhere` that our sc
 cloned map lacks defaults to `1` anyway (per its registration in the decompiled
 `CLayerSaveData` field table), matching what real maps write.
 
+### Making an NPC follow the player — the companion system is the only way
+
+There is **no generic "follow that character" AI**. Of the 90 AI classes in the exe,
+`CApproachTargetAI` and `CPursueAI` have **zero** uses in shipped content, and
+`CGaurdNearMovingPosAI` (8 uses) has no target field at all — don't try to point one at
+the player. The only working mechanism is:
+
+```
+Custom Action=CDelayAction
+{
+Next Action=CSetCompanionAction
+{
+Player=$Instigator
+Companion=$Trigger        <- or a literal instance name from a map trigger
+}
+Delay=0.1
+Plus or Minus=0
+Forget Trigger=0
+}
+```
+
+63 `CSetCompanionAction` and 40 `CReleaseCompanionAction{Companion To Release=<name>}` in
+vanilla. The delay wrapper is vanilla's own habit (Darsh, the Golem, Cervantes) — copy it.
+The smallest complete example is the War Golem in `3 Montaillou/07 Giants Cave.zax` plus
+`Dialog/War Golem Companion.DialogTree`: five banter nodes and one `"Follow Me."` reply.
+`Resources/Levels/Generic Companion Dialog.DialogTree` is the engine's stock
+release-companion menu.
+
+**Companions cross map transitions** — the engine gates it on `Party Not Ready To Make
+Map Transition` / *"You must gather your party"*. So a follower is region-wide by default.
+
+**To bound one to an area, use vanilla's remover idiom.** Vanilla places a
+`Remover of Barcelona Companions` entity on every map where a companion is unwanted (8 of
+them: Plains, Crypt Entrance, Mountain Pass, Grove Exterior, Hamlet Exterior, Titan
+Village, Heart Entrance, Barcelona Coast). Cheaper alternative when a map has few exits:
+wrap each `GetCloseThen Exit Area` poly's `CRelocateAction` in a `CIfAction` that releases
+first. Confirmed working in play for the Goblin Girl in `Goblin Warrens.zax`, whose two
+exits both relocate to the same map.
+
+**Tracking whether someone is currently a companion** uses a marker entity, not a
+variable: an inert `CEntityBase` with `Active=0`, `Model=Editor/Checker` and an empty
+`Activity=Array`, switched with `CActivateAction` / `CDeactivateAction` and read with
+`CCheckExistenceAction` — which tests *active*, not merely declared. Vanilla names them
+`Diego is currently your companion`, `Darsh is a companion`, `Joan is a companion`. Pair
+the check with `CIsAliveAction` if the marker names a character who can die, and clear the
+marker from a `CSetDestroyedScriptActionAction` armed when they join.
+
+### `CSeriesAction` is NOT sequential — it is a rotating dispatcher
+
+The name invites exactly the wrong use. The engine's own description:
+
+> Execute a different action each time this action is executed. The action are done in
+> sequential order
+
+That is one action *per invocation*, cycling. `CMultipleActionsAction` ("execute two or
+more action in any spot that normaly allows only a single action") runs them all at once
+but promises nothing about ordering. **When ordering actually matters — releasing a
+companion before relocating the player, for instance — the only lever is `CDelayAction`.**
+
+### `Speaker=` accepts a literal instance name
+
+`CDisplayDialogTreeAction` takes `Speaker=` and `Player Being Spoken To=`. From an NPC's
+own interaction specifier `Speaker=$trigger` is right, but a dialogue opened from a map
+trigger or exit poly must name the speaker literally (`Speaker=Darsh`, `Speaker=Goblin
+Girl`) — `$trigger` there is the poly, not a character. Note that searching for this with
+`^Speaker=` and `re.M` **undercounts badly**: real `.zax` files are tab-indented, so an
+anchored pattern finds only the handful of unindented (mod-authored) hits.
+
 ### Finding an existing NPC's DialogTree
 
 To find an NPC's actual DialogTree, search the relevant `Levels\<Area>\*.zax` files for
 `Dialog Tree File=` near the NPC's name — don't assume it doesn't exist just because the
 Character Template `.can` is silent on it.
+
+### `Action work in progress=` marks cut content — 140 DialogTrees carry it
+
+An unrecognised key the engine ignores, used by the original designers as an inline
+to-do: `Action work in progress=girl storms off`, `(girl give PC a poison pie)`,
+`remove woodsman's liver from inventory`. Where these cluster, the surrounding nodes are
+usually written-but-unwired — the Goblin Girl's three vanilla follow nodes sat next to
+three of them, terminal, with no replies and no actions. **This is the highest-yield
+signal in the game for finding restorable content**, because it marks intent the writers
+recorded and the scripters never reached.
 
 ## CRITICAL: new entities in a `.zax` don't appear on saves that already visited that level
 
