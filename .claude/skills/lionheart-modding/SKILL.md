@@ -402,10 +402,39 @@ Character Template `.can` is silent on it.
 An unrecognised key the engine ignores, used by the original designers as an inline
 to-do: `Action work in progress=girl storms off`, `(girl give PC a poison pie)`,
 `remove woodsman's liver from inventory`. Where these cluster, the surrounding nodes are
-usually written-but-unwired — the Goblin Girl's three vanilla follow nodes sat next to
-three of them, terminal, with no replies and no actions. **This is the highest-yield
-signal in the game for finding restorable content**, because it marks intent the writers
-recorded and the scripters never reached.
+often written-but-unwired — the Goblin Girl's three vanilla follow nodes sat next to
+three of them, terminal, with no replies and no actions.
+
+### Finding cut content — and the four ways the search lies to you
+
+The scan that works: a node that **nothing reaches** — not the tree's own `Go to node ID=`,
+and not any `.zax` opening it by `Dialog Tree File=` + `Node ID=`. Searching only within the
+tree is useless, because most nodes are entered from a map.
+
+**Measured hit rate on that scan: about 1 in 3.** Verify all four of these before calling
+anything cut, in this order — each one produced a false positive in practice:
+
+1. **A sibling file holds the same node ID.** `60 Boy freaks` looks orphaned in
+   `Goblin guarding Woodcutter daughter.DialogTree`, but the same ID exists in
+   `Woodcutterson.DialogTree` and *that* is the copy the map plays. Always grep the node ID
+   across every DialogTree, not just the one you are reading.
+2. **It is superseded, not cut.** The Woodcutter has `90 Player return A-1` through
+   `160 Player Return G`, a fine-grained greeting matrix, all orphaned — because
+   `2 Return Dialogue angry` (11 replies) and `3 Return Dialogue happy` (10) replaced the
+   whole series with reply-level gates. A large orphaned *family* whose siblings are used
+   is usually a superseded draft.
+3. **A terminal reply-less node is usually just a conversation-ender.** `400 jailor okays
+   release` reads like a promise and is simply the jailor waving you through. The signal is
+   the node *name describing a behaviour* the game does not perform (`90 Follow`,
+   `300 grumdjum rejoins`), not merely a node that ends.
+4. **Unused variant of a used family.** `100 take our meal` and `100 take brain` are aggro
+   barks whose siblings `100 Warning` / `100 Attack` are wired. Restoring one means
+   inventing a trigger for a single line.
+
+What survived all four in the Wilderness: the Goblin Girl's follow nodes (built), the
+Khan's `350/360/365` war briefing (built), and Grumdjum's ten-node companion arc — no join
+trigger, no companion generator on `Lake.zax` alongside Cortes/Darsh/Cervantes, and its
+stated Alamut payoff does not exist (Act 8 references him only to initialise a variable).
 
 ## CRITICAL: new entities in a `.zax` don't appear on saves that already visited that level
 
