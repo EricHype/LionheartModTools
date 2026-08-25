@@ -23215,7 +23215,7 @@ CLayerSaveData
 					Publisher=
 					Already Generated=0
 					Entity=Monster Cans/Sewers/Lava Troll
-					New Name=
+					New Name=Lava Troll
 					Remove Default AIs=0
 					AIs to Add=Array
 					{
@@ -24760,7 +24760,7 @@ CLayerSaveData
 					Publisher=
 					Already Generated=0
 					Entity=Monster Cans/Sewers/Lava Troll Boss
-					New Name=
+					New Name=Lava Troll
 					Remove Default AIs=0
 					AIs to Add=Array
 					{
@@ -25044,7 +25044,7 @@ CLayerSaveData
 					Publisher=
 					Already Generated=0
 					Entity=Monster Cans/Sewers/Lava Troll
-					New Name=
+					New Name=Lava Troll
 					Remove Default AIs=0
 					AIs to Add=Array
 					{
@@ -25280,7 +25280,7 @@ CLayerSaveData
 					Publisher=
 					Already Generated=0
 					Entity=Monster Cans/Sewers/Lava Troll
-					New Name=
+					New Name=Lava Troll
 					Remove Default AIs=0
 					AIs to Add=Array
 					{
@@ -26044,7 +26044,7 @@ CLayerSaveData
 					Publisher=
 					Already Generated=0
 					Entity=Monster Cans/Sewers/Lava Troll
-					New Name=
+					New Name=Lava Troll
 					Remove Default AIs=0
 					AIs to Add=Array
 					{
