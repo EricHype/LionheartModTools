@@ -83,6 +83,31 @@ Suppress Duplicates=0
 Icon=Quest Icon
 
 Requirement=!None
+Reply Text=4. Strip the attack cursor from every troll named 'Lava Troll'.
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CRemoveAIAction
+{
+Target Name=Lava Troll
+AI=CAIInteractionSpecifier
+Delay Between Removes=0
+}
+Action=CPrintCombatTextAction
+{
+Text to print=Specifiers stripped. If the attack cursor is gone from the calm trolls, Target Name= broadcasts too - which answers the wererat question as well.
+Character to show text to=$Instigator
+Emphasize=1
+Suppress Duplicates=0
+}
+}
+}
+Icon=Quest Icon
+
+Requirement=!None
 Reply Text=Nothing for now.
 Go to node ID=
 Icon=Exit Icon

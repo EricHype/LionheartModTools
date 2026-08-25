@@ -412,6 +412,41 @@ themselves; the shipped version reads like dialogue. The same tell separated
 `131 Juanita dead` from `130 Inquisition` -- vaguer ("something very valuable" vs "a
 treasured chalice"), fewer replies, and no onward chain.
 
+### CONFIRMED IN PLAY: `Entity Name=` broadcasts to every entity sharing that name
+
+Long-standing open question, settled by a deliberate probe in the Troll Pit rather than by
+reading. `CSetTargetTypeAction` with `Entity Name=Lava Troll` and an empty `Valid Targets=`
+pacified **every** troll spawned under that shared name at once -- roughly half the pit,
+which is exactly the predicted count, because the other thirteen generators there spawn with
+no name and cannot be addressed this way at all.
+
+The control ran too: the same action against `warning troll`, a name exactly one entity
+carries, made him break off mid-fight. So single-name targeting works from a dialogue reply,
+and the shared-name result is not an artifact.
+
+**Two things this settles:**
+
+- Pacifying or deactivating a *population* costs one action, provided the entities were
+  spawned with a shared `New Name=`. Generators that spawn unnamed are unreachable and must
+  be renamed first.
+- Test the *ending* of a state, not its prevention. The first version of this probe asked
+  whether pacifying stopped a troll turning hostile, and could never have answered: the
+  ambush trigger fires `CGoToCombatAction`, which explicitly re-sets target type to player
+  and overrides anything applied beforehand. Firing at something already hostile and watching
+  it break off is observable; an absence is not.
+
+### Pacifying is two actions, not one -- the attack cursor survives
+
+`CSetTargetTypeAction` stops an entity attacking but leaves its `CAIInteractionSpecifier`
+alone. A troll pacified this way still shows the **attack cursor**, and clicking it makes it
+hostile again -- confirmed in play, and a real usability trap in a crowded room.
+
+Strip it with `CRemoveAIAction{Target Name=<name>, AI=CAIInteractionSpecifier,
+Delay Between Removes=0}` (22 vanilla uses), and add a friendly one back with
+`CAddAIAction` (6 uses) if the entity should become talkable. This mirrors what
+`CGoToCombatAction` does in the other direction -- its own description says it changes the
+interaction specifier type and removes the specifier action.
+
 ### Drop tables and stock lists hide behind `Canned Item List=`
 
 Grepping a monster can for `Item=Inventory Items/...` finds only its *direct* drops. Items
