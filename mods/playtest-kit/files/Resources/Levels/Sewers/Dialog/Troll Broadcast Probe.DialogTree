@@ -1,0 +1,67 @@
+CDialogTree
+{
+Name=Broadcast Probe
+Portrait=!None
+Should Have Voiceovers=0
+Default Canceled Node Action=
+------------------------------------------------------------
+Node ID=1 Conversation Start
+Text=<PLAYTEST PROBE -- shared-name broadcast>  Option 1 is the control: it pacifies the warning troll, and exactly one entity carries that name. Option 2 is the test: it pacifies by the name fifteen generators share.  NOTE: thirteen more troll generators spawn with no name at all, so if the broadcast works you should see roughly HALF the pit ignore you, not all of it.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=1. CONTROL - pacify 'warning troll' (one entity has this name).
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CSetTargetTypeAction
+{
+Entity Name=warning troll
+Name To Target=
+Valid Targets=
+}
+Action=CPrintCombatTextAction
+{
+Text to print=CONTROL fired. Now walk into his trigger. If he does NOT attack, single-name targeting works.
+Character to show text to=$Instigator
+Emphasize=1
+Suppress Duplicates=0
+}
+}
+}
+Icon=Quest Icon
+
+Requirement=!None
+Reply Text=2. TEST - pacify 'Lava Troll' (fifteen entities share this name).
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CSetTargetTypeAction
+{
+Entity Name=Lava Troll
+Name To Target=
+Valid Targets=
+}
+Action=CPrintCombatTextAction
+{
+Text to print=BROADCAST fired. Walk the pit and count. Roughly half ignoring you = it broadcasts. None = it does not.
+Character to show text to=$Instigator
+Emphasize=1
+Suppress Duplicates=0
+}
+}
+}
+Icon=Quest Icon
+
+Requirement=!None
+Reply Text=Nothing for now.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
+}
