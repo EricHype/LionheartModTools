@@ -175,4 +175,14 @@ Should Have Voiceover=0
 Node ID=90 troll bark 3
 Text=<A low sound, more rock than throat. Whatever it means, it is not welcome.>
 Should Have Voiceover=0
+------------------------------------------------------------
+Node ID=95 the chief
+Text=<He is a head taller than the others and does not grumble. He looks at you the way a man looks at weather.>  You walk in my rock and my people do not stop you. So. Say the thing you came to say.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=<PLACEHOLDER - the debt negotiation goes here.>
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
 }
