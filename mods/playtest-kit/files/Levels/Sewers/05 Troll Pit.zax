@@ -87,6 +87,66 @@ CLayerSaveData
 	{
 		Level Part=CEntityBase
 		{
+			Name=Troll Peace Keeper
+			Child List=
+			Visible=0
+			Collideable=1
+			Half Height=0
+			Full Height=1
+			Tries To Collide=0
+			Has Hit Points=0
+			Stationary=1
+			Active=0
+			Is Temporarily Excluded=0
+			Is Marked For Deletion=0
+			Activity=Array
+			{
+				Item Count=1
+				Activity=CRepeatTimerTriggerAI
+				{
+					Marked For Deletion=0
+					Publisher=
+					Action=CMultipleActionsAction
+					{
+						Action=Array
+						{
+							Item Count=2
+							Action=CSetTargetTypeAction
+							{
+								Entity Name=Lava Troll
+								Name To Target=
+								Valid Targets=
+							}
+							Action=CRemoveAIAction
+							{
+								Target Name=Lava Troll
+								AI=CAIInteractionSpecifier
+								Delay Between Removes=0
+							}
+						}
+					}
+					When Done=Repeat Series
+					Require Success To Advance=0
+					Next Action Index=0
+					Delay Between Actions=2
+					Plus or Minus=0
+					Seconds Till Next Execute=0
+				}
+			}
+			Category=
+			Team Number=Nutral
+			Used In=QuestMode
+			Current Target=
+			Publisher=
+			Model=Editor/Relay
+			Position X=5185
+			Position Y=2640
+			Rendering Height=0
+			Rendering Height Float=0
+			Cur Sequence=Idle
+		}
+		Level Part=CEntityBase
+		{
 			Name=Broadcast Probe Generator
 			Child List=
 			Visible=0

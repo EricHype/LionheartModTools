@@ -108,6 +108,55 @@ Suppress Duplicates=0
 Icon=Quest Icon
 
 Requirement=!None
+Reply Text=5. DECLARE PEACE - keep pacifying trolls as they spawn.
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CActivateAction
+{
+Target Name=Troll Peace Keeper
+Play Activate Sound=0
+Delay Between Activations=0
+Warp Behavior=
+}
+Action=CPrintCombatTextAction
+{
+Text to print=Peace keeper running. Walk the WHOLE pit, south path included. Anything spawning should settle within a couple of seconds.
+Character to show text to=$Instigator
+Emphasize=1
+Suppress Duplicates=0
+}
+}
+}
+Icon=Quest Icon
+
+Requirement=!None
+Reply Text=6. Break the peace (stop the keeper).
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=2
+Action=CDeactivateAction
+{
+Target Name=Troll Peace Keeper
+}
+Action=CPrintCombatTextAction
+{
+Text to print=Peace keeper stopped. Newly spawned trolls will stay hostile.
+Character to show text to=$Instigator
+Emphasize=1
+Suppress Duplicates=0
+}
+}
+}
+Icon=Fight Icon
+
+Requirement=!None
 Reply Text=Nothing for now.
 Go to node ID=
 Icon=Exit Icon
