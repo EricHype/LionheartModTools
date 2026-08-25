@@ -372,9 +372,12 @@ marker from a `CSetDestroyedScriptActionAction` armed when they join.
 
 ### Two edit bugs that bite repeatedly, both caught only by a validator
 
-**`re.search(r"Text=(.*)")` captures the trailing ``.** These files are pure CRLF, and
-`.` matches `` but not `
-`. Replace the match with text that lacks the `` and you
+**`re.search(r"Text=(.*)")` captures the trailing `
+`.** These files are pure CRLF, and
+`.` matches `
+` but not `
+`. Replace the match with text that lacks the `
+` and you
 leave a single bare LF in an otherwise-CRLF file — the game may tolerate it, but the round
 trip stops being byte-exact. Always include `
 ` in both the pattern and the
@@ -390,6 +393,22 @@ contains `Additions to add=Array{...}`, so the naive pattern leaves the outer br
 orphaned. Safer still: rather than deleting an action and fixing the parent's `Item Count`,
 **swap it for a harmless action of the same shape** (`CPrintCombatTextAction` works well).
 No count arithmetic, no brace surgery.
+
+### Drop tables and stock lists hide behind `Canned Item List=`
+
+Grepping a monster can for `Item=Inventory Items/...` finds only its *direct* drops. Items
+also arrive by reference: `Item=CInventoryItemGeneratorCannedList` with
+`Canned Item List=Inventory/Specific Item Cans/<name>`, and the actual item is in that
+`.can`. Miss it and you will conclude an item drops from nothing.
+
+Concretely: every wolf can branches on `Perk and Trait Support/Wolf Trapper Perk Checker`.
+Without the perk it generates `Wolf Pelt base`, a canned list holding the plain
+`Inventory Items/Wolf Pelt`; with the perk it generates two `Wolf Pelt Perk Quality`
+directly. A direct-only grep sees the quality pelt and misses the plain one entirely.
+
+The same indirection runs through merchant stock (`Potion selection MAGIC.can` feeding
+`All Potions.can`, 244 references) and through requirements (`.can` gate files). **When
+asking "where does X come from", resolve one level of canned indirection before answering.**
 
 ### `CUseCannedExpression` vs `CUseCannedExpressionExpression`
 
