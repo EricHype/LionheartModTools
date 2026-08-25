@@ -394,6 +394,24 @@ orphaned. Safer still: rather than deleting an action and fixing the parent's `I
 **swap it for a harmless action of the same shape** (`CPrintCombatTextAction` works well).
 No count arithmetic, no brace surgery.
 
+### A superseded draft can be a whole separate quest file, not just a node family
+
+The documented "superseded, not cut" check groups orphaned nodes into families inside one
+tree. It misses the case where the *replacement lives somewhere else entirely*, and the two
+have different names.
+
+`Thieve in Temple District` is granted by exactly one node, that node is orphaned, nothing
+completes the quest, and no map mentions it -- which reads as a whole cut questline. It is
+not. `Rob the house of a Spanish Noble` is the finished version of the same job: Juanita
+gives you a key, you rob a house in the Temple District, you return and tell her, and her
+return hub carries the matching reply. The tell is the quest text itself -- two terse states
+("Find location in Temple district to thieve") against three written ones.
+
+**Compare the prose, not just the wiring.** A draft reads like a designer's note to
+themselves; the shipped version reads like dialogue. The same tell separated
+`131 Juanita dead` from `130 Inquisition` -- vaguer ("something very valuable" vs "a
+treasured chalice"), fewer replies, and no onward chain.
+
 ### Drop tables and stock lists hide behind `Canned Item List=`
 
 Grepping a monster can for `Item=Inventory Items/...` finds only its *direct* drops. Items
