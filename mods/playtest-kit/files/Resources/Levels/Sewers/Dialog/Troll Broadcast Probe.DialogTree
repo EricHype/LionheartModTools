@@ -161,4 +161,18 @@ Reply Text=Nothing for now.
 Go to node ID=
 Icon=Exit Icon
 Is Default Reply=1
+------------------------------------------------------------
+Node ID=90 troll bark 1
+Text=<The troll watches you pass, and grumbles somewhere deep in its chest.>
+Should Have Voiceover=0
+
+------------------------------------------------------------
+Node ID=90 troll bark 2
+Text=<It does not move aside. It does not move at all.>
+Should Have Voiceover=0
+
+------------------------------------------------------------
+Node ID=90 troll bark 3
+Text=<A low sound, more rock than throat. Whatever it means, it is not welcome.>
+Should Have Voiceover=0
 }
