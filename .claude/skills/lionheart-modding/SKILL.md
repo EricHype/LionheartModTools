@@ -370,6 +370,36 @@ variable: an inert `CEntityBase` with `Active=0`, `Model=Editor/Checker` and an 
 the check with `CIsAliveAction` if the marker names a character who can die, and clear the
 marker from a `CSetDestroyedScriptActionAction` armed when they join.
 
+### Two edit bugs that bite repeatedly, both caught only by a validator
+
+**`re.search(r"Text=(.*)")` captures the trailing ``.** These files are pure CRLF, and
+`.` matches `` but not `
+`. Replace the match with text that lacks the `` and you
+leave a single bare LF in an otherwise-CRLF file — the game may tolerate it, but the round
+trip stops being byte-exact. Always include `
+` in both the pattern and the
+replacement. This was hit twice in one session.
+
+**`Description=` also matches `Modifier Description=`.** Anchor on `
+	*Description=`
+or on a known prefix of the value, or you will silently rewrite the wrong field.
+
+**Removing an action block needs the whole block, not the first `}`.** A non-greedy match
+up to `\}` stops at the first nested closing brace — `CActionGiveStandardInventoryItem`
+contains `Additions to add=Array{...}`, so the naive pattern leaves the outer brace
+orphaned. Safer still: rather than deleting an action and fixing the parent's `Item Count`,
+**swap it for a harmless action of the same shape** (`CPrintCombatTextAction` works well).
+No count arithmetic, no brace surgery.
+
+### `CUseCannedExpression` vs `CUseCannedExpressionExpression`
+
+Both exist and they are not interchangeable. Vanilla uses the bare `CUseCannedExpression`
+**only** as `Operand1=` or `Operand2=` (24 uses) and never anywhere else. Everything that
+wants an expression in its own right — `Custom Requirement=`, `Expression=`, `Level=`,
+`Damage Amount=` — takes `CUseCannedExpressionExpression` (1291+ uses). Putting the bare
+class in an `Expression=` slot fails silently: the gate never evaluates and the reply simply
+never appears.
+
 ### `CSeriesAction` is NOT sequential — it is a rotating dispatcher
 
 The name invites exactly the wrong use. The engine's own description:
