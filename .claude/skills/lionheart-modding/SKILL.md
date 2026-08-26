@@ -138,6 +138,29 @@ Node ID=<next node>
 No indentation inside `.DialogTree` files (flat, left-aligned), unlike other resource
 files.
 
+### A blank line before every reply is STRUCTURAL, not cosmetic
+
+Each `Requirement=` that starts a reply **must** be preceded by an empty line. Vanilla holds
+this without a single exception — 10915 replies across every shipped tree, 0 violations.
+
+Without it the reply is swallowed into the one before it: it does not appear as its own
+choice, and its `Custom Action=` never runs. The failure is silent and looks nothing like
+its cause — the conversation plays through normally and a quest simply does not advance.
+
+This shipped undetected in this project from 0.2.0 to 0.5, in 47 places across six
+conversations, because **every helper that reorders or appends replies rebuilt the node by
+joining on a single newline**:
+
+```python
+CR.join(r.rstrip(CR) for r in reps)      # WRONG -- eats the separator
+(CR + CR).join(r.strip(CR) for r in reps)  # or re-append CR to each reply
+```
+
+Any code that splits a node on `\r\n(?=Requirement=)` and rejoins it must put the blank line
+back. It is worth asserting the invariant right after writing the file, and it belongs in
+whatever automated gate the project has — this one was caught in play, three releases late,
+by a quest that quietly refused to advance.
+
 **Making a reply depend on the player's build** — skill, SPECIAL, derived attribute, perk
 or trait — is its own subject, including the `.can` gate anatomy, AND/OR/NOT composites,
 how bare `Requirement=` names resolve (and which folders are unproven), which 46 shipped

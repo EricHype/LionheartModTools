@@ -702,6 +702,7 @@ Is Default Reply=1
 Node ID=40 after shop
 Text=I trust that you found what you were looking for. Safe travels.
 Should Have Voiceover=0
+
 Requirement=!None
 Reply Text=[TEST KIT] Open the playtest menu.
 Go to node ID=9000 playtest menu
