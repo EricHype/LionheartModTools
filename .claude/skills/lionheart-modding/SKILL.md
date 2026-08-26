@@ -155,6 +155,43 @@ bare node list with no wrapper at all, and the game's actual error for this was 
 not a helpful parse error. If you see that exact message when talking to an NPC with a
 newly-authored DialogTree, check the wrapper first before anything else.
 
+## Continuity: audit what a PLAYER REPLY claims the player knows
+
+The most frequently repeated authoring bug in this project, by a wide margin. Every
+instance had the same shape: a **player's own reply** asserts a fact the player picked up on
+*one* route into that node, written while thinking about that route, and reachable from
+others where they never learned it. All three were caught in play, none by Gate 0 — a
+reference checker cannot see that a sentence is false.
+
+| The line | Assumed | But you can arrive having |
+|---|---|---|
+| "Eduardo the smith speaks of a sacred blade" | you met Eduardo | never entered his shop; Amir's quest does not require it |
+| "You said my city has eaten this rock for years and paid you nothing" | you heard the chief's Tomas speech | reached peace by exterminating the wererats instead |
+| "There is a child of my kind shut in your rock" | you knew the trolls had the boy | only been told he "is lost in the sewers" — nobody ever mentions trolls |
+
+**The check, before writing any player reply that references a fact:**
+
+1. List every node with a `Go to node ID=` pointing at this node, plus every entry node the
+   reply was spliced into. That is the full set of arrivals.
+2. For each, ask what the player has actually been *told* on that path — not what is true
+   in the fiction, and not what you know from reading the data.
+3. If any arrival lacks the fact, either rewrite the line to stand on its own, or gate it
+   on the thing that establishes the fact (a quest state or marker).
+
+Quest-log text is the cheapest ground truth for "what does the player know" — read the
+`CQuestStateDefinition{Text=...}` for the state the reply is gated on. If the quest says
+"search for the lost boy" then the player knows the boy is lost, and nothing else.
+
+**Prefer questions to assertions.** Rewriting the player's line as an enquiry usually fixes
+the continuity outright *and* reads better, because the NPC's existing reply was generally
+already written as an answer. "He does not pretend not to know which child" is a good beat
+after a question and a redundant one after an accusation — as an accusation the NPC is just
+agreeing with you.
+
+**Watch for duplicated replies.** A reply spliced into every greeting node (which is the
+right way to give it top-level visibility, see Quest mechanics) exists N times, so a
+find-and-replace fixing the wording must expect N hits, not one. Assert the count.
+
 ## Adding a brand-new NPC to a level
 
 Four pieces, all confirmed working end-to-end via Marco the Pickpocket:
@@ -842,6 +879,114 @@ chaining them.
   into every one of an NPC's greeting/return-visit node variants — this is the base
   game's own convention (verified: the "wererat cure" quest reply is duplicated
   identically across 6-7 different greeting nodes for the same NPC).
+
+- `CSetQuestSatusToFailedIfActiveAction` (vanilla's typo, not ours — 239 uses; there is
+  also a plain `...ToFailedAction`, 67 uses) is the primitive for **retiring a quest that
+  has become moot**, e.g. the player talked an NPC out of the contract they were hired for.
+  It is a no-op if the quest was never active, so it needs no guard.
+
+## The stock requirement palette (stat / race / faction / karma gates)
+
+`Requirement=` on a reply takes the **bare basename** of a `.can` under any
+`.../Requirements/` folder — no path, no extension. `Requirement=PE 7+` resolves
+`Resources/Dialog/Requirements/Attributes/PE 7+.can`. `!None` means unconditional.
+
+What ships, and can be used on any reply without authoring anything:
+
+| Folder | Count | What's there |
+|---|---|---|
+| `Attributes` | 50 | `ST`/`PE`/`EN`/`CH`/`IN`/`AG`/`LK`, in bands — `1-3`, `4-6`, `7+`, `8+`, `10+`, plus odd ones like `IN below 4`, `CH lessthan 6`, `ST 1-6` |
+| `Derived Attributes` | 13 | `Outwit N greater or equal`, `Schmooze N greater or equal` (4-10) |
+| `Skills/*` | ~110 | `Barter`/`Speech` at every 5 points to 150+, `Lockpick`, `Sneak`, the three magic schools |
+| `Races` | 10 | `Human`/`Feralkin`/`Sylvant`/`Demokin` each `IS`/`NOT`, plus `Tainted race - feralkin or sylvant` and `NOT Feralkin or Sylvant` |
+| `Faction` | 15 | `Templar`/`Inquisitor`/`Saladin`/`Wielder` as `IS`/`NOT`, **plus `Highlevel` / `Mid Level` tiers** |
+| `Karma` | 78 | `Karma equalless N` in steps of 50 |
+| `Monster Races` | 4 | `Dragon`/`Goblin`/`Titan`/`Undead IS` |
+
+**Prefer gates that are proven in vanilla dialogue over ones that merely exist on disk.**
+Counting actual `Requirement=` uses across the shipped `.DialogTree` files separates the
+two: `Inquisitor IS` (106), `Human IS` (68), `Templar IS` (45), `Feralkin IS` (17),
+`CH 6+` (12), `PE 8+` (7), `CH lessthan 6` (7), `PE 7+` (6), `IN 6+` (6), `ST 8+` (5),
+`IN below 4` (3). A can with zero dialogue uses may still work, but nothing has ever
+exercised it.
+
+Flavor-only variance is cheap and worth adding liberally: gate a reply, send it to a short
+node, and have that node's only reply go **back to the node it came from**. That cannot
+strand a quest, can be re-read, and costs one node. Assert in the build that such nodes
+contain no `CActivateQuestStateAction`, `CGiveExperiencePoints...`, `CTakeMoneyAction`,
+`CActionGiveStandardInventoryItem` or `CGoToCombatAction`, so "flavor only" stays true.
+
+Note that a node's `Text=` cannot vary by condition — only **replies** carry
+`Requirement=`. To vary what a character says, gate a reply that leads to an alternate
+node, rather than trying to make one node speak differently.
+
+## Cross-map state: quests, not entity markers
+
+The inert-marker idiom (`CEntityBase`, `Active=0`, `Model=Editor/Checker`, read with
+`CCheckExistenceAction`) **only works within one map** — the check sees the loaded level.
+For anything read on a different map than it is written on, use a **quest state**, which is
+global. A quest chain that hands off between two NPCs on two maps must key on
+`CIsQuestStateTheCurrentStateAction`, not on a marker.
+
+For the *write* direction there is a cross-map primitive:
+
+```
+Action=COtherMapAction
+{
+    Action=CActivateAction { Target Name=trolls dead ... }
+    Other Map Name=Sewers/04 Hall of Beggars
+}
+```
+
+**Marker conventions.** 606 vanilla `Editor/Checker` entities exist and the dominant shape
+(379 of them) is `Visible=1 Collideable=1 Active=0` — including quest flags that later get
+activated, and 41 that ship `Active=1`. So a marker cloned with `Visible=1 Collideable=1`
+is *correct*, not a bug about to put an invisible collision box in the level; the
+`Editor/...` models do not render in the retail build. Don't "fix" this.
+
+## The clearance idiom: "kill all of X" (and defeating lazy spawning)
+
+Vanilla's own pattern, from `Levels/Sewers/05 Troll Pit.zax` — 15 generators feed one relay:
+
+1. Each generator's `After Action` rewrites what its *spawn* does when it dies:
+   ```
+   After Action=CSetDestroyedScriptActionAction
+   {
+       New Destroyed Action=CTriggerRelayAction { Relay Name=Trolls dead quest }
+       Target Name=$Instigator
+   }
+   ```
+2. A `CRelayAI` entity of that name then, on every death: **force-generates** any generator
+   that has not fired yet, waits, and tests whether any are still alive.
+   ```
+   Action=CForceGenerateAction { Generator Name=Lava Troll Generator }
+   Action=CDelayAction { Next Action=CIfAction {
+       If=CIsAliveAction { Name To Check For=Lava Troll,warning troll
+                           Desired Minimum Count=1 }
+       Then=
+       Else=<the completion>  }, Delay=0.25 }
+   ```
+
+Three things worth extracting:
+
+- **`CIsAliveAction` accepts a comma-separated name list** — `Lava Troll,warning troll`.
+  This is the only place in the format where a name field takes more than one value.
+- **`CForceGenerateAction` is the answer to lazy spawning.** Generators are
+  `Active=1 / Has Started Generating=0` and only fire when the player approaches, so any
+  "are they all dead?" test is otherwise trivially true in an unvisited corner. Force-
+  generating on each death converts the check from a lie into an anti-softlock.
+- The `CDelayAction` wrapper is mandatory. `CSeriesAction` will not sequence this (it is a
+  rotating dispatcher, see above) and the force-generate needs a tick to land.
+
+Since generator names broadcast like any other name, giving several generators the same
+name lets one `CForceGenerateAction` reach all of them.
+
+**Before designing a clearance quest, check whether the targets are alive.** In
+`05 Troll Pit` every non-troll "enemy" — 2 wererats, 2 guard dogs, 2 thieves, a thug, a
+prisoner — is a `Fixed Dead Body Generator`, i.e. a corpse placed as scenery. Grepping
+`Entity=Monster Cans/...` finds them and says nothing about whether they can be fought.
+Distinguish by the owning entity's `Name=` containing `Dead Body`, or by the generator
+carrying `Canned Object=Common Objects and Scripts/Genderate Dead Body`.
 
 ## Checking "has N of an item" — no built-in primitive
 
