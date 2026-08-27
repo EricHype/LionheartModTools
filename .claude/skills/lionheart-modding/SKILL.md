@@ -138,40 +138,48 @@ Node ID=<next node>
 No indentation inside `.DialogTree` files (flat, left-aligned), unlike other resource
 files.
 
-### `Speaker=` MUST be `$trigger` — a literal name silently kills every reply's action
+### A reply's `Custom Action` does not always run — it depends on who opened the conversation
 
-In `CDisplayDialogTreeAction`, setting `Speaker=` to a named entity instead of `$trigger`
-produces a conversation that **displays perfectly and whose replies do nothing**. The
-`Custom Action` on every reply is silently skipped. Nothing errors; the text appears, the
-player clicks, the conversation closes, and no action runs.
+A conversation can display perfectly, offer its replies, close on click, and **silently skip
+every `Custom Action` on every reply**. No error, no warning.
 
-This cost five wrong diagnoses on one scene — the reply's format, a cutscene swallowing the
-click, a missing interaction specifier, `Is Default Reply` suppressing the action, and
-`CGoToCombatAction` failing to resolve its targets. All plausible, all wrong.
+Measured, in one map, with a 500 XP probe placed *first* in the reply's action array:
 
-What settled it was tabulating every conversation in the map by how it was opened:
+| conversation | opened by | `Speaker=` | reply ran? |
+|---|---|---|---|
+| the rite | `CTouchingPolygonTriggerAI` (directly) | `$trigger` | **yes** |
+| chief negotiation, parley | `CAIInteractionSpecifier` | `$trigger` | **yes** |
+| desecration | `CRelayAI` → `CDelayAction` | `Troll Chief` | no |
+| desecration | `CRelayAI` → `CDelayAction` | `$trigger` | no |
 
-| opened by | `Speaker=` | replies run? |
-|---|---|---|
-| `CAIInteractionSpecifier` | `$trigger` | yes |
-| `CTouchingPolygonTriggerAI` | `$trigger` | yes |
-| `CRelayAI` | `$trigger` | yes |
-| `CRelayAI` | `Troll Chief` | **no** |
+**`Speaker=` is not the variable.** Changing it from a literal name to `$trigger` was tried
+and made no difference; the probe failed under both. What the working cases share is being
+opened *directly* by a specifier or a polygon trigger. The failing case is opened from inside
+a `CRelayAI`, through a `CDelayAction`. Which of those two is responsible has not been
+isolated — one experiment would settle it — but either way:
 
-The owner class is irrelevant — relays, polygons and specifiers all work. The binding is
-what matters. Vanilla agrees: inside `CRelayAI`, `Speaker=$trigger` appears 374 times against
-a handful of named speakers, and `Player Being Spoken To=$Instigator` 444 times.
+**If something must happen when a scripted line closes, do not put it on the reply.** Time it
+from the same script that opened the conversation. Keep `Icon=Fight Icon` or similar on the
+reply so the player still gets the signal, but treat the action slot as unreliable there.
 
-**Diagnosing this class of bug:** put an unmistakable, dependency-free action *first* in the
-reply's array — `CUseCannedActionAction` on a canned XP grant works well — and play it once.
-If the XP arrives, the array runs and the fault is in a later action; if it does not, the
-array never executes and no amount of fixing individual actions will help. One playtest
-replaces any number of theories.
+**How to diagnose this class of bug at all.** Put one unmistakable, dependency-free action
+FIRST in the reply's array — `CUseCannedActionAction` on a canned XP grant is ideal — and play
+it once. If it fires, the array runs and the fault is downstream in a specific action. If it
+does not, the array never executes and no amount of repairing individual actions will help.
+This one probe replaced five successive plausible theories: the reply's format, a cutscene
+swallowing the click, a missing interaction specifier, `Is Default Reply` suppressing the
+action, and `CGoToCombatAction` failing to resolve its targets. Every one of those was
+refuted by the next playtest. Reach for the probe first, not sixth.
 
-**The consequence for staging:** `$trigger` binds to the entity that opened the conversation.
-Opening a line from a relay makes the relay the speaker, so a portrait may be wrong or absent.
-If a specific character must be the visible speaker *and* the replies must work, open the
-conversation from that character's own interaction specifier rather than scripting it.
+**And re-run the probe after any change to the thing under test.** The first probe here ran
+under `Speaker=<name>`, was removed before that was changed, and its result was then quoted as
+settled through three later decisions — including one that tore out the only working
+mechanism. A measurement taken in a configuration you have since altered is not a measurement.
+
+`Is Default Reply=1` is *not* implicated, and neither is `Icon=`. Vanilla's own Warning Troll
+carries `Icon=Fight Icon` together with `Is Default Reply=1` on a reply that demonstrably
+works. (A survey that claimed otherwise was wrong: it used `$` against `\r\n`-terminated lines
+and matched nothing — see the verification section at the end of this file.)
 
 ### A blank line before every reply is STRUCTURAL, not cosmetic
 
@@ -530,6 +538,26 @@ and the shared-name result is not an artifact.
   and overrides anything applied beforehand. Firing at something already hostile and watching
   it break off is observable; an absence is not.
 
+### `CGoToCombatAction` CONVERTS an existing interaction specifier — without one it no-ops
+
+The action's own description in the exe spells out its precondition, and it is easy to read
+past:
+
+> ...by setting his target type to player and player friends, **changing his interaction
+> specifier type** to "getCloseThenFIght", removing the interaction specifier action, and
+> sending a "GoToCombat" message to him. [...] assuming the enemy already has a skeleton AI
+> but no target type and **already has an interaction specifier of a type other than fight**.
+
+So an entity generated with `AIs to Add` `Item Count=0` and never given a specifier **cannot
+be turned hostile by this action at all**. It fails silently. This is why the peacekeeper's
+trolls flip fine — it hands every one of them a `GetCloseThenTalk` on its tick — while freshly
+generated reinforcements ignored the same call for three playtests.
+
+Give anything you intend to turn hostile a specifier of some non-fight type first. The
+description also notes the escape hatch for unusual configurations: add a `CHandleMessageAI`
+that responds to the `GoToCombat` message, which is exactly what vanilla does to the Warning
+Troll.
+
 ### Pacifying is two actions, not one -- the attack cursor survives
 
 `CSetTargetTypeAction` stops an entity attacking but leaves its `CAIInteractionSpecifier`
@@ -587,6 +615,11 @@ trigger or exit poly must name the speaker literally (`Speaker=Darsh`, `Speaker=
 Girl`) — `$trigger` there is the poly, not a character. Note that searching for this with
 `^Speaker=` and `re.M` **undercounts badly**: real `.zax` files are tab-indented, so an
 anchored pattern finds only the handful of unindented (mod-authored) hits.
+
+This is about *which portrait and name the conversation shows*, and it is separate from
+whether that conversation's replies execute their `Custom Action` — see "A reply's
+`Custom Action` does not always run" near the top. `Speaker=` was wrongly blamed for that
+once; changing it made no difference to the replies either way.
 
 ### Finding an existing NPC's DialogTree
 
@@ -938,6 +971,28 @@ chaining them.
   game's own convention (verified: the "wererat cure" quest reply is duplicated
   identically across 6-7 different greeting nodes for the same NPC).
 
+- **A completed quest stops reporting a current state.** `CIsQuestStateTheCurrentStateAction`
+  goes false once `CSetQuestSatusToCompletedAction` runs, so a chain of errands gated on "the
+  previous one's final state is current" breaks the moment you make the previous one complete
+  properly. Gate the *next* step on `CIsQuestCompletedAction` instead — which is what Quinn's
+  working reagent chain does. Belt and braces, and necessary when older saves may hold the
+  state without the completion:
+  ```
+  Custom Requirement=CAND
+  {
+  Operand1=COR
+  {
+  Operand1=CActionExpression { Action=CIsQuestCompletedAction{Quest=...} }
+  Operator=
+  Operand2=CActionExpression { Action=CIsQuestStateTheCurrentStateAction{Quest=..., State=<final>} }
+  }
+  Operator=
+  Operand2=CExpressionNot { ...the marker that stops it being offered twice... }
+  }
+  ```
+  Setting only the state (journal text updates, quest never leaves the active list) and setting
+  only the status (quest closes, journal never reflects the last beat) are both common
+  half-jobs. Do both, and remember they are independent axes in *both* directions.
 - `CSetQuestSatusToFailedIfActiveAction` (vanilla's typo, not ours — 239 uses; there is
   also a plain `...ToFailedAction`, 67 uses) is the primitive for **retiring a quest that
   has become moot**, e.g. the player talked an NPC out of the contract they were hired for.
@@ -1046,6 +1101,103 @@ prisoner — is a `Fixed Dead Body Generator`, i.e. a corpse placed as scenery. 
 Distinguish by the owning entity's `Name=` containing `Dead Body`, or by the generator
 carrying `Canned Object=Common Objects and Scripts/Genderate Dead Body`.
 
+## Staging a scene: cutscenes, cameras, moving characters, spawning on demand
+
+Everything below was established building one scene — troll reinforcements arriving after the
+player desecrates a corpse — and most of it was learned by picking the wrong primitive first.
+
+**Own the scene with a `CRelayAI` on a placed, permanent entity.** Counting owners of every
+`CDisplayDialogTreeAction` in vanilla: `CRelayAI` 481, `CGeneratorAI` 472,
+`CSimpleGeneratorForCannedEntitiesAI` 336, `CAIInteractionSpecifier` 75,
+`CTouchingPolygonTriggerAI` 28, `CHandleMessageAI` **0**. A scene hung off a message handler
+attached to something transient — a corpse a spell is about to delete — has an owner that no
+longer exists by the time its delayed actions fire. Trigger a relay instead and let the relay
+do the work.
+
+**Cutscene mode** (the gears) is `CBeginNonInteractiveSequenceAction` / `...End...`:
+
+```
+Action=CBeginNonInteractiveSequenceAction
+{
+    Options=CNonInteractiveSequence
+    {
+        Pause Characters=1          <- freezes NPCs too; use 0 if anything must move
+        Disable Player Controls=1
+        Can Fast Forward=1
+    }
+}
+```
+
+Vanilla only ever shows **balloons** (`CDisplayDialogBalloonAction`) inside a sequence, never a
+DialogTree with clickable replies. If a real conversation is wanted, end the sequence first.
+
+**Cameras: `CAIAttractCamera`.** An inert `CEntityBase` at a position, `Active=0`, with
+`Category=NonInteractiveSequence Actor` and `Model=Editor/Camera Attractor`. Activating it
+pulls the camera; `Disable Self When Camera Arrives=1` makes it hand off (123 uses; `=0` keeps
+it pulling, 6 uses). Its `Camera Arrived Action` can activate the next attractor, so a chain
+sweeps the camera along a path.
+
+It is **only ever an `Activity` on a placed entity** — 131 uses, and zero attached to a
+character through `AIs to Add` or `CAddAIAction`. So it cannot follow a moving NPC, and a
+chain driven by camera arrival runs at camera speed rather than walking speed. Camera control
+here is weak; consider staging the action into the player's existing view instead of moving
+the view to the action.
+
+**Moving a character — pick the right one of three:**
+
+| action | what it actually is |
+|---|---|
+| `CAssignMoveRelativeAction` + `CAIMoveRelative` | **a knockback, not a walk.** Its only users are `DDan.zax` and the dragon cans, and DDan computes the distance from the player's Strength. Produces sliding with no walk animation |
+| `CAssignTemporaryTaskAction` + `CGoToAI` | **the walk.** 50 uses. Needs a named `Destination` entity, `Move Behavior=CEntityBehaviorMoveToPos`, `Do Path Finding=1` |
+| `CTeleportAction` | **a map transition for the player** (`New Map Name`, `Who To Switch`), not a way to reposition an NPC |
+
+`CAIMoveRelative` also requires `Speed=` and `Time Left To Move=` — omit `Speed` and the move
+silently does nothing. There is no `Move Done Action` field; do not invent one.
+
+**Spawning on demand.** `CCreateEntityFromCanAction` creates an entity, but its `New Location`
+is a `$var` in all 48 vanilla uses and never a literal name — so it can only spawn *at* an
+existing entity, with `Random Location Delta` for scatter, and gives no directional control.
+For a specific place, use a `CGeneratorAI` entity positioned where you want them, `Active=0`,
+switched on and then `CForceGenerateAction`d. Generators carry their own `Position X/Y`, and
+their `Area=COvalGeneratorArea{Radius=N}` sets the spread — a radius of 120 scatters four
+bodies across 240 units and reads as chaos; 30 reads as a group. `New Name` lives on the
+generator, not the group, so entities needing different names need different generators.
+
+**Give arrivals a name of their own.** Naming spawned reinforcements `Lava Troll` means every
+name-based action aimed at them — including a move — broadcasts to every pacified troll on the
+map.
+
+**Positions must be evidenced, not guessed.** A generator at an invalid position fails exactly
+as silently as a broken one: the trigger fires, the cutscene runs, nothing appears. Before
+placing anything, list vanilla entities in the target region and look at *what they are* —
+dead bodies and item generators prove walkable floor; unnamed entities may be wall or ceiling
+props and prove nothing. Moving a working generator ~250 units into an unverified pocket broke
+it with no other symptom.
+
+## Interactive corpses, and the "After Death Spell" message
+
+A corpse is a spawn that has been killed by
+`Common Objects and Scripts/Genderate Dead Body` in the generator's `After Action`. **That
+script strips the entity's AIs**, so a specifier placed in the generator's `AIs to Add` is
+wiped a moment after it is attached. All thirteen interactive corpses in the shipped game
+instead add it *afterwards*:
+
+```
+After Action=CMultipleActionsAction
+    [1] CUseCannedActionAction  -> Genderate Dead Body
+    [2] CDelayAction (Delay=1)  -> CAddAIAction{ Target Name=$Instigator, AI=... }
+```
+
+Vanilla uses `GetCloseThenTrigger` and `Trigger Only Once=1` for lootable bodies; an examinable
+one that must stay re-readable wants `Trigger Only Once=0`.
+
+**Three Tribal effects consume a corpse and all send `Message=After Death Spell` to it** —
+`Absorb Spirit` (heals the caster, more with the Demokin `Vampiric Fury` trait), `Corpse Bomb`
+(radius, so it can destroy a quest-relevant body by accident), and `Raise Enemy`. Listening for
+that message with a `CHandleMessageAI` is vanilla's own idiom (5 uses); `Gate House Near
+Thieves` has a corpse that switches off its walk-in poly when consumed. If a corpse matters to
+a quest, assume a player can and will eat it.
+
 ## Checking "has N of an item" — no built-in primitive
 
 `CActionCheckForInventoryItem` / `CActionRemoveInventoryItem` only test/remove a single
@@ -1149,6 +1301,50 @@ Entities with `Model=Editor/...` and `Visible=0` (e.g. `CShowExperiencePoints`,
 game logic. A `Dynamic Properties` block with a stray `Experience Points=120`-style field
 next to one of these is a designer's bookkeeping note, not evidence of a working
 in-game mechanism.
+
+## How your own verification will lie to you
+
+In one long session every one of these produced a confident, wrong conclusion about correct
+data. They cost more time than the engine bugs did, and several sent the work in the wrong
+direction for multiple playtests.
+
+**`$` does not match before `\r\n`.** These files are CRLF. `re.search(r'^Icon=(.*)$', r, re.M)`
+matches nothing, so every reply looks like it has no icon. A survey built on that "proved"
+vanilla never pairs `Icon=` with `Is Default Reply=1` — vanilla's own Warning Troll does, on a
+reply that works. Strip `\r` first, or match `[^\r\n]*` and never anchor with `$`.
+Related: `re.search(r'Text=(.*)')` captures a trailing `\r` into the value.
+
+**Whole-file counts are not deltas.** "No camera attractors remain" failed because vanilla has
+two of its own. "`make troll mad` is untouched" failed because `Target Name=make troll mad`
+contains `Name=make troll mad`. "Exactly two gates changed" failed because an unrelated gate
+already used the same class three times. **Always compare against
+`data.dat.vanilla.bak`,** and match entity definitions as `\r\n\t*Name=X\r\n`, never as a bare
+substring.
+
+**Nested blocks defeat naive selection.** A corpse's `After Action` held two `CDelayAction`s,
+outer and inner. Every filter written to find the inner one ("contains the chooser", "contains
+`Delay=2.5`") also matched the outer, because the outer *contains* the inner, and
+`re.finditer` returns the outer first. Two attempts corrupted the outer block before the third
+gave up splicing and rewrote the whole thing in one piece. When a structure has repeated
+classes at different depths, select by smallest matching block or by explicit depth — or
+regenerate the section rather than patching it.
+
+**Count at depth, not by pattern.** `re.findall(r'Action=(C\w+Action)', arr)` counts nested
+actions too, and misses `CSendAIDoneMessage` entirely because it does not end in `Action`.
+Walk the braces and collect only depth-1 entries.
+
+**Reading the first `Delay=` inside a block gives you the wrong block's value** for the same
+nesting reason. Anchor to the block's own indent: `\r\n` + `\t`*(tabs+1) + `Delay=`.
+
+**Never put backslash escapes in an inline heredoc or `python -c`.** `\r\n`, `\t` and `\{` are
+silently mangled, and the resulting script either fails oddly or writes corrupted bytes into a
+game file. This happened four times in one session *despite* being a known rule. Write the
+script to a file and run the file.
+
+**Trust the file over your model of it.** Twice the file was correct and the belief about it
+was not: a hostility timer thought removed was still present (three `CDelayAction`s where two
+were expected), and an "already applied" guard tripped on vanilla content that had always been
+there. Dump the actual structure before concluding anything about it.
 
 ## Standard editing workflow
 
