@@ -138,6 +138,41 @@ Node ID=<next node>
 No indentation inside `.DialogTree` files (flat, left-aligned), unlike other resource
 files.
 
+### `Speaker=` MUST be `$trigger` — a literal name silently kills every reply's action
+
+In `CDisplayDialogTreeAction`, setting `Speaker=` to a named entity instead of `$trigger`
+produces a conversation that **displays perfectly and whose replies do nothing**. The
+`Custom Action` on every reply is silently skipped. Nothing errors; the text appears, the
+player clicks, the conversation closes, and no action runs.
+
+This cost five wrong diagnoses on one scene — the reply's format, a cutscene swallowing the
+click, a missing interaction specifier, `Is Default Reply` suppressing the action, and
+`CGoToCombatAction` failing to resolve its targets. All plausible, all wrong.
+
+What settled it was tabulating every conversation in the map by how it was opened:
+
+| opened by | `Speaker=` | replies run? |
+|---|---|---|
+| `CAIInteractionSpecifier` | `$trigger` | yes |
+| `CTouchingPolygonTriggerAI` | `$trigger` | yes |
+| `CRelayAI` | `$trigger` | yes |
+| `CRelayAI` | `Troll Chief` | **no** |
+
+The owner class is irrelevant — relays, polygons and specifiers all work. The binding is
+what matters. Vanilla agrees: inside `CRelayAI`, `Speaker=$trigger` appears 374 times against
+a handful of named speakers, and `Player Being Spoken To=$Instigator` 444 times.
+
+**Diagnosing this class of bug:** put an unmistakable, dependency-free action *first* in the
+reply's array — `CUseCannedActionAction` on a canned XP grant works well — and play it once.
+If the XP arrives, the array runs and the fault is in a later action; if it does not, the
+array never executes and no amount of fixing individual actions will help. One playtest
+replaces any number of theories.
+
+**The consequence for staging:** `$trigger` binds to the entity that opened the conversation.
+Opening a line from a relay makes the relay the speaker, so a portrait may be wrong or absent.
+If a specific character must be the visible speaker *and* the replies must work, open the
+conversation from that character's own interaction specifier rather than scripting it.
+
 ### A blank line before every reply is STRUCTURAL, not cosmetic
 
 Each `Requirement=` that starts a reply **must** be preceded by an empty line. Vanilla holds
