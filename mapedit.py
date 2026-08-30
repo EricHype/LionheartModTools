@@ -24,7 +24,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
-    QGraphicsEllipseItem, QGraphicsItem, QDockWidget, QWidget, QVBoxLayout, QFormLayout,
+    QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsItem, QDockWidget, QWidget,
+    QVBoxLayout, QFormLayout,
     QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
     QGraphicsSimpleTextItem, QAbstractSpinBox, QProgressBar,
@@ -158,6 +159,29 @@ def terrain_region_image(canvas: "zr.Canvas", x0: int, y0: int, x1: int, y1: int
         buf[dst_off:dst_off + w * 4] = src[src_off:src_off + w * 4]
     img = QImage(bytes(buf), w, h, QImage.Format_RGBA8888)
     return img.copy()
+
+
+def entity_centre(entity) -> tuple[float, float] | None:
+    """Map coordinates to centre the view on, or None if it has no place on the map.
+
+    `Entity.x`/`.y` read Position X/Y and fall back to 0. Trigger zones --
+    `CFreeRangePoly`, `CWayPointsPolygon` -- carry no position at all, only a
+    `Polygon=` vertex list, so that fallback would send the view to the map's
+    top-left corner instead of to the thing that was searched for.
+    """
+    poly = entity.node.get("Polygon")
+    if isinstance(poly, str) and poly.strip():
+        try:
+            nums = [float(v) for v in poly.split(",") if v.strip()]
+        except ValueError:
+            nums = []
+        if len(nums) >= 4:
+            xs, ys = nums[0::2], nums[1::2]
+            n = min(len(xs), len(ys))
+            return sum(xs[:n]) / n, sum(ys[:n]) / n
+    if entity.node.get("Position X") is None:
+        return None
+    return entity.x, entity.y
 
 
 def union_bounds(a: tuple, b: tuple) -> tuple:
@@ -789,6 +813,8 @@ class MainWindow(QMainWindow):
         self.pixmap_cache: dict[str, QPixmap | None] = {}
         self.entity_items: dict[int, EntityItem] = {}
         self.overlay_items: list[QGraphicsEllipseItem] = []
+        self.highlight_items: list[QGraphicsItem] = []
+        self.focused_node_id = None
         self.issues = []
         self.selected_palette_model: str | None = None
         self.last_placed_by_model: dict[str, tuple[float, float]] = {}
@@ -811,6 +837,9 @@ class MainWindow(QMainWindow):
         self.filter_timer = QTimer(self)
         self.filter_timer.setSingleShot(True)
         self.filter_timer.timeout.connect(self.apply_filter)
+        self.entity_filter_timer = QTimer(self)
+        self.entity_filter_timer.setSingleShot(True)
+        self.entity_filter_timer.timeout.connect(self.apply_entity_filter)
 
         self._build_scene()
         self._build_ui()
@@ -910,11 +939,29 @@ class MainWindow(QMainWindow):
         # two of them can sit at exactly the same coordinates -- Test Pocket has two
         # Lucia generators both at (900, 400) -- and then only the top one is clickable.
         # A list reaches every entity by name regardless of what is stacked on what.
+        entity_widget = QWidget()
+        entity_layout = QVBoxLayout(entity_widget)
+        self.entity_search = QLineEdit()
+        self.entity_search.setPlaceholderText("Find entity by name...  (Ctrl+F)")
+        self.entity_search.setClearButtonEnabled(True)
+        self.entity_search.textChanged.connect(
+            lambda _: self.entity_filter_timer.start(120))
+        # Enter jumps straight to the top hit, so the whole interaction can be
+        # "Ctrl+F, type part of a name, Enter" without touching the mouse.
+        self.entity_search.returnPressed.connect(self.focus_first_match)
+        entity_layout.addWidget(self.entity_search)
+
         self.entity_list = QListWidget()
         self.entity_list.itemClicked.connect(self.on_entity_list_clicked)
         self.entity_list.itemDoubleClicked.connect(self.on_entity_list_double_clicked)
-        entity_dock = QDockWidget("Entities", self)
-        entity_dock.setWidget(self.entity_list)
+        entity_layout.addWidget(self.entity_list, stretch=1)
+
+        self.entity_count_label = QLabel("")
+        self.entity_count_label.setStyleSheet("color: #999;")
+        entity_layout.addWidget(self.entity_count_label)
+
+        self.entity_dock = entity_dock = QDockWidget("Entities", self)
+        entity_dock.setWidget(entity_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, entity_dock)
         self.tabifyDockWidget(palette_dock, entity_dock)
         palette_dock.raise_()
@@ -1035,6 +1082,12 @@ class MainWindow(QMainWindow):
         delete_action.setShortcuts([QKeySequence(Qt.Key_Delete),
                                     QKeySequence(Qt.Key_Backspace)])
         delete_action.triggered.connect(self.delete_selected)
+        edit_menu.addSeparator()
+        find_action = edit_menu.addAction("&Find Entity...")
+        find_action.setShortcut(QKeySequence.Find)
+        find_action.setStatusTip(
+            "Search placed entities by name and centre the view on the match.")
+        find_action.triggered.connect(self.focus_entity_search)
 
         tools_menu = self.menuBar().addMenu("&Tools")
         self.eyedropper_action = tools_menu.addAction("&Eyedropper")
@@ -1088,6 +1141,15 @@ class MainWindow(QMainWindow):
         actual.setShortcut(QKeySequence("Ctrl+1"))
         actual.triggered.connect(self.view.zoom_reset)
         view_menu.addSeparator()
+        self.isolate_action = view_menu.addAction("&Isolate Found Entity")
+        self.isolate_action.setCheckable(True)
+        self.isolate_action.setShortcut(QKeySequence("Ctrl+Shift+I"))
+        self.isolate_action.setStatusTip(
+            "Hide everything except the entity you last selected. Big building "
+            "sprites are sorted in front of small markers that sit at a lower y, "
+            "so a door can be completely buried by its own building.")
+        self.isolate_action.toggled.connect(self.on_isolate_toggled)
+
         self.markers_action = view_menu.addAction("Show &Markers")
         self.markers_action.setCheckable(True)
         self.markers_action.setChecked(True)
@@ -1589,11 +1651,10 @@ class MainWindow(QMainWindow):
         self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
 
     def on_markers_toggled(self, shown: bool) -> None:
-        n = 0
-        for item in self.entity_items.values():
-            if item.marker:
-                item.setVisible(shown)
-                n += 1
+        n = sum(1 for item in self.entity_items.values() if item.marker)
+        # Route through _apply_isolate so that toggling markers while isolate is on
+        # does not quietly bring the hidden scenery back.
+        self._apply_isolate()
         self.statusBar().showMessage(
             f"{'Showing' if shown else 'Hiding'} {n} marker(s).", 4000)
 
@@ -1894,14 +1955,21 @@ class MainWindow(QMainWindow):
                 label += "   [dialogue]"
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, id(ent.node))
+            centre = entity_centre(ent)
+            where = f"({centre[0]:g}, {centre[1]:g})" if centre else "no position"
             item.setToolTip(
-                f"{ent.node.type_name}  at ({ent.x:g}, {ent.y:g})\n{ent.model}"
+                f"{ent.node.type_name}  at {where}\n{ent.model or '(no model)'}"
                 + (f"\n\nDialogue: {refs[0]}" if refs else ""))
+            # Searched against by apply_entity_filter: name, model and type, so
+            # "door" finds it by name and "CFreeRangePoly" finds it by kind.
+            item.setData(Qt.UserRole + 1,
+                         f"{name}\n{ent.model}\n{ent.node.type_name}".lower())
             if refs:
                 item.setForeground(QBrush(QColor(150, 210, 235)))
             elif is_marker:
                 item.setForeground(QBrush(QColor(235, 220, 150)))
             self.entity_list.addItem(item)
+        self.apply_entity_filter()
 
     def _entity_for_list_item(self, item):
         node_id = item.data(Qt.UserRole)
@@ -1909,6 +1977,57 @@ class MainWindow(QMainWindow):
             if id(ent.node) == node_id:
                 return ent
         return None
+
+    def apply_entity_filter(self) -> None:
+        """Hide list rows that do not match the search box.
+
+        Hiding rather than rebuilding keeps the current selection and the scroll
+        position stable while you type.
+        """
+        needle = self.entity_search.text().strip().lower()
+        terms = needle.split()
+        shown = 0
+        for i in range(self.entity_list.count()):
+            item = self.entity_list.item(i)
+            hay = item.data(Qt.UserRole + 1) or item.text().lower()
+            # All terms must appear, in any order: "door store" finds
+            # "Door Ilk Store Room" without needing the exact phrase.
+            match = all(t in hay for t in terms)
+            item.setHidden(not match)
+            shown += bool(match)
+        total = self.entity_list.count()
+        self.entity_count_label.setText(
+            f"{total} entities" if not terms
+            else f"{shown} of {total} match")
+
+    def visible_entity_items(self) -> list:
+        return [self.entity_list.item(i) for i in range(self.entity_list.count())
+                if not self.entity_list.item(i).isHidden()]
+
+    def focus_entity_search(self) -> None:
+        """Ctrl+F: surface the Entities dock and put the caret in the box."""
+        self.entity_dock.show()
+        self.entity_dock.raise_()
+        self.entity_search.setFocus()
+        self.entity_search.selectAll()
+
+    def focus_first_match(self) -> None:
+        self.entity_filter_timer.stop()
+        self.apply_entity_filter()
+        items = self.visible_entity_items()
+        if not items:
+            self.statusBar().showMessage(
+                f"No entity matches {self.entity_search.text()!r}.", 4000)
+            return
+        # Terms match in any order, so a companion entity can satisfy the same
+        # words: "door ilk store room" also matches "Relocate into Ilk Store Room
+        # if Door Relocate fails poly". Prefer whichever name contains the typed
+        # phrase intact, so Enter lands on the thing that was actually asked for.
+        phrase = " ".join(self.entity_search.text().strip().lower().split())
+        best = next((it for it in items
+                     if phrase and phrase in it.text().lower()), items[0])
+        self.entity_list.setCurrentItem(best)
+        self.on_entity_list_clicked(best)
 
     def on_entity_list_clicked(self, item) -> None:
         ent = self._entity_for_list_item(item)
@@ -1920,9 +2039,100 @@ class MainWindow(QMainWindow):
             scene_item.setSelected(True)
             self.view.centerOn(scene_item)
         else:
-            # Invisible and markers-off: still worth showing its properties.
+            # No sprite to select -- polygons and anything whose model failed to
+            # decode. Centre on the coordinates anyway, otherwise searching for a
+            # trigger zone silently leaves the view where it was.
+            centre = entity_centre(ent)
+            if centre is not None:
+                self.view.centerOn(*centre)
             self.show_entity_properties(ent)
             self.script_dock_widget.set_entity(ent)
+        centre = entity_centre(ent)
+        self.focused_node_id = id(ent.node)
+        if centre is not None:
+            self.highlight_at(*centre)
+        self._apply_isolate()
+        buried = self.covering_sprites(ent)
+        msg = (f"{ent.name or ent.model or ent.node.type_name}"
+               + (f"  at ({centre[0]:g}, {centre[1]:g})" if centre else "  (no position)"))
+        if buried:
+            msg += ("  --  drawn behind %s; Ctrl+Shift+I to isolate"
+                    % ", ".join(sorted(buried)[:2]))
+        self.statusBar().showMessage(msg, 8000)
+
+    def covering_sprites(self, ent) -> set[str]:
+        """Names of sprites that overlap this entity AND draw on top of it.
+
+        Depth is setZValue(entity.y), so anything whose y is larger wins. A 1464x877
+        building anchored two units below a 43x93 door hides it completely -- which is
+        indistinguishable, on screen, from the door not being there at all.
+        """
+        info = self.cat.info(ent.model)
+        if info is None:
+            return set()
+        ax, ay = ent.x - info.hotspot_x, ent.y - info.hotspot_y
+        bx, by = ax + info.width, ay + info.height
+        out = set()
+        for other in self.doc.entities():
+            if other.node is ent.node or not other.model:
+                continue
+            oi = self.cat.info(other.model)
+            if oi is None or other.y <= ent.y:
+                continue
+            ox, oy = other.x - oi.hotspot_x, other.y - oi.hotspot_y
+            if ox + oi.width <= ax or ox >= bx or oy + oi.height <= ay or oy >= by:
+                continue
+            # Only bother reporting things big enough to actually bury it.
+            if oi.width * oi.height >= info.width * info.height * 4:
+                out.add(other.name.strip() or other.model.rsplit("/", 1)[-1])
+        return out
+
+    def highlight_at(self, x: float, y: float) -> None:
+        """Ring + crosshair above every sprite, so the target is findable even when
+        something opaque is drawn over it."""
+        for it in self.highlight_items:
+            self.scene.removeItem(it)
+        self.highlight_items.clear()
+        pen = QPen(QColor(255, 90, 90))
+        pen.setWidth(3)
+        pen.setCosmetic(True)          # constant thickness at any zoom
+        r = 46
+        ring = QGraphicsEllipseItem(x - r, y - r, 2 * r, 2 * r)
+        ring.setPen(pen)
+        ring.setBrush(QBrush(Qt.NoBrush))
+        parts = [ring]
+        for dx, dy in ((0, 1), (1, 0)):
+            line = QGraphicsLineItem(x - dx * r * 2, y - dy * r * 2,
+                                     x + dx * r * 2, y + dy * r * 2)
+            line.setPen(pen)
+            parts.append(line)
+        for p in parts:
+            p.setZValue(1e9)           # above every entity, whose z is its y
+            p.setFlag(QGraphicsItem.ItemIsSelectable, False)
+            self.scene.addItem(p)
+            self.highlight_items.append(p)
+
+    def _natural_visible(self, item) -> bool:
+        if item.marker:
+            return self.markers_action.isChecked()
+        return (item.entity.node.get("Visible") or "1") != "0"
+
+    def _apply_isolate(self) -> None:
+        on = self.isolate_action.isChecked()
+        for nid, item in self.entity_items.items():
+            item.setVisible(nid == self.focused_node_id if on
+                            else self._natural_visible(item))
+
+    def on_isolate_toggled(self, on: bool) -> None:
+        self._apply_isolate()
+        if on and self.focused_node_id is None:
+            self.statusBar().showMessage(
+                "Isolate is on, but nothing is selected yet -- find an entity "
+                "(Ctrl+F) and everything else will hide.", 6000)
+        else:
+            self.statusBar().showMessage(
+                "Isolating the selected entity." if on
+                else "Showing all entities again.", 4000)
 
     def on_entity_list_double_clicked(self, item) -> None:
         ent = self._entity_for_list_item(item)

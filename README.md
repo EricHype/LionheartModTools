@@ -178,6 +178,8 @@ file in place under `mods/`, never the installed game.
 | **Wall Run** (`R`) | Drag to lay a whole run of a tiling piece in one undo step. Start on an existing piece to extend it; drag along a run with holes in it to fill only the holes. |
 | **Terrain Paint** (`T`) | Paint ground textures onto the terrain grid. `[` and `]` resize the brush. |
 | **Eyedropper** (`I`, or hold `Alt`) | Click anything on the map to select its model in the palette. |
+| **Find Entity** (`Ctrl+F`) | Filter the Entities dock by name, model or type and centre the view on a hit. Terms match in any order, so `room store` finds `Door Ilk Store Room`; `Enter` jumps to the closest match. Trigger zones centre on their polygon's centroid, because a `CFreeRangePoly` has no `Position X` at all and would otherwise send the view to the map's top-left corner. A red ring marks the hit above every sprite, and the status bar names anything drawn over it. |
+| **Isolate** (`Ctrl+Shift+I`) | Hide everything except the found entity. Depth is `y`, so a large sprite anchored even one unit below a small one covers it completely — the House Of Ilk is 1464×877 at y=501 and buries a 43×93 door at y=499. Without this, "I can't see it" and "it isn't there" look identical. |
 | **Entity Script** | Edit the action tree on the selected chest, NPC, generator or door — see below. |
 | **Open dialogue** (`Ctrl+D`) | Double-click an NPC to open the `.DialogTree` its scripts point at, in the dialogue editor. |
 | **Validation** | Live list of missing sprites, overlapping footprints, off-map coordinates, and gaps in wall runs — the checks that used to be throwaway assertions. |
