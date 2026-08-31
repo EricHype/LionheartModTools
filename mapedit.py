@@ -2432,6 +2432,9 @@ def main() -> int:
     parser.add_argument("zax_path", help="path to the .zax map file (e.g. under mods/)")
     parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT,
                         help="game data root (contains Cache/Models, Cache/Textures)")
+    parser.add_argument("--focus", metavar="NAME", default=None,
+                        help="open centred on the first entity matching NAME "
+                             "(same rules as Ctrl+F: terms match in any order)")
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
@@ -2441,6 +2444,15 @@ def main() -> int:
     # Fit after show(), so the viewport has its real size -- fitting before it is laid
     # out computes against a placeholder and lands at the wrong zoom.
     window.view.zoom_fit()
+    if args.focus:
+        # Deferred: the entity list is filled by the first validation pass, which is
+        # on a timer, so searching immediately would find an empty list.
+        def go():
+            window.entity_search.setText(args.focus)
+            window.focus_first_match()
+            window.view.zoom_reset()
+            window.entity_dock.raise_()
+        QTimer.singleShot(600, go)
     return app.exec()
 
 

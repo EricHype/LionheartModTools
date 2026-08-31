@@ -165,6 +165,7 @@ replacement:
 ```
 pip install -r requirements.txt
 python mapedit.py "mods/test-pocket/files/Levels/1 Barcelona/Test Pocket.zax"
+python mapedit.py "<some>.zax" --focus "Door Ilk Store Room"   # open centred on it
 ```
 
 It opens the map with its ground and all 4787 placeable environment sprites, and edits the
