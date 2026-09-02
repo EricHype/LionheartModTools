@@ -1114,6 +1114,46 @@ attached to something transient — a corpse a spell is about to delete — has 
 longer exists by the time its delayed actions fire. Trigger a relay instead and let the relay
 do the work.
 
+### CONFIRMED IN PLAY: fire the relay BEFORE the trigger deletes itself
+
+A `CTriggerRelayAction` ordered **after** the `CDeleteAction` that removes its own trigger
+**silently never fires** — no error, no partial effect, nothing in the log. Move the relay
+call ahead of the self-delete.
+
+The trap is that "actions after a self-delete still run" is *true in vanilla and still wrong
+here*. Deletion is deferred to end of frame, and shipped triggers routinely put a `CIfAction`
+and a `CDeactivateAction` after deleting themselves — those demonstrably run. But they need
+nothing *from* the trigger entity, whereas dispatching a relay evidently routes through it.
+
+Of the two vanilla enter-actions that contain both a `CDeleteAction` and a
+`CTriggerRelayAction`, **neither orders the delete first**. That census is what found the bug
+after a playtest showed a 45-second timer doing nothing: every primitive involved was already
+correct — `Relay Name` is the only field the game ever uses (4021 uses), `Forget Trigger=0` is
+universal across all 4089 shipped `CDelayAction`s, and a 130-second delay inside a `CRelayAI`
+is shipped. When a chain silently does nothing, the productive question is not "which
+primitive is wrong?" but **"what does this build do that no shipped map does?"**
+
+### Scheduling something for later
+
+| want | use |
+|---|---|
+| one-shot "in N seconds, do X" | `CDelayAction{Next Action=..., Delay=N, Plus or Minus=0, Forget Trigger=0}` |
+| an AI that runs for N seconds then stops | `CLimitedTimeAI{What To Do=<AI>, Max Time=N, Time Left=0, Done Action=...}` |
+| repeating ambient events | `CRepeatTimerTriggerAI` |
+
+`CDelayAction` is happy at long durations — 4089 shipped uses, the longest 130s, and 1587 of
+them sit inside a `CRelayAI` (median 0.8s, longest 130s). Put a long timer on a **relay**, not
+in the trigger that started it, so it outlives the trigger.
+
+**A pending `CDelayAction` cannot be cancelled.** There is no "stop the timer" action, so do
+not build a design that needs one. Instead let it fire and make the delayed action test
+whether it still applies — a `CCheckCategoryAction` on a category the other branch removes is
+enough. One condition read in two places beats two mechanisms that can disagree.
+
+Whether a pending delay survives the player leaving the level is **not established** — the
+layer is swapped out on exit, so it may pause, resume, or be lost. Don't build a design whose
+correctness depends on the answer.
+
 **Cutscene mode** (the gears) is `CBeginNonInteractiveSequenceAction` / `...End...`:
 
 ```
@@ -1198,10 +1238,72 @@ that message with a `CHandleMessageAI` is vanilla's own idiom (5 uses); `Gate Ho
 Thieves` has a corpse that switches off its walk-in poly when consumed. If a corpse matters to
 a quest, assume a player can and will eat it.
 
+### Bringing a corpse back to life — reverse `Genderate Dead Body`, never delete and respawn
+
+`Genderate Dead Body` **transforms the entity in place**; it does not swap one entity for
+another. So a corpse becomes a living character again by undoing its nine steps on the same
+entity. Deleting the body and spawning a fresh copy from a generator is the obvious approach
+and it is wrong: in play it reads exactly as what it is, a teleport.
+
+| the corpse script does | the inverse |
+|---|---|
+| parks `CSkeletonAI` in a `CWaitAI` waiting for message `Raise Enemy` | `CSendMessageAction{Message=Raise Enemy}` |
+| `CSetCurSequenceAction{Sequence=dead}` | `CPlayAnimationAction{Animation=GetUp, When Done=Set Sequence, End Sequence Name=Idle}` |
+| `CSetCollidableAction{Collidable=0}` | `CSetCollidableAction{Collidable=1}` |
+| `CAddCategoryAction{Corpse}` | `CRemoveCategoryAction{Categories To Remove=Corpse}` |
+| `CRemoveAIAction{AI=CAISetOpacityBasedOnVisibility}` | `CAddAIAction` the same AI back |
+| swaps the interaction specifier for a `GetCloseThenFightWhenDead` one | remove it, add a `GetCloseThenTalk` one |
+
+**Send `Raise Enemy` BEFORE playing `GetUp`.** This ordering is not cosmetic and it is the
+one that shipped: `Common Objects and Scripts/Raise Enemy Action.can` — the necromancy spell,
+and the only thing in the game that raises one of these corpses — does message first,
+animation fourth. `CPlayAnimationAction`'s `AI To Interrupt=CSkeletonAI` has nothing to
+interrupt until that message ends the `CWaitAI` and restores the skeleton AI.
+
+**Don't reuse `Raise Enemy Action.can` wholesale** for a friendly revive. It also installs a
+patrolling `CSkeletonAI`, combat skill and AC modifiers, spell-cooldown locks, and a
+`CHandleMessageAI` that *deletes the entity* when it enters combat.
+
+**`CSetStationaryFlagAction` has no inverse** — zero uses of any `CClear`/`CSetNonStationary`
+variant in the whole game — but it does not block scripted movement. Move behaviors carry
+`Old Stationary Flag` / `Was Stationary` and manage it themselves, and raised enemies chase
+the player without anything ever clearing it.
+
+**Verify the model actually has the animation, in the baked sprite and not just on disk.**
+Two separate checks: `Resources/Models3D/.../GetUp.ANIMATION.GR2` exists, *and* the
+pre-rendered sprite the game draws lists it. Grep the ASCII strings of
+`Cache/Models/Characters/<path>.mdl16` for the sequence name — a sailor's cache lists
+`Shared Animations/02/GetUpB`. A source animation whose frames were never baked plays as
+nothing at all.
+
+### `CCheckCategoryAction` sees categories added at runtime
+
+Vanilla only ever *checks* `Player`, `Player Friend`, `Player Shot` and `Scripted Custom 1`,
+which makes it look like a static-property test. It is not: `Player Friend` and
+`Scripted Custom 1` are both **added** by `CAddCategoryAction` elsewhere and checked
+successfully, so anything `CAddCategoryAction` sets is visible. `Corpse` is added and removed
+in vanilla but never checked, and checking it works.
+
+This makes the `Corpse` category a free, reliable "is this body still a body?" flag — useful
+for guarding a revive against a double click, and for making an uncancellable pending action
+into a no-op.
+
 ## Checking "has N of an item" — no built-in primitive
 
 `CActionCheckForInventoryItem` / `CActionRemoveInventoryItem` only test/remove a single
 unit (presence, not count), even for stackable items (`CInventoryItemPlugInBehaviorMergeMultipleInstances`).
+
+**They are also blind to `Additions`, and that is usable rather than merely a limitation.**
+Both take a bare item path and neither carries an `Additions` field, so
+`Inventory Items/Potion` matches *any* potion regardless of the
+`Inventory/Inventory Additions/Miscellaneous/Potions/...` addition that makes it Healing or
+Extra Healing. Vanilla relies on exactly this: DaVinci's Magic Machine asks for "a magical
+potion - any potion will do", checks `Inventory Items/Potion` and then removes
+`Inventory Items/Potion`. So a generic consumable *can* be taken as a quest cost — but the
+player has no say in which one, and may lose a better potion than the one the quest gave
+them. A survey of `CActionRemoveInventoryItem` that only shows
+`Inventory/Specific Item Cans/Quest Items/...` targets has been read too shallowly; the
+generic uses are in the same result set, further down.
 There is no `Desired Minimum Count`-style field for inventory items (that field exists on
 `CCheckExistenceAction`, but only for named triggers/flags, never seen used against an
 inventory item in the whole game). To require exactly N copies, nest check→remove N times
@@ -1419,6 +1521,16 @@ sync count gives no signal that this happened — it happily rebuilds from stale
 installed content. Rule of thumb while iterating on a mod already installed: `install`
 then `build`, every time a source file under `mods/<id>/files/` changes, not just the
 first time.
+
+**Gotcha: adding a NEW file means regenerating `mod.json`'s `files` list — and `install`
+refuses with exit code 0 if you forget.** The manifest is explicit, not derived from the
+folder, so a file present in `files/` but absent from the list would be installed and then
+silently left out of `data.dat`. `install` guards against that: it prints the offending
+path and changes nothing. But it **returns success**, so anything watching the exit status
+— a background task notification, a shell `&&` chain, CI — reports the install as having
+worked. Editing existing files never trips this, so it appears only the first time a mod
+grows a new file, which is exactly when it is least expected. Read the output, and confirm
+the deployed bytes rather than the exit code.
 
 ## CRITICAL: `<game-dir>\data\` is a loose mirror that SHADOWS `data.dat` — `build` must sync it
 
