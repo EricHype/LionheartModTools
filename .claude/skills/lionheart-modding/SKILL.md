@@ -1027,6 +1027,29 @@ chaining them.
   has become moot**, e.g. the player talked an NPC out of the contract they were hired for.
   It is a no-op if the quest was never active, so it needs no guard.
 
+## Factions: one at a time, and the rank goes with it -- CONFIRMED FROM SAVES
+
+A character has exactly one `Faction=`. `CAssignFactionToCharacterAction` **replaces** it, and
+the `.Faction` record's `CPlugInBehaviorModifyCharacterWhenSelected` modifiers -- the +1 to
+`Uber Perks/<Order> Rank` among them -- are **removed on deselection**, `Modification is
+permanent=1` notwithstanding. Read straight out of a tester's saves: Inquisitor Acolyte (rank 1)
+-> Djinni trials -> Saladin Aswaran (Saladin 1, Inquisition 0) -> Raphael's promotion ->
+Inquisitor Inquisitor (Inquisition 1, Saladin 0).
+
+Consequences:
+- `<Order> IS` (rank > 0) means "this is the player's current order", nothing more. Do not use
+  it to mean "has ever served" -- use a perk, a quest completion or an event flag for that.
+- **Any `CAssignFactionToCharacterAction` you add can defrock the player.** Guard it on holding
+  no order (`NOT Templar or Inquisitor`, `Wielder NOT`, `Goblin Horde NOT`) unless replacing the
+  order is the point. Vanilla guards its joins at the dialogue level (Cedric refuses the sworn).
+- "Award both" is impossible; the last assignment wins.
+- Open: whether same-family promotion (Acolyte -> Inquisitor) accumulates to 2 or replaces to
+  1. Every `.Faction` says `Allow Accumulation=1`. Not yet observed either way.
+
+Reading a save for this: the player record is in the zlib-compressed global layer (the one
+holding `Quest Status=CQuestStatusManager`); look for `Faction=` and
+`Derived Character Attributes/Uber Perks/<Order> Rank=<n>`. A rank of 0 is simply absent.
+
 ## The stock requirement palette (stat / race / faction / karma gates)
 
 `Requirement=` on a reply takes the **bare basename** of a `.can` under any
