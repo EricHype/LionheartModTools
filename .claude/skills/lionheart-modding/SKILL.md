@@ -970,6 +970,11 @@ chaining them.
   into every one of an NPC's greeting/return-visit node variants — this is the base
   game's own convention (verified: the "wererat cure" quest reply is duplicated
   identically across 6-7 different greeting nodes for the same NPC).
+  **The cost of that convention: a fix applied to one copy is applied to one copy.** 0.4.0's
+  Trapper fix (accepting quality pelts) landed on the `1 Conversation Start` copy of Quinn's
+  turn-in and on none of the other six, so a Trapper returning by any other greeting was
+  refused for two releases. When editing a duplicated reply, find every copy by its
+  `Go to node ID=` and assert the count before writing.
 
 - **A completed quest stops reporting a current state.** `CIsQuestStateTheCurrentStateAction`
   goes false once `CSetQuestSatusToCompletedAction` runs, so a chain of errands gated on "the
@@ -993,6 +998,30 @@ chaining them.
   Setting only the state (journal text updates, quest never leaves the active list) and setting
   only the status (quest closes, journal never reflects the last beat) are both common
   half-jobs. Do both, and remember they are independent axes in *both* directions.
+
+  **CONFIRMED IN PLAY, four times, all in this project's own code.** The rule is narrower and
+  sharper than the paragraph above: `CIsQuestStateTheCurrentStateAction` means "the quest is
+  *open* and sitting at this step". It is correct for a one-shot hand-in (the reply should
+  vanish once it completes the quest) and for a mid-quest step that advances to the next state.
+  It is wrong in exactly two positions, and a sweep of 61 Fixt-added uses found no third:
+
+  1. **Negated, as a "not yet offered" guard.** `NOT current(state)` on the offer reply passes
+     again the moment the quest completes, so the errand is re-offered and its state
+     re-activated. (Quinn's three reagent offers, 0.4.0.)
+  2. **As a "did this happen" test placed after anything that completes the quest.** A
+     return greeting that checks `current(final state)` works once -- the first visit, which
+     completes the quest -- and then never again. (Fernand, 0.6.0; Machiavelli's inn, 0.9.0,
+     where vanilla's own reward node had completed the quest before the player ever reached
+     Act 3.)
+
+  In both positions the right test is `CWasQuestEverActivatedAction{Quest=...}` (308 vanilla
+  uses) or `CWasQuestStateActivatedAction{Quest=..., State=...}` (30) -- "did this ever
+  happen", unaffected by completion. A save's journal confirms the mechanism: a completed
+  quest keeps its `Active States` list, so the *was-activated* tests still see them.
+
+  To audit a mod for this: list every `CIsQuestStateTheCurrentStateAction` the mod adds (diff
+  against the vanilla copy of each file), and for each ask whether the same reply's action
+  completes the quest (fine) or whether anything upstream could have completed it (bug).
 - `CSetQuestSatusToFailedIfActiveAction` (vanilla's typo, not ours — 239 uses; there is
   also a plain `...ToFailedAction`, 67 uses) is the primitive for **retiring a quest that
   has become moot**, e.g. the player talked an NPC out of the contract they were hired for.
@@ -1323,7 +1352,29 @@ Return failure if the If failes=0
 ```
 
 This is untested elsewhere in the shipped game (built from confirmed-working primitives,
-not copied from precedent) but works correctly in practice.
+not copied from precedent). **Play found two defects in it, so use the corrected shape:**
+
+1. **It consumes on failure.** Each step removes one unit *before* the next check, so a player
+   with fewer than N loses what they had and gets nothing. Every failing `Else=` must refund
+   what its path removed -- N-1 units at the innermost failure, down to zero at the outermost.
+   With two acceptable item kinds (plain and quality pelts) the refund is *path-dependent*, so
+   compute it by walking the parsed chain (`resource_format`) rather than by text: at each
+   `CIfAction`, the removed list grows by that step's item; an `Else` that is itself a
+   `CIfAction` is an alternative at the same depth (same removed list); an empty `Else` is a
+   true failure and gets `CMultipleActionsAction` of `CActionGiveStandardInventoryItem` per
+   unit, `Notify Player=0`.
+2. **The reply's destination is unconditional.** `Go to node ID=` opens the success text
+   whether or not the chain succeeded. Send the reply to a neutral node instead ("<He counts
+   them.>") whose two *empty* replies are gated on `CIsQuestCompletedAction` and its negation,
+   so the player is routed to the success node or a "that is not five" node by the outcome.
+   Gated empty replies are a shipped idiom (34 uses).
+
+Also: **if the quest hands the player the item it will later check for, make that item a
+specific item can, not a generic-plus-addition.** The check cannot tell potions apart, so a
+generic `Inventory Items/Potion` check ate a tester's Potion of Master Thievery. Vanilla's own
+answer is `Inventory/Specific Item Cans/Quest Items/Potion Lycanthropy Cure` and friends. A
+specific can can still be drinkable -- clone `Potion Luck`'s envelope and paste the addition's
+`CPlugInBehaviorUseAction` in verbatim -- which makes spending it on the quest a real choice.
 
 ## CRITICAL gotcha: `If=` wants a bare action, `Custom Requirement=` wants it wrapped
 
