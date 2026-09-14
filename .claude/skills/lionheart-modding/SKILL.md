@@ -1019,6 +1019,17 @@ chaining them.
   happen", unaffected by completion. A save's journal confirms the mechanism: a completed
   quest keeps its `Active States` list, so the *was-activated* tests still see them.
 
+  **Refined from a save, 2026-09-13.** The opening sentence of this entry is too broad.
+  The current state is simply the *last state activated*, and completion does not change it:
+  in `trollpeace.sav` The Red Ore Trade and The Chief Before were both `Status
+  Code=Compleated`, their final states were set in the same reply that completed them, and
+  the chief's next tier -- gated on `current(final state)` -- opened. So `current(final
+  state)` after completion is TRUE, and the four confirmed bugs above are all tests against
+  a state that was *not* the last one activated (Quinn's offers negate the first state; the
+  return greetings tested a middle step). The advice stands -- use the was-activated tests for
+  "did this happen" -- but the reason is "the quest has moved past that state", not "the quest
+  is closed".
+
   To audit a mod for this: list every `CIsQuestStateTheCurrentStateAction` the mod adds (diff
   against the vanilla copy of each file), and for each ask whether the same reply's action
   completes the quest (fine) or whether anything upstream could have completed it (bug).
