@@ -102,6 +102,15 @@ Requirement=!None
 Reply Text=[TEST KIT] Open the playtest menu.
 Go to node ID=9000 playtest menu
 
+Requirement=!None
+Custom Requirement=CUseCannedExpressionExpression
+{
+Canned Expression=Dialog/Requirements/Attributes/PE 7+
+}
+Reply Text=These prices are inflated and we both know it. I can read a tag as well as you can.
+Go to node ID=87 Perceptive
+Icon=Attribute Icon
+
 Requirement=Barter moreequal 35
 Reply Text=This town is full of merchants who would be glad to take my gold. If you are not one of them, all the worse for you.
 Go to node ID=86 Speech skill
@@ -343,6 +352,15 @@ Should Have Voiceover=0
 Requirement=!None
 Reply Text=[TEST KIT] Open the playtest menu.
 Go to node ID=9000 playtest menu
+
+Requirement=!None
+Custom Requirement=CUseCannedExpressionExpression
+{
+Canned Expression=Dialog/Requirements/Attributes/PE 7+
+}
+Reply Text=These prices are inflated and we both know it. I can read a tag as well as you can.
+Go to node ID=87 Perceptive
+Icon=Attribute Icon
 
 Requirement=!None
 Custom Requirement=CUseCannedExpressionExpression
@@ -1034,6 +1052,15 @@ Should Have Voiceover=0
 Requirement=!None
 Custom Requirement=CUseCannedExpressionExpression
 {
+Canned Expression=Dialog/Requirements/Attributes/PE 7+
+}
+Reply Text=These prices are inflated and we both know it. I can read a tag as well as you can.
+Go to node ID=87 Perceptive
+Icon=Attribute Icon
+
+Requirement=!None
+Custom Requirement=CUseCannedExpressionExpression
+{
 Canned Expression=Dialog/Requirements/Skills/Barter/Barter moreequal 35
 }
 Reply Text=This town is full of merchants who would be glad to take my gold. If you are not one of them, all the worse for you.
@@ -1453,6 +1480,7 @@ Should Have Voiceover=0
 Requirement=!None
 Reply Text=[TEST KIT] Open the playtest menu.
 Go to node ID=9000 playtest menu
+
 ------------------------------------------------------------
 Node ID=9000 playtest menu
 Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world to look at its seams. Tell me what you need and it is done.

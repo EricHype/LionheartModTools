@@ -5,6 +5,19 @@ Fixt cost hours of play before the test could even begin: the Goblin Warrens sit
 journey a starting character does not survive, and several of the cases to check depend on
 world state that only a completed quest chain sets.
 
+## Switching it on and off
+
+Fixt edits Lope's and Jafar's trees too and wins the load order, so a kit built from a
+snapshot of those files vanishes the moment Fixt ships a new copy. `playtest_kit.py` in the
+tools root rebuilds the kit's two trees from whatever Fixt currently has in `files/` (or
+vanilla), splices the hook in, and puts the kit last in the load order:
+
+    python playtest_kit.py on       # menu on Lope and Jafar, over current Fixt
+    python playtest_kit.py off      # kit disabled, data.dat rebuilt without it
+    python playtest_kit.py status
+
+Run `on` again after any Fixt change to those two trees. `off` before testing a release.
+
 Talk to **Merchant Lope** or **Jafar** in the Barcelona Gate District. Their conversations gain
 `[TEST KIT] Open the playtest menu`, offering:
 

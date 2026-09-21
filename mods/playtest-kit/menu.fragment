@@ -1,0 +1,133 @@
+Node ID=9000 playtest menu
+Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world to look at its seams. Tell me what you need and it is done.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Send me to the goblin camp gate.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Camp Gate
+}
+
+Requirement=!None
+Reply Text=Send me straight into the Warrens. (skips the gate; the camp stays hostile)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Direct
+}
+
+Requirement=!None
+Reply Text=Send me to the Goblin Warrens (world map).
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Worldmap
+}
+
+Requirement=!None
+Reply Text=Unlock the wilderness on my world map.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Unlock World Map
+}
+
+Requirement=!None
+Reply Text=Make me able to survive out there. (the developers' own level-10 package)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Make Viable
+}
+
+Requirement=!None
+Reply Text=Raise me one level.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Level Up
+}
+
+Requirement=!None
+Reply Text=Grant me experience. (4000)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Grant Experience
+}
+
+Requirement=!None
+Reply Text=Heal me.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Heal
+}
+
+Requirement=!None
+Reply Text=Raise my standing with the goblins by one rank.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/Wilderness/Quests/Advance Goblin Rank
+}
+
+Requirement=!None
+Reply Text=The woodcutter is dead, as far as the world knows.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Woodcutter Dead
+}
+
+Requirement=!None
+Reply Text=The river dryad is dead, as far as the world knows.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag River Dryad Dead
+}
+
+Requirement=!None
+Reply Text=I have already met the goblin girl.
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Met Goblin Girl
+}
+
+Requirement=Rank at least 1
+Reply Text=(reading) my goblin standing is 1 or more.
+Go to node ID=9000 playtest menu
+
+Requirement=Rank at least 2
+Reply Text=(reading) my goblin standing is 2 or more (the contract needs this).
+Go to node ID=9000 playtest menu
+
+Requirement=Rank at least 3
+Reply Text=(reading) my goblin standing is 3.
+Go to node ID=9000 playtest menu
+
+Requirement=Kept Blooded Bonus
+Reply Text=(reading) I have the disease resistance (Blooded's, and Champion should keep it).
+Go to node ID=9000 playtest menu
+
+Requirement=Met Girl
+Reply Text=(reading) the goblin girl has met me before.
+Go to node ID=9000 playtest menu
+
+Requirement=Woodcutter Is Dead
+Reply Text=(reading) the woodcutter is dead.
+Go to node ID=9000 playtest menu
+
+Requirement=Dryad Is Dead
+Reply Text=(reading) the river dryad is dead.
+Go to node ID=9000 playtest menu
+
+Requirement=!None
+Reply Text=Nothing more.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1

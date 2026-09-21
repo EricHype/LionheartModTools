@@ -77,6 +77,49 @@ Go to node ID=9000 playtest menu
 Requirement=!None
 Custom Requirement=CAND
 {
+Operand1=CUseCannedExpressionExpression
+{
+Canned Expression=Dialog/Requirements/Faction/Saladin Favored
+}
+Operator=
+Operand2=CExpressionNot
+{
+Operand1=CActionExpression
+{
+Action=CWasQuestEverActivatedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Travel to Montserrat
+}
+}
+}
+}
+Reply Text=What troubles the Order, Amir?
+Go to node ID=400 next duty
+Icon=Quest Icon
+
+Requirement=!None
+Custom Requirement=CAND
+{
+Operand1=CUseCannedExpressionExpression
+{
+Canned Expression=Dialog/Requirements/Faction/Saladin Favored
+}
+Operator=
+Operand2=CActionExpression
+{
+Action=CWasQuestEverActivatedAction
+{
+Quest=Levels/2 Montserrat/Quests/Travel to Montaillou and find Brother Michel
+}
+}
+}
+Reply Text=I have returned from Montserrat.
+Go to node ID=500 Return from Montaillou
+Icon=Quest Icon
+
+Requirement=!None
+Custom Requirement=CAND
+{
 Operand1=CActionExpression
 {
 Action=CWasQuestEverActivatedAction
@@ -769,6 +812,56 @@ Reply Text=Where are you from?
 Go to node ID=30 persia
 
 Requirement=!None
+Custom Requirement=COR
+{
+Operand1=CUseCannedExpression
+{
+Canned Expression=Levels/1 Barcelona/Dialog/Gate District/Requirements/Jafar Forged the Sacred Scimitar
+}
+Operator=
+Operand2=CAND
+{
+Operand1=CActionExpression
+{
+Action=CIsQuestStateTheCurrentStateAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Forge a Sacred Scimitar
+State=9040X23V
+}
+}
+Operator=
+Operand2=COR
+{
+Operand1=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Sacred Scimitar Saladin Quest
+}
+}
+Operator=
+Operand2=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Crescent Scimitar Saladin Quest
+}
+}
+}
+}
+}
+Reply Text=I have forged the Sacred Scimitar.
+Go to node ID=210 have scimitar
+Action work in progress=(forged scimitar)
+Custom Action=CSetQuestSatusToCompletedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Forge a Sacred Scimitar
+}
+Icon=Quest Icon
+
+Requirement=!None
 Reply Text=Goodbye.
 Go to node ID=10 Goodbye
 Custom Action=CActivateAction
@@ -817,7 +910,47 @@ Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Speak w
 }
 Icon=Quest Icon
 
-Requirement=Jafar Forged the Sacred Scimitar
+Requirement=!None
+Custom Requirement=COR
+{
+Operand1=CUseCannedExpression
+{
+Canned Expression=Levels/1 Barcelona/Dialog/Gate District/Requirements/Jafar Forged the Sacred Scimitar
+}
+Operator=
+Operand2=CAND
+{
+Operand1=CActionExpression
+{
+Action=CIsQuestStateTheCurrentStateAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Forge a Sacred Scimitar
+State=9040X23V
+}
+}
+Operator=
+Operand2=COR
+{
+Operand1=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Sacred Scimitar Saladin Quest
+}
+}
+Operator=
+Operand2=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Crescent Scimitar Saladin Quest
+}
+}
+}
+}
+}
 Reply Text=I have forged the Sacred Scimitar.
 Go to node ID=210 have scimitar
 Action work in progress=(forged scimitar)
@@ -1713,6 +1846,21 @@ Reply Text=What is it?
 Go to node ID=210 give shard quest
 Icon=Quest Icon
 Is Default Reply=1
+
+Requirement=!None
+Custom Requirement=CExpressionNot
+{
+Operand1=CActionExpression
+{
+Action=CWasQuestEverActivatedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Recover the Shard of Dreams
+}
+}
+}
+Reply Text=You were weighing something just then. Was there more than one task in your mind?
+Go to node ID=210 give scimitar quest
+Icon=Quest Icon
 ------------------------------------------------------------
 Node ID=210 give shard quest
 Text=According to Ali, there is a group of petty slavers operating somewhere in the Wilderness and he believes they have hidden the Shard of Dreams within their lair. I would ask that you track them down and recover the Shard. It is an invaluable treasure that is sacred to our Order. You may punish the thieves responsible for the theft if you wish, but you must return when you have recovered the Shard.
@@ -1827,10 +1975,6 @@ Text=Oh, well done! You have completed the trials. It is my honor to call you a 
 Should Have Voiceover=1
 
 Requirement=!None
-Reply Text=[TEST KIT] Open the playtest menu.
-Go to node ID=9000 playtest menu
-
-Requirement=!None
 Reply Text=
 Go to node ID=
 Custom Action=CMultipleActionsAction
@@ -1912,7 +2056,7 @@ Should Have Voiceover=1
 
 Requirement=!None
 Reply Text=
-Go to node ID=400 NIS Dialogue 4
+Go to node ID=400 NIS Dialogue 4a
 ------------------------------------------------------------
 Node ID=400 NIS Dialogue 4a
 Text=A week ago, an unidentified group attempted to steal the True Cross from our possession.
@@ -1941,11 +2085,26 @@ Should Have Voiceover=1
 
 Requirement=!None
 Reply Text=I am ready to depart for Montserrat.
-Go to node ID=238 Leave for Montserrat
-Custom Action=CActivateQuestStateAction
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=3
+Action=CTriggerRelayAction
+{
+Relay Name=determine ending relay
+}
+Action=CActivateQuestStateAction
 {
 Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Travel to Montserrat
 State=FNGP3UMQ
+}
+Action=CEnablePointOfInterestOnWorldMapAction
+{
+Point Of Interest to Enable=Interface/World Map/Montserrat
+}
+}
 }
 
 Requirement=!None
@@ -1990,12 +2149,87 @@ Text=The tragic deaths of the monks at Montserrat saddens me. I fear that our en
 Should Have Voiceover=1
 
 Requirement=!None
+Custom Requirement=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Books/Sir Tomas Journal
+}
+}
+Reply Text=Sir Tomas de Vilanova led the Templars at Montserrat. I have his journal; his last words were for Lord Javier.
+Go to node ID=501 tomas
+Icon=Quest Icon
+
+Requirement=!None
 Reply Text=I will go to Montaillou now.
 Go to node ID=238 Leave for Montserrat
+Custom Action=CConditionalAction
+{
+Try Action=CExpressionAction
+{
+Expression=CIsEqualTo
+{
+Operand1=CVariableDerivedCharacterAttribute
+{
+Character Attribute=Derived Character Attributes/Uber Perks/Saladin Rank
+}
+Operator=
+Operand2=CConstant
+{
+Constant Value=1
+}
+}
+Character to get attributes from=$Instigator
+}
+Succeed Action=CAssignFactionToCharacterAction
+{
+Faction To Assign=Factions/Saladin Blessed
+Character To assign=Player#1-9#
+}
+Fail Action=
+Return failure if the TryAction failes=0
+}
 
 Requirement=!None
 Reply Text=Before I go, tell me about the Sacred Lance.
 Go to node ID=500 Sacred Lance
+------------------------------------------------------------
+Node ID=501 tomas
+Text=Sir Tomas de Vilanova. <He weighs the book without opening it.> Javier spoke of him as one of the few in the Temple he would send anywhere. It is addressed to Javier, and it will reach him under my seal, with your name in the letter. The Order of Saladin does not keep another man's dead from him. You have done a hard thing gently.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Then it is in the right hands.
+Go to node ID=500 Return from Montaillou
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=4
+Action=CActivateQuestStateAction
+{
+Quest=Levels/2 Montserrat/Quests/Sir Tomas's Journal
+State=TJ2DN8SX
+}
+Action=CSetQuestSatusToCompletedAction
+{
+Quest=Levels/2 Montserrat/Quests/Sir Tomas's Journal
+}
+Action=CActionRemoveInventoryItem
+{
+Who to remove from=$instigator
+Inventory Item To remove=Inventory/Specific Item Cans/Quest Items/Books/Sir Tomas Journal
+}
+Action=CGiveExperiencePointsToAllPlayersAction
+{
+Get XP Frome=Sir Tomas journal XP
+Experience Points To Add=1
+}
+}
+}
+Icon=Quest Icon
+Is Default Reply=1
 ------------------------------------------------------------
 Node ID=500 Sacred Lance
 Text=The Sacred Lance is an ancient relic, wielded by a Roman soldier who used it to pierce the body of Christ, drawing his blood and imbuing it with powers. It was one of the relics used by the evil one to invoke the Disjunction. It was hidden centuries ago, but we fear our enemies might have discovered its resting place.
@@ -2004,6 +2238,32 @@ Should Have Voiceover=1
 Requirement=!None
 Reply Text=I will leave for Montserrat to recover the Lance. 
 Go to node ID=238 Leave for Montserrat
+Custom Action=CConditionalAction
+{
+Try Action=CExpressionAction
+{
+Expression=CIsEqualTo
+{
+Operand1=CVariableDerivedCharacterAttribute
+{
+Character Attribute=Derived Character Attributes/Uber Perks/Saladin Rank
+}
+Operator=
+Operand2=CConstant
+{
+Constant Value=1
+}
+}
+Character to get attributes from=$Instigator
+}
+Succeed Action=CAssignFactionToCharacterAction
+{
+Faction To Assign=Factions/Saladin Blessed
+Character To assign=Player#1-9#
+}
+Fail Action=
+Return failure if the TryAction failes=0
+}
 ------------------------------------------------------------
 Node ID=238 Leave for Montserrat
 Text=May the Prophet guide you.
@@ -2019,7 +2279,7 @@ Should Have Voiceover=1
 
 Requirement=!None
 Reply Text=
-Go to node ID=400 NIS Dialogue 4
+Go to node ID=400 NIS Dialogue 4a
 ------------------------------------------------------------
 Node ID=400 NIS Dialogue 4b
 Text=To ensure the safety of the other hidden relics, I dispatched a party of knights to Montserrat to ensure that the Crown of Thorns was still secure. They have not returned, so we must assume the worst.
@@ -2168,10 +2428,6 @@ Text=Hello there. Have you decided that you are ready to face the Dream Djinn?
 Should Have Voiceover=0
 
 Requirement=!None
-Reply Text=[TEST KIT] Open the playtest menu.
-Go to node ID=9000 playtest menu
-
-Requirement=!None
 Custom Requirement=CExpressionNot
 {
 Operand1=CActionExpression
@@ -2311,10 +2567,6 @@ Text=Hello again Favored One. It is good to see you again. I trust you are well.
 Should Have Voiceover=0
 
 Requirement=!None
-Reply Text=[TEST KIT] Open the playtest menu.
-Go to node ID=9000 playtest menu
-
-Requirement=!None
 Custom Requirement=CActionExpression
 {
 Action=CCheckExistenceAction
@@ -2325,6 +2577,49 @@ Desired Minimum Count=1
 }
 Reply Text=Do you know anything about the hidden corpse to the east?
 Go to node ID=500 report murder continued
+
+Requirement=!None
+Custom Requirement=CAND
+{
+Operand1=CUseCannedExpressionExpression
+{
+Canned Expression=Dialog/Requirements/Faction/Saladin Favored
+}
+Operator=
+Operand2=CExpressionNot
+{
+Operand1=CActionExpression
+{
+Action=CWasQuestEverActivatedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Travel to Montserrat
+}
+}
+}
+}
+Reply Text=What troubles the Order, Amir?
+Go to node ID=400 next duty
+Icon=Quest Icon
+
+Requirement=!None
+Custom Requirement=CAND
+{
+Operand1=CUseCannedExpressionExpression
+{
+Canned Expression=Dialog/Requirements/Faction/Saladin Favored
+}
+Operator=
+Operand2=CActionExpression
+{
+Action=CWasQuestEverActivatedAction
+{
+Quest=Levels/2 Montserrat/Quests/Travel to Montaillou and find Brother Michel
+}
+}
+}
+Reply Text=I have returned from Montserrat.
+Go to node ID=500 Return from Montaillou
+Icon=Quest Icon
 ------------------------------------------------------------
 Node ID=1000 infidel
 Text=Infidel!
@@ -2341,6 +2636,59 @@ Should Have Voiceover=0
 Requirement=!None
 Reply Text=
 Go to node ID=150 initiate
+Icon=Quest Icon
+Is Default Reply=1
+------------------------------------------------------------
+Node ID=210 give scimitar quest
+Text=<He looks at you a moment longer than is comfortable, and then he smiles.> There was. Eduardo, the smith of this district, has the skill to forge a Sacred Scimitar and he has the silver for it; what he lacks is a reason to spend either. Bring me that blade, and bring it having earned it.
+Should Have Voiceover=0
+
+Requirement=!None
+Custom Requirement=CExpressionNot
+{
+Operand1=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Sacred Scimitar Saladin Quest
+}
+}
+}
+Reply Text=I will have the blade forged, and I will earn it.
+Go to node ID=10 goodbye
+Custom Action=CActivateQuestStateAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Forge a Sacred Scimitar
+State=53F5R12P
+}
+Icon=Quest Icon
+Is Default Reply=1
+
+Requirement=!None
+Custom Requirement=CActionExpression
+{
+Action=CActionCheckForInventoryItem
+{
+Who to give check=$instigator
+Inventory Item To Check For=Inventory/Specific Item Cans/Quest Items/Sacred Scimitar Saladin Quest
+}
+}
+Reply Text=I already carry it.
+Go to node ID=210 have scimitar
+Custom Action=CSetQuestSatusToCompletedAction
+{
+Quest=Levels/1 Barcelona/Quests/Gate District/Knights Saladin Initiation/Forge a Sacred Scimitar
+}
+Icon=Quest Icon
+------------------------------------------------------------
+Node ID=210 have scimitar
+Text=<He takes the scimitar, turns it once in the light, and gives it back to you.> Eduardo's work, and your deed inside it. Keep it - it was made for your hand and it would be a poor gift to me. Now, for the next part of your initiation, you must complete the trials of the Dream Djinn.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=I am ready.
+Go to node ID=120 donate gem
 Icon=Quest Icon
 Is Default Reply=1
 ------------------------------------------------------------
