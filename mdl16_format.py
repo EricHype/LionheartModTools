@@ -161,12 +161,35 @@ def read_row_table(data: bytes, header: IconHeader, buffer_index: int = 0) -> li
 
     This is exactly the array the game loads into the object and that GetColorAt
     (FUN_0055ec80) indexes per row -- see decode_plane_rows.
+
+    The offset walks the buffers in order and skips each POPULATED buffer's own table as
+    well as its data, because the file is laid out
+    `[buf1][buf1 table][buf4][buf4 table][buf5][buf5 table]`, not as a run of data blocks
+    with the tables collected afterwards. An empty buffer carries no table. The old
+    formula summed the declared sizes only; for buffer 1 that is the same answer, which is
+    why nothing caught it, but for any later buffer it lands `height*4` bytes short per
+    populated buffer in front of it. Verified by the prefix invariant below on all 259
+    rle16 inventory icons.
     """
-    off = header.data_offset + sum(header.buffer_sizes[:buffer_index + 1])
+    off = buffer_data_offset(header, buffer_index) + header.buffer_sizes[buffer_index]
     end = off + header.height * 4
     if end > len(data):
         raise ValueError(f"row table for buffer {buffer_index + 1} runs past end of file")
     return list(struct.unpack_from(f"<{header.height}I", data, off))
+
+
+def buffer_data_offset(header: IconHeader, buffer_index: int) -> int:
+    """File offset of a buffer's first byte -- the u32 restating its own declared size.
+
+    `assert struct.unpack_from("<I", data, buffer_data_offset(h, i))[0] == h.buffer_sizes[i]`
+    holds for every populated buffer of all 259 rle16 inventory icons in `data.dat`, which
+    is what pins the layout.
+    """
+    off = header.data_offset
+    for size in header.buffer_sizes[:buffer_index]:
+        if size:
+            off += size + header.height * 4
+    return off
 
 
 def decode_row(buf: bytes, start: int, width: int) -> tuple[list[int], int]:
@@ -308,11 +331,22 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     nothing about row alignment or the offset table can go wrong. To author a NEW shape
     or new dimensions, use encode_icon_rle16() + build_icon_file() instead.
 
-    Only operates on buffer 1. Buffer 4 (a second color plane, with buffer 5 as its
-    parallel alpha mask, consulted only where buffer 1 decodes to 0 -- see
-    docs/mdl16-icon-format.md) is left untouched. Its on-disk layout is now understood
-    and mirrors buffer 1's, so extending this to buffer 4 would be mechanical, but no
-    icon this project has recolored has needed it.
+    Only operates on buffer 1. Buffer 4 (consulted only where buffer 1 decodes to 0 -- see
+    docs/mdl16-icon-format.md) is left untouched, and CANNOT currently be recolored: this
+    docstring used to call that extension "mechanical", which was never tested and is
+    wrong. Buffer 4's framing matches buffer 1's, but its contents are a different
+    encoding -- buffer 1's grammar walks 0 of the 257 icons that have a populated buffer 4,
+    and a four-way search over value width and repeat polarity fits at best 14% of 23434
+    rows, i.e. chance.
+
+    So before recoloring, check where the icon's color actually lives:
+
+        h = find_header(data)
+        assert h.buffer_sizes[0] > 8 * h.buffer_sizes[3]   # buffer 1 dominates
+
+    `Quest Items/Titan Sphere` passes that (9143 against 250) and recolors cleanly.
+    `Quest Items/Titan Crystal` fails it (3387 against 10110) and would come out a quarter
+    repainted. Fixing that needs GetColorAt's buffer-4 fallback read out of the binary.
     """
     header = header or find_header(data)
     if header is None:

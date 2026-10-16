@@ -111,11 +111,38 @@ So buffers 4/5 form a genuine second sprite layer -- its own shape, colors, and 
 -- used to fill in wherever buffer 1 leaves gaps. That part is solid, straight from the
 decompiled logic, not inferred from in-game behavior.
 
-Buffer 4's on-disk layout is the same as buffer 1's: its own `u32` size prefix, its rows,
-then its own `u32 table[height]`. It begins after buffer 1's data **plus buffer 1's row
-table** -- an earlier attempt to read it forgot the table, landed on those `u32` offsets,
-and concluded (wrongly) that buffer 4 "decodes to nothing". `recolor_icon_in_place` still
-only touches buffer 1; extending it to buffer 4 is now mechanical but has not been needed.
+Buffer 4's **framing** is the same as buffer 1's: its own `u32` size prefix, its rows, then
+its own `u32 table[height]`. It begins after buffer 1's data **plus buffer 1's row table**
+-- an earlier attempt to read it forgot the table, landed on those `u32` offsets, and
+concluded (wrongly) that buffer 4 "decodes to nothing". `buffer_data_offset()` now computes
+this, and the invariant that pins it is that every populated buffer opens with a `u32`
+equal to its own declared size: **259/259** rle16 inventory icons.
+
+### Buffer 4's CONTENTS are not buffer 1's grammar -- correcting this document
+
+This file used to say extending `recolor_icon_in_place` to buffer 4 was "mechanical". That
+was never tested, and it is **wrong**. Measured against every buffer-4 row in `data.dat`'s
+inventory icons:
+
+| candidate grammar | rows that consume their byte budget exactly and cover <= width |
+|---|---|
+| buffer 1's exactly (2-byte values, skip `&0x80`, repeat when bit 6 clear) | **0 / 257 icons** walk clean |
+| 1-byte values, repeat when bit 6 clear | 3238 / 23434 rows |
+| 1-byte values, repeat when bit 6 set | 3085 / 23434 rows |
+| 2-byte values, repeat when bit 6 set | 1726 / 23434 rows |
+
+The best of those is 14%, which is what chance gives on short rows. **Buffer 4 is a
+different encoding.** Its row data also does not look like RGB565: `Armor Chain` row 0 is
+thirteen bytes, `10 3c 65 7d 87 92 8c 83 79 5d 46 27 0d`, a smooth rise and fall that reads
+as an antialiasing ramp, and nothing in the row says where in the row it applies.
+
+So a buffer-4 recolor needs the engine's own buffer-4 fallback read out of `GetColorAt`
+(`0x0055ec80`) rather than guessed from the bytes. Until then `recolor_icon_in_place` is
+honest about only touching buffer 1, and **an icon whose colour lives mostly in buffer 4
+cannot be recoloured** -- `Quest Items/Titan Crystal` is the case that forced this check:
+3387 bytes in buffer 1 against 10110 in buffer 4, so a buffer-1 recolor repaints about a
+quarter of it. `Quest Items/Titan Sphere` is the opposite, 9143 against 250, and recolours
+cleanly (shipped in Fixt 0.68.0).
 
 ## Buffer 1's RLE-16bpp opcode grammar (flags & 6 == 4)
 
