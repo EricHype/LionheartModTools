@@ -118,31 +118,57 @@ concluded (wrongly) that buffer 4 "decodes to nothing". `buffer_data_offset()` n
 this, and the invariant that pins it is that every populated buffer opens with a `u32`
 equal to its own declared size: **259/259** rle16 inventory icons.
 
-### Buffer 4's CONTENTS are not buffer 1's grammar -- correcting this document
+### Buffers 4 and 5 were the wrong way round here -- read out of the binary
 
-This file used to say extending `recolor_icon_in_place` to buffer 4 was "mechanical". That
-was never tested, and it is **wrong**. Measured against every buffer-4 row in `data.dat`'s
-inventory icons:
+This file used to call buffer 4 the second colour plane and buffer 5 its alpha mask, and
+to call extending `recolor_icon_in_place` to buffer 4 "mechanical". Both were wrong, and
+the first is why the second never worked. Disassembled with capstone (ReVa was down):
 
-| candidate grammar | rows that consume their byte budget exactly and cover <= width |
-|---|---|
-| buffer 1's exactly (2-byte values, skip `&0x80`, repeat when bit 6 clear) | **0 / 257 icons** walk clean |
-| 1-byte values, repeat when bit 6 clear | 3238 / 23434 rows |
-| 1-byte values, repeat when bit 6 set | 3085 / 23434 rows |
-| 2-byte values, repeat when bit 6 set | 1726 / 23434 rows |
+**The object's field map, from the loader `FUN_0055d0a0`.** It allocates and reads ten
+pointers in pairs -- data then `height*4` table -- so buffer N is:
 
-The best of those is 14%, which is what chance gives on short rows. **Buffer 4 is a
-different encoding.** Its row data also does not look like RGB565: `Armor Chain` row 0 is
-thirteen bytes, `10 3c 65 7d 87 92 8c 83 79 5d 46 27 0d`, a smooth rise and fall that reads
-as an antialiasing ramp, and nothing in the row says where in the row it applies.
+| buffer | data | row table |
+|---|---|---|
+| 1 | `+0x0c` | `+0x18` |
+| 2 | `+0x1c` | `+0x20` |
+| 3 | `+0x24` | `+0x28` |
+| 4 | `+0x2c` | `+0x30` |
+| 5 | `+0x34` | `+0x38` |
 
-So a buffer-4 recolor needs the engine's own buffer-4 fallback read out of `GetColorAt`
-(`0x0055ec80`) rather than guessed from the bytes. Until then `recolor_icon_in_place` is
-honest about only touching buffer 1, and **an icon whose colour lives mostly in buffer 4
-cannot be recoloured** -- `Quest Items/Titan Crystal` is the case that forced this check:
-3387 bytes in buffer 1 against 10110 in buffer 4, so a buffer-1 recolor repaints about a
-quarter of it. `Quest Items/Titan Sphere` is the opposite, 9143 against 250, and recolours
-cleanly (shipped in Fixt 0.68.0).
+**GetColorAt's fallback (`0x0055ed2c` onward), when buffer 1 decodes to 0.** It takes its
+**opcodes and its 2-byte colour values from the buffer at `+0x34`, which is buffer 5**, and
+reads **one byte per pixel from `+0x2c`, which is buffer 4**, as an alpha -- keeping the
+colour only where that byte is non-zero:
+
+```
+mov ecx,[eax+0x34]   ; buffer 5 base   -> opcode + value stream
+mov edi,[eax+0x2c]   ; buffer 4 base   -> alpha, one byte per pixel
+mov ebp,[edx+0x38]   ; buffer 5 table
+mov ebp,[ebp+eax*4]  ;   table5[y]
+add ebp,ecx          ;   walk opcodes from here      (mov al,[ebp] at 0x55ed63)
+mov ecx,[edx+0x30]   ; buffer 4 table
+mov edx,[ecx+eax*4]  ;   table4[y]
+add edx,edi
+...
+sub edx,ecx          ; then at the target x:
+mov cl,byte ptr [edx+esi]   ; ONE byte -> alpha; zero means transparent
+```
+
+**So buffer 5 is a second colour plane in exactly buffer 1's grammar, and it verifies:
+257/257** of the icons that have one walk clean under it -- every row covering exactly
+`width` pixels and consuming exactly `table[y+1] - table[y]` bytes.
+
+Buffer 4 is not an opcode stream at all, which is what the earlier grammar search was
+really telling us: buffer 1's grammar walks **0 of 257** buffer-4 planes, and a four-way
+search over value width and repeat polarity fits at best 14% of 23434 rows, i.e. chance.
+`Armor Chain` row 0 reads `10 3c 65 7d 87 92 8c 83 79 5d 46 27 0d` -- a smooth rise and
+fall, because it is thirteen alpha values, one per pixel.
+
+**`recolor_icon_in_place` now recolours buffers 1 and 5**, which is every colour value in
+the file. Gates: an identity transform reproduces all 259 rle16 inventory icons byte for
+byte, both with and without the second plane; and `Quest Items/Titan Crystal`, the icon
+that forced this read, now moves all **11616** of its stored values (1510 in buffer 1,
+10106 in buffer 5) instead of the 13% a buffer-1-only recolour reached.
 
 ## Buffer 1's RLE-16bpp opcode grammar (flags & 6 == 4)
 

@@ -318,7 +318,8 @@ def _rgb888_to_rgb565(r: int, g: int, b: int) -> int:
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
 
-def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | None = None) -> bytes:
+def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | None = None,
+                          plane5: bool = True) -> bytes:
     """Recolor a REAL icon file by walking its existing opcode stream and applying
     `color_transform(rgb565_value) -> rgb565_value` to every stored color (skip-run
     pixels have no stored value and are left alone; repeat-run's one value and every
@@ -331,22 +332,17 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     nothing about row alignment or the offset table can go wrong. To author a NEW shape
     or new dimensions, use encode_icon_rle16() + build_icon_file() instead.
 
-    Only operates on buffer 1. Buffer 4 (consulted only where buffer 1 decodes to 0 -- see
-    docs/mdl16-icon-format.md) is left untouched, and CANNOT currently be recolored: this
-    docstring used to call that extension "mechanical", which was never tested and is
-    wrong. Buffer 4's framing matches buffer 1's, but its contents are a different
-    encoding -- buffer 1's grammar walks 0 of the 257 icons that have a populated buffer 4,
-    and a four-way search over value width and repeat polarity fits at best 14% of 23434
-    rows, i.e. chance.
+    Recolors BOTH color planes: buffer 1, and buffer 5 where the icon has one (pass
+    plane5=False for the old buffer-1-only behavior). Buffer 5 uses this same grammar and
+    GetColorAt consults it wherever buffer 1 decodes to 0, pairing it with buffer 4 as a
+    one-byte-per-pixel alpha -- so between them buffers 1 and 5 hold every color value in
+    the file, and recoloring only buffer 1 leaves an icon like `Quest Items/Titan Crystal`
+    87% unrepainted.
 
-    So before recoloring, check where the icon's color actually lives:
-
-        h = find_header(data)
-        assert h.buffer_sizes[0] > 8 * h.buffer_sizes[3]   # buffer 1 dominates
-
-    `Quest Items/Titan Sphere` passes that (9143 against 250) and recolors cleanly.
-    `Quest Items/Titan Crystal` fails it (3387 against 10110) and would come out a quarter
-    repainted. Fixing that needs GetColorAt's buffer-4 fallback read out of the binary.
+    This docstring used to have 4 and 5 the other way round, and to call the extension
+    "mechanical". It was neither tested nor correct; see docs/mdl16-icon-format.md for the
+    disassembly that settles it. Buffer 4 is NOT an opcode stream -- buffer 1's grammar
+    walks 0 of the 257 icons that have one.
     """
     header = header or find_header(data)
     if header is None:
@@ -372,33 +368,54 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     # Walk each row from its own table offset rather than continuously from byte 0. That
     # makes it structurally impossible to touch the 4-byte size prefix or to drift out of
     # opcode phase -- both of which the old continuous walker did on every real file.
-    table = read_row_table(data, header)
     width = header.width
-    for y in range(header.height):
-        i = table[y]
-        x = 0
-        while x < width:
-            ctrl = buf1[i]
-            if ctrl & 0x80:
-                x += ctrl & 0x7F
-                i += 1
-            elif (ctrl & 0x40) == 0:
-                count = ctrl & 0x3F
-                v = struct.unpack_from("<H", buf1, i + 1)[0]
-                struct.pack_into("<H", buf1, i + 1, _apply(v, y * width + x))
-                x += count
-                i += 3
-            else:
-                count = ctrl & 0x3F
-                for k in range(count):
-                    off = i + 1 + k * 2
-                    v = struct.unpack_from("<H", buf1, off)[0]
-                    struct.pack_into("<H", buf1, off, _apply(v, y * width + x + k))
-                x += count
-                i += 1 + count * 2
 
+    def _recolor_plane(buf: bytearray, table: list[int]) -> None:
+        for y in range(header.height):
+            i = table[y]
+            x = 0
+            while x < width:
+                ctrl = buf[i]
+                if ctrl & 0x80:
+                    x += ctrl & 0x7F
+                    i += 1
+                elif (ctrl & 0x40) == 0:
+                    count = ctrl & 0x3F
+                    v = struct.unpack_from("<H", buf, i + 1)[0]
+                    struct.pack_into("<H", buf, i + 1, _apply(v, y * width + x))
+                    x += count
+                    i += 3
+                else:
+                    count = ctrl & 0x3F
+                    for k in range(count):
+                        off = i + 1 + k * 2
+                        v = struct.unpack_from("<H", buf, off)[0]
+                        struct.pack_into("<H", buf, off, _apply(v, y * width + x + k))
+                    x += count
+                    i += 1 + count * 2
+
+    _recolor_plane(buf1, read_row_table(data, header, 0))
     out = bytearray(data)
     out[buf1_off: buf1_off + header.buffer_sizes[0]] = buf1
+
+    # Buffer 5 is the SECOND COLOR PLANE and uses this same grammar: 257/257 of the icons
+    # that have one walk clean under it, every row covering exactly `width` pixels and
+    # consuming exactly table[y+1]-table[y] bytes. GetColorAt consults it wherever buffer 1
+    # decodes to 0, pairing it with buffer 4 as a one-byte-per-pixel alpha.
+    #
+    # This document and this module used to have 4 and 5 the other way round -- buffer 4
+    # called the color plane and 5 its alpha mask -- which is why extending the recolor to
+    # "buffer 4" never worked and why that extension was wrongly called mechanical. Read
+    # out of the binary: GetColorAt's fallback takes its opcodes and its 2-byte values from
+    # the buffer at object offset +0x34 (buffer 5, table at +0x38) and reads a single byte
+    # per pixel from +0x2c (buffer 4, table at +0x30) as the alpha, keeping the color only
+    # if that byte is non-zero.
+    if plane5 and header.buffer_sizes[4]:
+        off5 = buffer_data_offset(header, 4)
+        buf5 = bytearray(data[off5: off5 + header.buffer_sizes[4]])
+        _recolor_plane(buf5, read_row_table(data, header, 4))
+        out[off5: off5 + header.buffer_sizes[4]] = buf5
+
     return bytes(out)
 
 
