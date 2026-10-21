@@ -253,8 +253,14 @@ class EntityItem(QGraphicsPixmapItem):
         self._press_pos = None
 
     def mousePressEvent(self, event):
-        self._press_pos = (self.entity.x, self.entity.y)
         super().mousePressEvent(event)
+        # Qt drags every selected movable item, not only the one under the mouse, so
+        # remember where all of them started. Recording just this one left the rest
+        # of a multi-selection moved on screen but not in the saved map.
+        self._press_pos = {it: (it.entity.x, it.entity.y)
+                           for it in self.scene().selectedItems()
+                           if isinstance(it, EntityItem)}
+        self._press_pos.setdefault(self, (self.entity.x, self.entity.y))
 
     def mouseDoubleClickEvent(self, event):
         # Double-click opens this entity's dialogue. The obvious gesture, and it saves
@@ -268,11 +274,7 @@ class EntityItem(QGraphicsPixmapItem):
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
         if self._press_pos is not None:
-            old_x, old_y = self._press_pos
-            new_x = self.x() + self.info.hotspot_x
-            new_y = self.y() + self.info.hotspot_y
-            if round(new_x, 3) != round(old_x, 3) or round(new_y, 3) != round(old_y, 3):
-                self.window.push_move(self.entity, self, (old_x, old_y), (new_x, new_y))
+            self.window.commit_drag(self._press_pos)
             self._press_pos = None
 
 
@@ -437,6 +439,11 @@ class MapView(QGraphicsView):
     def __init__(self, scene: QGraphicsScene, window: "MainWindow"):
         super().__init__(scene)
         self.window = window
+        self._cycle_from = None      # (item, press view pos, item map pos) at press
+        self._cycle_at = None        # scene point a pending cycle steps through
+        self._cycle_timer = QTimer(self)
+        self._cycle_timer.setSingleShot(True)
+        self._cycle_timer.timeout.connect(self._do_cycle)
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setAcceptDrops(True)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
@@ -776,6 +783,24 @@ class MapView(QGraphicsView):
                 self.window.place_entity_at(scene_pos.x(), scene_pos.y(), snap=shift)
                 event.accept()
                 return
+
+            # Clicking where the one selected item is, without dragging, steps down to
+            # the item beneath it (see mouseReleaseEvent). The selection can be anywhere
+            # in the stack by then, so look through all of it, not just the top.
+            selected = [it for it in self.scene().selectedItems()
+                        if isinstance(it, EntityItem)]
+            self._cycle_from = None
+            if len(selected) == 1 and event.modifiers() == Qt.NoModifier:
+                current = selected[0]
+                stack = self.window.entities_at(scene_pos)
+                if current in stack:
+                    self._cycle_from = (current, event.position().toPoint(),
+                                        (current.entity.x, current.entity.y))
+                    if stack[0] is not current:
+                        # Qt would select the topmost item here and restart the cycle.
+                        # Keep the buried selection; it can be dragged once on top.
+                        event.accept()
+                        return
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -799,6 +824,45 @@ class MapView(QGraphicsView):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+        cycle, self._cycle_from = self._cycle_from, None
+        if cycle is not None and event.button() == Qt.LeftButton:
+            item, press_pos, press_xy = cycle
+            moved = (event.position().toPoint() - press_pos).manhattanLength()
+            if moved <= 3 and (item.entity.x, item.entity.y) == press_xy:
+                # Deferred by the double-click interval: a double-click opens the
+                # item's dialogue, and its first click must not have already moved
+                # the selection to whatever lies underneath.
+                self._cycle_at = self.mapToScene(press_pos)
+                self._cycle_timer.start(QApplication.doubleClickInterval())
+
+    def mouseDoubleClickEvent(self, event):
+        self._cycle_timer.stop()
+        super().mouseDoubleClickEvent(event)
+
+    def _do_cycle(self) -> None:
+        if self._cycle_at is not None:
+            self.window.select_next_in_stack(self._cycle_at)
+        self._cycle_at = None
+
+    def contextMenuEvent(self, event):
+        if self._paint_mode or self._run_mode:
+            return
+        scene_pos = self.mapToScene(event.pos())
+        stack = self.window.entities_at(scene_pos)
+        menu = QMenu(self)
+        if not stack:
+            menu.addAction("Nothing selectable here").setEnabled(False)
+        else:
+            menu.addSection(f"Select ({len(stack)} here, topmost first)")
+            layer_names = dict(LAYERS)
+            for it in stack:
+                ent = it.entity
+                label = ent.name.strip() or ent.model.rsplit("/", 1)[-1]
+                act = menu.addAction(f"{label}    \u2014 {layer_names[it.layer]}")
+                act.setCheckable(True)
+                act.setChecked(it.isSelected())
+                act.triggered.connect(lambda _=False, it=it: self.window.select_only(it))
+        menu.exec(event.globalPos())
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasText():
@@ -1698,6 +1762,22 @@ class MainWindow(QMainWindow):
     def push_move(self, entity, item, old, new):
         self.undo_stack.push(MoveEntityCommand(self, entity, item, old, new))
 
+    def commit_drag(self, start: dict) -> None:
+        """Write a finished drag back to the map: every item whose picture moved from
+        its recorded start, as one undo step."""
+        moves = []
+        for item, (old_x, old_y) in start.items():
+            new_x = item.x() + item.info.hotspot_x
+            new_y = item.y() + item.info.hotspot_y
+            if round(new_x, 3) != round(old_x, 3) or round(new_y, 3) != round(old_y, 3):
+                moves.append((item, (old_x, old_y), (new_x, new_y)))
+        if len(moves) > 1:
+            self.undo_stack.beginMacro(f"Move {len(moves)} entities")
+        for item, old, new in moves:
+            self.push_move(item.entity, item, old, new)
+        if len(moves) > 1:
+            self.undo_stack.endMacro()
+
     def select_item(self, item: EntityItem):
         # Laying a run pushes one Add per piece, and each would otherwise select and
         # centre on itself -- forty selection changes and forty view jumps for one drag,
@@ -2519,6 +2599,31 @@ class MainWindow(QMainWindow):
             if include_locked or it.flags() & QGraphicsItem.ItemIsSelectable:
                 return it
         return None
+
+    def entities_at(self, scene_pos) -> list:
+        """Every visible, selectable entity under `scene_pos`, topmost first."""
+        return [it for it in self.scene.items(scene_pos, Qt.IntersectsItemShape,
+                                              Qt.DescendingOrder, self.view.transform())
+                if isinstance(it, EntityItem) and it.isVisible()
+                and it.flags() & QGraphicsItem.ItemIsSelectable]
+
+    def select_only(self, item) -> None:
+        # Unlike select_item, does not recentre: you picked it from where you are looking.
+        self.scene.clearSelection()
+        item.setSelected(True)
+
+    def select_next_in_stack(self, scene_pos) -> None:
+        stack = self.entities_at(scene_pos)
+        current = [i for i, it in enumerate(stack) if it.isSelected()]
+        if len(stack) < 2 or len(current) != 1:
+            return
+        nxt = stack[(current[0] + 1) % len(stack)]
+        self.select_only(nxt)
+        ent = nxt.entity
+        self.statusBar().showMessage(
+            f"{current[0] + 2 if current[0] + 1 < len(stack) else 1} of {len(stack)} here: "
+            f"{ent.name.strip() or ent.model.rsplit('/', 1)[-1]}. Click again for the next; "
+            "right-click lists them all.", 5000)
 
     def set_layer_locked(self, layer: str, locked: bool, *, quiet: bool = False) -> None:
         if self.layer_locked.get(layer) == locked:

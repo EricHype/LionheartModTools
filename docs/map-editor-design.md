@@ -434,6 +434,25 @@ Right-click a row for Show only / Show all / Select all in the layer. **Show Mar
 each other in step both ways. Isolate still overrides everything while it is on.
 Layer state is per session.
 
+### Selecting through a stack
+
+**Right-click** lists every visible, selectable object under the cursor, topmost first,
+with its layer; pick one to select it. **Clicking the selection again** (no drag) steps
+to the object beneath it and wraps at the bottom. That step is deferred by the system
+double-click interval, because a double-click opens the item's dialogue and its first
+click must not already have moved the selection away. When the selection is buried, a
+click keeps it rather than letting Qt reselect the topmost item, which would restart the
+cycle every other click.
+
+Testing this offscreen: QTest stamps mouse events with its own clock, which `qWait`
+does not advance, so unspaced synthetic clicks arrive as double-clicks. Give each click
+an explicit delay.
+
+**Multi-selection drags** used to save only the item under the mouse. Qt moves every
+selected item, but only the grabbed one's release wrote its position back, so the rest
+moved on screen and not in the file. `commit_drag` now writes back every item that moved,
+as one undo step.
+
 ## Explicitly out of scope for v1
 
 - **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring
