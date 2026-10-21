@@ -1124,6 +1124,29 @@ class MainWindow(QMainWindow):
         terrain_dock.setWidget(terrain_widget)
         self.addDockWidget(Qt.RightDockWidgetArea, terrain_dock)
 
+        # Layers: one row per LAYERS entry, Show and Lock as checkable columns.
+        self.layer_tree = QTreeWidget()
+        self.layer_tree.setColumnCount(3)
+        self.layer_tree.setHeaderLabels(["Layer", "Show", "Lock"])
+        self.layer_tree.setRootIsDecorated(False)
+        self.layer_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.layer_tree.customContextMenuRequested.connect(self.on_layer_context_menu)
+        self._layer_rows: dict[str, QTreeWidgetItem] = {}
+        self._updating_layers = False
+        for key, label in LAYERS:
+            row = QTreeWidgetItem([label, "", ""])
+            row.setData(0, Qt.UserRole, key)
+            row.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            row.setCheckState(1, Qt.Checked)
+            row.setCheckState(2, Qt.Unchecked)
+            self.layer_tree.addTopLevelItem(row)
+            self._layer_rows[key] = row
+        self.layer_tree.resizeColumnToContents(0)
+        self.layer_tree.itemChanged.connect(self.on_layer_row_changed)
+        layer_dock = QDockWidget("Layers", self)
+        layer_dock.setWidget(self.layer_tree)
+        self.addDockWidget(Qt.RightDockWidgetArea, layer_dock)
+
         # Menus
         file_menu = self.menuBar().addMenu("&File")
         save_action = file_menu.addAction("&Save")
@@ -1907,8 +1930,9 @@ class MainWindow(QMainWindow):
         # run cursor can go from forbidden to crosshair purely as a result of an edit.
         self.view.update_run_cursor()
         # Adds, deletes and renames all land here, so this is the one place the entity
-        # list has to be kept in step with.
+        # list -- and the layer counts -- have to be kept in step with.
         self.refresh_entity_list()
+        self.refresh_layer_counts()
 
     def _refresh_issue_list(self):
         self.issue_list.clear()
@@ -1976,10 +2000,13 @@ class MainWindow(QMainWindow):
         self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
 
     def on_markers_toggled(self, shown: bool) -> None:
-        n = sum(1 for item in self.entity_items.values() if item.marker)
-        # Route through _apply_isolate so that toggling markers while isolate is on
-        # does not quietly bring the hidden scenery back.
-        self._apply_isolate()
+        # A shortcut over the layer panel: every layer except scenery.
+        if self._updating_layers:
+            return
+        for key, _ in LAYERS:
+            if key != "scenery":
+                self.set_layer_visible(key, shown, quiet=True)
+        n = sum(1 for item in self.entity_items.values() if item.layer != "scenery")
         self.statusBar().showMessage(
             f"{'Showing' if shown else 'Hiding'} {n} marker(s).", 4000)
 
@@ -2443,7 +2470,7 @@ class MainWindow(QMainWindow):
         if not self.layer_visible.get(item.layer, True):
             return False
         if item.marker:
-            return self.markers_action.isChecked()
+            return True     # Visible=0 is for the game; markers are what we want to see
         return (item.entity.node.get("Visible") or "1") != "0"
 
     def depth_for(self, item) -> float:
@@ -2493,17 +2520,101 @@ class MainWindow(QMainWindow):
                 return it
         return None
 
-    def set_layer_locked(self, layer: str, locked: bool) -> None:
+    def set_layer_locked(self, layer: str, locked: bool, *, quiet: bool = False) -> None:
         if self.layer_locked.get(layer) == locked:
             return
         self.layer_locked[layer] = locked
         if layer == "scenery" and self.lock_scenery_action.isChecked() != locked:
             self.lock_scenery_action.setChecked(locked)     # re-enters, returns above
+        self._sync_layer_controls()
         self.refresh_all_items()
-        label = dict(LAYERS)[layer]
+        if not quiet:
+            label = dict(LAYERS)[layer]
+            self.statusBar().showMessage(
+                f"{label} {'locked: visible, but clicks pass through' if locked else 'unlocked'}.",
+                4000)
+
+    def set_layer_visible(self, layer: str, visible: bool, *, quiet: bool = False) -> None:
+        if self.layer_visible.get(layer) == visible:
+            return
+        self.layer_visible[layer] = visible
+        self._sync_layer_controls()
+        self.refresh_all_items()
+        if not quiet:
+            self.statusBar().showMessage(
+                f"{dict(LAYERS)[layer]} {'shown' if visible else 'hidden'}.", 3000)
+
+    def _sync_layer_controls(self) -> None:
+        """Make the panel's checkboxes and the View menu agree with the layer state."""
+        self._updating_layers = True
+        try:
+            for key, row in self._layer_rows.items():
+                row.setCheckState(1, Qt.Checked if self.layer_visible[key] else Qt.Unchecked)
+                row.setCheckState(2, Qt.Checked if self.layer_locked[key] else Qt.Unchecked)
+            markers = all(self.layer_visible[k] for k, _ in LAYERS if k != "scenery")
+            self.markers_action.setChecked(markers)
+        finally:
+            self._updating_layers = False
+
+    def on_layer_row_changed(self, row: QTreeWidgetItem, column: int) -> None:
+        if self._updating_layers:
+            return
+        key = row.data(0, Qt.UserRole)
+        if column == 1:
+            self.set_layer_visible(key, row.checkState(1) == Qt.Checked)
+        elif column == 2:
+            self.set_layer_locked(key, row.checkState(2) == Qt.Checked)
+
+    def refresh_layer_counts(self) -> None:
+        # Counted from the document, not the scene, so layers with nothing drawn
+        # (areas, sprites that failed to load) still say what is there.
+        counts = {key: 0 for key, _ in LAYERS}
+        for ent in self.doc.entities():
+            counts[entity_layer(ent)] += 1
+        self._updating_layers = True
+        try:
+            for key, label in LAYERS:
+                self._layer_rows[key].setText(0, f"{label} ({counts[key]})")
+        finally:
+            self._updating_layers = False
+
+    def on_layer_context_menu(self, pos) -> None:
+        row = self.layer_tree.itemAt(pos)
+        if row is None:
+            return
+        key = row.data(0, Qt.UserRole)
+        label = dict(LAYERS)[key]
+        menu = QMenu(self)
+        only = menu.addAction(f"Show only {label}")
+        everything = menu.addAction("Show all layers")
+        menu.addSeparator()
+        select = menu.addAction(f"Select all in {label}")
+        chosen = menu.exec(self.layer_tree.viewport().mapToGlobal(pos))
+        if chosen is only:
+            for k, _ in LAYERS:
+                self.set_layer_visible(k, k == key, quiet=True)
+            self.statusBar().showMessage(f"Showing only {label}.", 3000)
+        elif chosen is everything:
+            for k, _ in LAYERS:
+                self.set_layer_visible(k, True, quiet=True)
+            self.statusBar().showMessage("Showing all layers.", 3000)
+        elif chosen is select:
+            self.select_layer(key)
+
+    def select_layer(self, key: str) -> None:
+        if not self.layer_visible[key]:
+            self.set_layer_visible(key, True, quiet=True)
+        self.scene.clearSelection()
+        picked = [it for it in self.entity_items.values()
+                  if it.layer == key and it.isVisible()
+                  and it.flags() & QGraphicsItem.ItemIsSelectable]
+        for it in picked:
+            it.setSelected(True)
+        why = ""
+        if not picked and self.layer_locked[key]:
+            why = " -- the layer is locked"
         self.statusBar().showMessage(
-            f"{label} {'locked: visible, but clicks pass through' if locked else 'unlocked'}.",
-            4000)
+            f"Selected {len(picked)} in {dict(LAYERS)[key]}{why}.", 4000)
 
     def refresh_all_items(self) -> None:
         for item in self.entity_items.values():

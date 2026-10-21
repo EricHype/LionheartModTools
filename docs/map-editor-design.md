@@ -425,6 +425,15 @@ circles. Since the terrain covers the whole map, "nothing under the cursor" was 
 true over ground, and **click-to-place had never fired on any map with terrain** -- only
 drag-and-drop placed things.
 
+### The Layers panel
+
+One row per layer with Show and Lock boxes and a count. Counts come from the document,
+not the scene, so a layer whose objects are not drawn still says what is there.
+Right-click a row for Show only / Show all / Select all in the layer. **Show Markers**
+(M) is now a shortcut over every layer except scenery, and the panel and View menu keep
+each other in step both ways. Isolate still overrides everything while it is on.
+Layer state is per session.
+
 ## Explicitly out of scope for v1
 
 - **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring
