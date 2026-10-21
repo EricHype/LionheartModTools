@@ -481,6 +481,11 @@ class MapDocument:
         if not isinstance(tree, ResourceNode):
             raise ValueError(f"{self.path.name}: no 'Tree List' -- not a level file?")
         self.tree = tree
+        # The layout as opened. Overlap checking exempts pairs that were both already
+        # placed like this: a shipped cave is built from overlapping pieces (the Animal Den
+        # opened with 281 "errors", none of them the author's), and what the check is for
+        # is the object *you* just dropped into a rock.
+        self.baseline = {(e.model, e.x, e.y) for e in self.entities()}
 
     # -- geometry ---------------------------------------------------------
 
@@ -765,6 +770,9 @@ def validate(doc: MapDocument, cat: SpriteCatalogue, *,
             # share a hotspot. The group is checked against everything else.
             group_a = doc.groups.get(id(ent_a.node))
             if group_a is not None and group_a == doc.groups.get(id(ent_b.node)):
+                continue
+            baseline = getattr(doc, "baseline", None)
+            if baseline is not None and (ent_a.model, ent_a.x, ent_a.y) in baseline                     and (ent_b.model, ent_b.x, ent_b.y) in baseline:
                 continue
             need = info_a.radius + info_b.radius + margin
             dist = math.hypot(ent_a.x - ent_b.x, ent_a.y - ent_b.y)
