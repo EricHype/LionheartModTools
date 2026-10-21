@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
     QGraphicsSimpleTextItem, QAbstractSpinBox, QProgressBar,
-    QDialogButtonBox, QInputDialog,
+    QDialogButtonBox, QInputDialog, QMenu,
 )
 
 import zax_render as zr
@@ -43,6 +43,9 @@ from script_schema import dialog_refs, dialog_ref_to_relpath
 from dialogedit import DialogWindow
 from resource_format import ResourceNode
 from mapedit_script import ScriptDock
+from mapedit_prefabs import (
+    Prefab, prefab_from_nodes, load_library, save_library, VANILLA_LIBRARY, USER_LIBRARY,
+)
 
 DEFAULT_DATA_ROOT = (
     r"C:\Program Files (x86)\GOG Galaxy\Games\Lionheart - Legacy of the Crusader\data"
@@ -402,6 +405,9 @@ class PaletteTree(QTreeWidget):
 # Map view (click-to-place, drag-drop-to-place, otherwise normal QGraphicsView)
 # ---------------------------------------------------------------------------
 
+PREFAB_PREFIX = "prefab:"   # palette leaf data for a prefab; no model path starts so
+
+
 class MapView(QGraphicsView):
     # A 4096x960 map does not fit on screen at 1:1, so zooming out far enough to see the
     # whole thing matters more here than zooming in. Lower bound is generous for that.
@@ -737,6 +743,11 @@ class MapView(QGraphicsView):
                 event.accept()
                 return
 
+            if self.window.selected_prefab is not None and item is None:
+                self.window.place_prefab_at(scene_pos.x(), scene_pos.y(),
+                                            self.window.selected_prefab)
+                event.accept()
+                return
             if self.window.selected_palette_model and item is None:
                 shift = bool(event.modifiers() & Qt.ShiftModifier)
                 self.window.place_entity_at(scene_pos.x(), scene_pos.y(), snap=shift)
@@ -778,7 +789,12 @@ class MapView(QGraphicsView):
         model = event.mimeData().text()
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
         scene_pos = self.mapToScene(pos)
-        if model:
+        if model.startswith(PREFAB_PREFIX):
+            prefab = self.window.prefabs.get(model[len(PREFAB_PREFIX):])
+            if prefab is not None:
+                self.window.place_prefab_at(scene_pos.x(), scene_pos.y(), prefab)
+                event.acceptProposedAction()
+        elif model:
             self.window.place_entity_at(scene_pos.x(), scene_pos.y(), model=model)
             event.acceptProposedAction()
 
@@ -822,6 +838,9 @@ class MainWindow(QMainWindow):
         self.focused_node_id = None
         self.issues = []
         self.selected_palette_model: str | None = None
+        self.selected_prefab: Prefab | None = None   # set instead of the model, never both
+        self.prefabs: dict[str, Prefab] = {}
+        self._prefab_root: QTreeWidgetItem | None = None
         self.last_placed_by_model: dict[str, tuple[float, float]] = {}
         # Wall run state
         self._run_preview_items: list[QGraphicsPixmapItem] = []
@@ -933,6 +952,8 @@ class MainWindow(QMainWindow):
         self.palette_tree.setHeaderHidden(True)
         self.palette_tree.setDragEnabled(True)
         self.palette_tree.itemSelectionChanged.connect(self.on_palette_selection_changed)
+        self.palette_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.palette_tree.customContextMenuRequested.connect(self.on_palette_context_menu)
         palette_layout.addWidget(self.palette_tree, stretch=1)
 
         self.preview_label = QLabel("(no preview)")
@@ -1099,6 +1120,10 @@ class MainWindow(QMainWindow):
         paste_action.setStatusTip(
             "Paste the copied entities at the mouse cursor (or beside the originals)")
         paste_action.triggered.connect(self.paste_entities)
+        prefab_action = edit_menu.addAction("Save Selection as P&refab...")
+        prefab_action.setStatusTip(
+            "Store the selected entities as one placeable group in the palette's Prefabs")
+        prefab_action.triggered.connect(self.save_selection_as_prefab)
         edit_menu.addSeparator()
         find_action = edit_menu.addAction("&Find Entity...")
         find_action.setShortcut(QKeySequence.Find)
@@ -1180,6 +1205,7 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.zoom_label)
 
     def _populate_palette(self):
+        self._populate_prefabs()
         self.models = self.cat.list_models()
         group_cache: dict[tuple, QTreeWidgetItem] = {}
         for model in self.models:
@@ -1220,6 +1246,67 @@ class MainWindow(QMainWindow):
                 parent.addChild(leaf)
             self._palette_leaf_items.append(leaf)
 
+    def _populate_prefabs(self, select_key: str | None = None) -> None:
+        """(Re)build the Prefabs branch of the palette from both libraries. It goes
+        first, above the 4787 raw sprites, since it is what a room is built from."""
+        vanilla = load_library(VANILLA_LIBRARY, builtin=True)
+        try:
+            user = load_library(USER_LIBRARY, builtin=False)
+        except (OSError, ValueError, KeyError) as exc:
+            # A hand-edited or half-written file must not stop the editor opening.
+            user = []
+            self.statusBar().showMessage(f"Could not read {USER_LIBRARY}: {exc}", 10000)
+        self.prefabs = {p.key: p for p in vanilla + user}
+
+        if self._prefab_root is not None:
+            stale = set()
+            stack = [self._prefab_root]
+            while stack:
+                it = stack.pop()
+                stale.add(id(it))
+                stack.extend(it.child(i) for i in range(it.childCount()))
+            self._palette_leaf_items = [leaf for leaf in self._palette_leaf_items
+                                        if id(leaf) not in stale]
+            self.palette_tree.takeTopLevelItem(
+                self.palette_tree.indexOfTopLevelItem(self._prefab_root))
+        root = self._prefab_root = QTreeWidgetItem(["\u2605 Prefabs"])
+        self.palette_tree.insertTopLevelItem(0, root)
+        mine = QTreeWidgetItem(["My prefabs"])
+        shipped = QTreeWidgetItem(["From the shipped maps"])
+        root.addChildren([mine, shipped])
+        groups: dict[str, QTreeWidgetItem] = {}
+        selected = None
+        for prefab in self.prefabs.values():
+            parent = mine
+            if prefab.builtin:
+                parent = groups.get(prefab.folder)
+                if parent is None:
+                    parent = groups[prefab.folder] = QTreeWidgetItem([prefab.folder])
+                    shipped.addChild(parent)
+            label = prefab.name + (f"   [x{prefab.seen}]" if prefab.seen else "")
+            leaf = QTreeWidgetItem([label])
+            leaf.setData(0, Qt.UserRole, PREFAB_PREFIX + prefab.key)
+            leaf.setForeground(0, QBrush(QColor(150, 190, 240)))
+            parts = "\n".join(
+                f"  {n.get('Model')}" + (f"  ({dx:+},{dy:+})" if dx or dy else "")
+                for dx, dy, n in prefab.pieces)
+            where = (f"Used {prefab.seen} times in the shipped maps." if prefab.builtin
+                     else f"Yours; stored in {USER_LIBRARY}. Right-click to delete.")
+            leaf.setToolTip(0, f"{len(prefab.pieces)} pieces:\n{parts}\n{where}")
+            parent.addChild(leaf)
+            self._palette_leaf_items.append(leaf)
+            if prefab.key == select_key:
+                selected = leaf
+        if not mine.childCount():
+            hint = QTreeWidgetItem(["(select entities, then Edit > Save Selection as Prefab)"])
+            hint.setDisabled(True)
+            mine.addChild(hint)
+        root.setExpanded(True)
+        mine.setExpanded(True)
+        if selected is not None:
+            self.palette_tree.setCurrentItem(selected)
+            self.palette_tree.scrollToItem(selected)
+
     def apply_filter(self):
         text = self.filter_edit.text().strip().lower()
         for leaf in self._palette_leaf_items:
@@ -1246,6 +1333,18 @@ class MainWindow(QMainWindow):
     def on_palette_selection_changed(self):
         items = self.palette_tree.selectedItems()
         model = items[0].data(0, Qt.UserRole) if items else None
+        self.selected_prefab = None
+        if model and model.startswith(PREFAB_PREFIX):
+            self.selected_palette_model = None
+            self.selected_prefab = self.prefabs.get(model[len(PREFAB_PREFIX):])
+            pm = self.prefab_pixmap(self.selected_prefab) if self.selected_prefab else None
+            if pm is not None:
+                self.preview_label.setPixmap(
+                    pm.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                self.preview_label.setPixmap(QPixmap())
+                self.preview_label.setText("(no preview)")
+            return
         self.selected_palette_model = model
         if model is None:
             self.preview_label.setText("(no preview)")
@@ -1258,6 +1357,86 @@ class MainWindow(QMainWindow):
         else:
             self.preview_label.setText("(no preview)")
         self._show_tiling_status(model)
+
+    # -- prefabs ----------------------------------------------------------------
+
+    def prefab_pixmap(self, prefab: Prefab) -> QPixmap | None:
+        """The group composited as it will be placed, pieces drawn in file order."""
+        parts = []
+        for dx, dy, node in prefab.pieces:
+            model = node.get("Model") or ""
+            info, pm = self.cat.info(model), self.make_pixmap(model)
+            if info is not None and pm is not None and not pm.isNull():
+                parts.append((dx - info.hotspot_x, dy - info.hotspot_y, pm))
+        if not parts:
+            return None
+        x0 = min(x for x, _, _ in parts)
+        y0 = min(y for _, y, _ in parts)
+        x1 = max(x + pm.width() for x, _, pm in parts)
+        y1 = max(y + pm.height() for _, y, pm in parts)
+        out = QPixmap(int(x1 - x0), int(y1 - y0))
+        out.fill(Qt.transparent)
+        painter = QPainter(out)
+        for x, y, pm in parts:
+            painter.drawPixmap(int(x - x0), int(y - y0), pm)
+        painter.end()
+        return out
+
+    def place_prefab_at(self, x: float, y: float, prefab: Prefab) -> None:
+        x, y = round(x), round(y)
+        self._add_copies([(n, x + dx, y + dy) for dx, dy, n in prefab.pieces],
+                         f"Place {prefab.name}")
+        self.statusBar().showMessage(
+            f"Placed {prefab.name} ({len(prefab.pieces)} pieces). "
+            f"Ctrl+Z removes the whole group.", 5000)
+
+    def save_selection_as_prefab(self) -> None:
+        items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
+        if not items:
+            self.statusBar().showMessage(
+                "Select the entities to save first (drag a box around them).", 5000)
+            return
+        default = " + ".join(it.entity.model.rsplit("/", 1)[-1] for it in items[:3])
+        name, ok = QInputDialog.getText(
+            self, "Save prefab", f"Name for this {len(items)}-piece prefab:", text=default)
+        name = name.strip()
+        if not ok or not name:
+            return
+        user = [p for p in self.prefabs.values() if not p.builtin]
+        if any(p.name == name for p in user):
+            if QMessageBox.question(self, "Save prefab", f'Replace your prefab "{name}"?'
+                                    ) != QMessageBox.Yes:
+                return
+            user = [p for p in user if p.name != name]
+        prefab = prefab_from_nodes(name, [it.entity.node for it in items])
+        try:
+            save_library(USER_LIBRARY, user + [prefab])
+        except OSError as exc:
+            QMessageBox.warning(self, "Save prefab", f"Could not write {USER_LIBRARY}:\n{exc}")
+            return
+        self._populate_prefabs(select_key=prefab.key)
+        self.statusBar().showMessage(
+            f'Saved prefab "{name}" ({len(items)} pieces) to the palette.', 5000)
+
+    def on_palette_context_menu(self, pos) -> None:
+        leaf = self.palette_tree.itemAt(pos)
+        data = leaf.data(0, Qt.UserRole) if leaf is not None else None
+        prefab = (self.prefabs.get(data[len(PREFAB_PREFIX):])
+                  if data and data.startswith(PREFAB_PREFIX) else None)
+        if prefab is None or prefab.builtin:
+            return
+        menu = QMenu(self)
+        delete = menu.addAction(f'Delete prefab "{prefab.name}"')
+        if menu.exec(self.palette_tree.viewport().mapToGlobal(pos)) is not delete:
+            return
+        user = [p for p in self.prefabs.values() if not p.builtin and p.key != prefab.key]
+        try:
+            save_library(USER_LIBRARY, user)
+        except OSError as exc:
+            QMessageBox.warning(self, "Delete prefab", f"Could not write {USER_LIBRARY}:\n{exc}")
+            return
+        self.selected_prefab = None
+        self._populate_prefabs()
 
     # -- placement / snapping ------------------------------------------------
 
@@ -1487,6 +1666,30 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Copied {len(items)} entit{'y' if len(items) == 1 else 'ies'}.", 3000)
 
+    def _add_copies(self, placements, label: str) -> list:
+        """Clone each (node, x, y) into the map as one undo step and select the result.
+        The pieces are marked as one group so they are not reported overlapping each
+        other: stacked on one point is how a door or a lit wall is built."""
+        self._suppress_autoselect = True
+        try:
+            self.undo_stack.beginMacro(label)
+            cmds = []
+            for node, x, y in placements:
+                cmd = AddEntityCommand(self, node.get("Model") or "", x, y, source=node)
+                self.undo_stack.push(cmd)
+                cmds.append(cmd)
+            self.undo_stack.endMacro()
+        finally:
+            self._suppress_autoselect = False
+        if len(cmds) > 1:
+            self.doc.group_together([c.entity for c in cmds])
+            self.schedule_validate()
+        self.scene.clearSelection()
+        for cmd in cmds:
+            if cmd.item is not None:
+                cmd.item.setSelected(True)
+        return cmds
+
     def paste_entities(self):
         if self._text_has_focus() or not self._entity_clipboard:
             return
@@ -1505,22 +1708,10 @@ class MainWindow(QMainWindow):
             dx = dy = 32 * self._paste_count
 
         n = len(self._entity_clipboard)
-        self._suppress_autoselect = True
-        try:
-            self.undo_stack.beginMacro(f"Paste {n} entit{'y' if n == 1 else 'ies'}")
-            cmds = []
-            for node, x, y in zip(self._entity_clipboard, xs, ys):
-                cmd = AddEntityCommand(self, node.get("Model") or "",
-                                       round(x + dx), round(y + dy), source=node)
-                self.undo_stack.push(cmd)
-                cmds.append(cmd)
-            self.undo_stack.endMacro()
-        finally:
-            self._suppress_autoselect = False
-        self.scene.clearSelection()
-        for cmd in cmds:
-            if cmd.item is not None:
-                cmd.item.setSelected(True)
+        cmds = self._add_copies(
+            [(node, round(x + dx), round(y + dy))
+             for node, x, y in zip(self._entity_clipboard, xs, ys)],
+            f"Paste {n} entit{'y' if n == 1 else 'ies'}")
         named = [c.entity.name for c in cmds if c.entity.name]
         msg = f"Pasted {n} entit{'y' if n == 1 else 'ies'}."
         if named:

@@ -367,6 +367,9 @@ class MapDocument:
         self._raw = self.path.read_bytes()
         self.root = parse_resource_text(self._raw.decode("latin-1"))
         self.dirty = False
+        # id(node) -> group number, for entities placed together as one object (a
+        # prefab, a pasted group). Session-only: on reopen the baseline covers them.
+        self.groups: dict[int, int] = {}
 
         tree = self.root.get("Tree List")
         if not isinstance(tree, ResourceNode):
@@ -427,6 +430,11 @@ class MapDocument:
         entity.move_to(x, y)
         self.dirty = True
         return entity
+
+    def group_together(self, entities: list[Entity]) -> None:
+        gid = max(self.groups.values(), default=0) + 1
+        for ent in entities:
+            self.groups[id(ent.node)] = gid
 
     def remove_entity(self, entity: Entity) -> None:
         for i, (key, value) in enumerate(self.tree.fields):
@@ -646,6 +654,11 @@ def validate(doc: MapDocument, cat: SpriteCatalogue, *,
             if info_b is None:
                 continue
             if tiles(info_a.model) and tiles(info_b.model):
+                continue
+            # Pieces of one prefab are meant to overlap: a door's legs and lintel
+            # share a hotspot. The group is checked against everything else.
+            group_a = doc.groups.get(id(ent_a.node))
+            if group_a is not None and group_a == doc.groups.get(id(ent_b.node)):
                 continue
             need = info_a.radius + info_b.radius + margin
             dist = math.hypot(ent_a.x - ent_b.x, ent_a.y - ent_b.y)
