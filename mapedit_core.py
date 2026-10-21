@@ -342,6 +342,36 @@ class Entity:
     def set_field(self, key: str, value: str) -> None:
         self.node.set(key, value)
 
+    # -- anchor: one position for every kind of object -------------------------
+    #
+    # Sprites have Position X/Y. Areas -- CFreeRangePoly, CRenderablePolygon,
+    # CWayPointsPolygon -- have no position at all, only a `Polygon=` vertex list. The
+    # anchor is the position for the first and the vertex centroid for the second, so
+    # moving, pasting and the properties panel need not care which they hold.
+
+    @property
+    def polygon(self) -> list[tuple[float, float]] | None:
+        return parse_polygon(self.node.get("Polygon"))
+
+    def set_polygon(self, points: list[tuple[float, float]]) -> None:
+        self.node.set("Polygon", ", ".join(f"{_num(x)}, {_num(y)}" for x, y in points))
+
+    @property
+    def anchor(self) -> tuple[float, float]:
+        return node_anchor(self.node)
+
+    def move_anchor_to(self, x: float, y: float) -> None:
+        if self.node.get("Position X") is None:
+            pts = self.polygon
+            if pts:
+                ax, ay = self.anchor
+                # Whole units: a drag at fractional zoom would otherwise smear every
+                # vertex's decimals ("1312.67" -> "1342.92"), noise in any diff.
+                dx, dy = round(x - ax), round(y - ay)
+                self.set_polygon([(px + dx, py + dy) for px, py in pts])
+                return
+        self.move_to(x, y)
+
     def is_scenery(self) -> bool:
         """True for plain placeable art, as opposed to spawners, doors, triggers."""
         model = self.model
@@ -386,14 +416,14 @@ def entity_layer(entity: Entity) -> str:
     """Which LAYERS key `entity` belongs to. First matching rule wins, so a chest that
     carries loot is Loot, not Scenery, and a Secret Icon is Loot, not Effects."""
     node, model = entity.node, entity.model
-    if not model and node.type_name in _POLYGON_TYPES:
-        return "areas"
     activity = node.get("Activity")
     has_activity = isinstance(activity, ResourceNode)
     if (model.endswith("/Secret Icon") or model.startswith("Items/")
             or "/Chest" in model
             or (has_activity and _contains_type(activity, ("CInventoryItemGenerator",)))):
-        return "loot"
+        return "loot"       # includes 73 loot-carrying polygons, which have no sprite
+    if not model and node.type_name in _POLYGON_TYPES:
+        return "areas"
     # Not by CEntityWalking/Flying: those also carry moving scenery (Editor/Landscape,
     # Calle Perdida's floating islands), which is not what you go looking for here.
     if (model.startswith("Characters/")
@@ -408,6 +438,31 @@ def entity_layer(entity: Entity) -> str:
 
 def _num(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else f"{v:g}"
+
+
+def parse_polygon(value) -> list[tuple[float, float]] | None:
+    """`Polygon=` as (x, y) pairs, or None. Shipped polygons repeat the first vertex
+    last to close the ring (all but 6 waypoint paths); that is kept as written."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        nums = [float(v) for v in value.split(",") if v.strip()]
+    except ValueError:
+        return None
+    if len(nums) < 4 or len(nums) % 2:
+        return None
+    return list(zip(nums[0::2], nums[1::2]))
+
+
+def node_anchor(node: ResourceNode) -> tuple[float, float]:
+    """Position X/Y if the node has them, else its polygon's vertex centroid."""
+    if node.get("Position X") is not None:
+        return float(node.get("Position X") or 0), float(node.get("Position Y") or 0)
+    pts = parse_polygon(node.get("Polygon"))
+    if pts:
+        ring = pts[:-1] if len(pts) > 1 and pts[0] == pts[-1] else pts
+        return (sum(x for x, _ in ring) / len(ring), sum(y for _, y in ring) / len(ring))
+    return 0.0, 0.0
 
 
 class MapDocument:
@@ -478,7 +533,7 @@ class MapDocument:
         node = copy.deepcopy(source)
         self.tree.fields.append(("Level Part", node))
         entity = Entity(node, len(self.tree.fields) - 1)
-        entity.move_to(x, y)
+        entity.move_anchor_to(x, y)
         self.dirty = True
         return entity
 

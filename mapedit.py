@@ -21,11 +21,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QMimeData, QProcess, QPointF, QSize, QRectF
 from PySide6.QtGui import (
     QImage, QPixmap, QColor, QBrush, QPen, QUndoStack, QUndoCommand, QKeySequence,
-    QCursor, QPainter, QIcon,
+    QCursor, QPainter, QIcon, QPainterPath, QPainterPathStroker,
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
     QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsItem, QDockWidget, QWidget,
+    QGraphicsPathItem,
     QVBoxLayout, QFormLayout,
     QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
@@ -37,7 +38,7 @@ import zax_render as zr
 from mapedit_core import (
     MapDocument, SpriteCatalogue, validate, tiling_vector, known_non_tiling,
     TerrainLayer, GRID_CELL, plan_wall_run, MAX_RUN_PIECES,
-    learn_vector_from_map, entity_layer, LAYERS,
+    learn_vector_from_map, entity_layer, LAYERS, node_anchor,
 )
 from script_schema import dialog_refs, dialog_ref_to_relpath
 from dialogedit import DialogWindow
@@ -252,15 +253,16 @@ class EntityItem(QGraphicsPixmapItem):
             self._label = None
         self._press_pos = None
 
+    def sync_from_entity(self) -> None:
+        self.setPos(self.entity.x - self.info.hotspot_x, self.entity.y - self.info.hotspot_y)
+
+    def dragged_anchor(self) -> tuple[float, float]:
+        """Where the entity's anchor is now, given where Qt has dragged the item."""
+        return self.x() + self.info.hotspot_x, self.y() + self.info.hotspot_y
+
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        # Qt drags every selected movable item, not only the one under the mouse, so
-        # remember where all of them started. Recording just this one left the rest
-        # of a multi-selection moved on screen but not in the saved map.
-        self._press_pos = {it: (it.entity.x, it.entity.y)
-                           for it in self.scene().selectedItems()
-                           if isinstance(it, EntityItem)}
-        self._press_pos.setdefault(self, (self.entity.x, self.entity.y))
+        self._press_pos = drag_start(self)
 
     def mouseDoubleClickEvent(self, event):
         # Double-click opens this entity's dialogue. The obvious gesture, and it saves
@@ -278,6 +280,112 @@ class EntityItem(QGraphicsPixmapItem):
             self._press_pos = None
 
 
+def drag_start(grabbed) -> dict:
+    """Anchors of every selected item at the start of a drag. Qt drags every selected
+    movable item, not only the one under the mouse; recording just that one left the
+    rest of a multi-selection moved on screen but not in the saved map."""
+    start = {it: it.entity.anchor for it in grabbed.scene().selectedItems()
+             if isinstance(it, MAP_ITEM_TYPES)}
+    start.setdefault(grabbed, grabbed.entity.anchor)
+    return start
+
+
+# Area outlines, by class. What each class does in-game is not established here, so
+# the editor names them by class rather than guessing "walkable" or "trigger".
+AREA_COLOURS = {
+    "CFreeRangePoly": QColor(120, 220, 120),
+    "CRenderablePolygon": QColor(240, 170, 80),
+    "CWayPointsPolygon": QColor(110, 200, 240),
+}
+LOOT_AREA_COLOUR = QColor(255, 110, 200)
+AREA_HIT_PX = 8        # how close, in screen pixels, a click must be to an outline
+
+
+class PolygonItem(QGraphicsPathItem):
+    """A positionless object drawn from its `Polygon=` vertex list: CFreeRangePoly,
+    CRenderablePolygon, CWayPointsPolygon -- ~9,100 in the shipped maps, 73 of them
+    carrying loot, none drawn before.
+
+    Clicks hit the *outline* only (shape() is a stroke, not the fill), or a walkable
+    area spanning a room would swallow every click inside it. Dragging shifts every
+    vertex; vertex editing is not offered.
+    """
+    marker = True       # editor reference, like Editor/* markers: shown regardless of Visible
+    info = None
+
+    def __init__(self, entity, window: "MainWindow"):
+        super().__init__()
+        self.entity = entity
+        self.window = window
+        self.layer = entity_layer(entity)
+        colour = (LOOT_AREA_COLOUR if self.layer == "loot"
+                  else AREA_COLOURS.get(entity.node.type_name, QColor(200, 200, 200)))
+        pen = QPen(colour, 2)
+        pen.setCosmetic(True)           # constant thickness at any zoom
+        self.setPen(pen)
+        fill = QColor(colour)
+        fill.setAlpha(45 if self.layer == "loot" else 18)
+        self.setBrush(QBrush(fill))
+        self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
+        self._hit = float(AREA_HIT_PX)
+        self._press_pos = None
+        self.sync_from_entity()
+        name = entity.name.strip()
+        self.setToolTip(f"{entity.node.type_name}" + (f"  \"{name}\"" if name else "")
+                        + f"\n{len(entity.polygon or [])} vertices")
+
+    def sync_from_entity(self) -> None:
+        pts = self.entity.polygon or []
+        path = QPainterPath()
+        if pts:
+            path.moveTo(*pts[0])
+            for x, y in pts[1:]:
+                path.lineTo(x, y)
+            if pts[0] == pts[-1]:
+                path.closeSubpath()     # 6 shipped waypoint paths are open; keep them so
+        self.prepareGeometryChange()
+        self.setPath(path)
+        self.setPos(0, 0)               # vertices are absolute; a drag offsets pos
+
+    def dragged_anchor(self) -> tuple[float, float]:
+        ax, ay = self.entity.anchor
+        return ax + self.x(), ay + self.y()
+
+    def set_hit_width(self, scene_units: float) -> None:
+        if scene_units != self._hit:
+            self.prepareGeometryChange()
+            self._hit = scene_units
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self._hit)
+        return stroker.createStroke(self.path())
+
+    def boundingRect(self) -> QRectF:
+        m = self._hit / 2
+        return self.path().boundingRect().adjusted(-m, -m, m, m)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self._press_pos = drag_start(self)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.window.open_dialogue_for(self.entity)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if self._press_pos is not None:
+            self.window.commit_drag(self._press_pos)
+            self._press_pos = None
+
+
+MAP_ITEM_TYPES = (EntityItem, PolygonItem)
+
+
 # ---------------------------------------------------------------------------
 # Undo commands
 # ---------------------------------------------------------------------------
@@ -293,8 +401,8 @@ class MoveEntityCommand(QUndoCommand):
         self.new = new
 
     def _apply(self, x, y):
-        self.entity.move_to(x, y)
-        self.item.setPos(x - self.item.info.hotspot_x, y - self.item.info.hotspot_y)
+        self.entity.move_anchor_to(x, y)
+        self.item.sync_from_entity()
         self.item.setZValue(self.window.depth_for(self.item))
         self.window.doc.dirty = True
         self.window.schedule_validate()
@@ -425,6 +533,10 @@ class PaletteTree(QTreeWidget):
 # Added to the depth of everything but scenery while Markers on Top is on. Map y tops
 # out in the low thousands; the highlight ring sits at 1e9, above this.
 MARKER_DEPTH = 1e6
+
+# What Show Markers (M) toggles: every layer of point markers. Not scenery, and not
+# areas, which start hidden and have their own row in the Layers panel.
+MARKER_LAYERS = ("loot", "characters", "logic", "effects")
 
 PREFAB_PREFIX = "prefab:"   # palette leaf data for a prefab; no model path starts so
 
@@ -765,7 +877,7 @@ class MapView(QGraphicsView):
             # without needing a modifier held.
             if self.window.eyedropper_active(event.modifiers()):
                 item = self.window.entity_at(scene_pos, include_locked=True)
-                if isinstance(item, EntityItem):
+                if isinstance(item, EntityItem) and item.entity.model:
                     self.window.pick_model(item.entity.model)
                 else:
                     self.window.statusBar().showMessage(
@@ -788,7 +900,7 @@ class MapView(QGraphicsView):
             # the item beneath it (see mouseReleaseEvent). The selection can be anywhere
             # in the stack by then, so look through all of it, not just the top.
             selected = [it for it in self.scene().selectedItems()
-                        if isinstance(it, EntityItem)]
+                        if isinstance(it, MAP_ITEM_TYPES)]
             self._cycle_from = None
             if len(selected) == 1 and event.modifiers() == Qt.NoModifier:
                 current = selected[0]
@@ -926,7 +1038,8 @@ class MainWindow(QMainWindow):
         self.focused_node_id = None
         # Per-layer toggles (LAYERS keys), and whether a tool -- terrain paint, pan,
         # wall run -- has switched entity interaction off. refresh_item combines them.
-        self.layer_visible = {key: True for key, _ in LAYERS}
+        # Areas start hidden: ~45 outlines per map is clutter until you want them.
+        self.layer_visible = {key: key != "areas" for key, _ in LAYERS}
         self.layer_locked = {key: False for key, _ in LAYERS}
         self._entities_interactive = True
         self.issues = []
@@ -1016,7 +1129,12 @@ class MainWindow(QMainWindow):
         self.pixmap_cache[model] = pm
         return pm
 
-    def create_item(self, entity, *, marker: bool = False) -> EntityItem | None:
+    def create_item(self, entity, *, marker: bool = False):
+        if not entity.model and entity.polygon:
+            item = PolygonItem(entity, self)
+            item.set_hit_width(AREA_HIT_PX / max(self.view.current_scale(), 1e-6))
+            self.refresh_item(item)
+            return item
         info = self.cat.info(entity.model)
         pm = self.make_pixmap(entity.model)
         if info is None or pm is None:
@@ -1032,7 +1150,7 @@ class MainWindow(QMainWindow):
 
     def _populate_scene(self):
         for ent in self.doc.entities():
-            if not ent.model:
+            if not ent.model and not ent.polygon:
                 continue            # no art to draw and no position that means anything
             item = self.create_item(ent, marker=not ent.is_scenery())
             if item is None:
@@ -1201,7 +1319,7 @@ class MainWindow(QMainWindow):
             row = QTreeWidgetItem([label, "", ""])
             row.setData(0, Qt.UserRole, key)
             row.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-            row.setCheckState(1, Qt.Checked)
+            row.setCheckState(1, Qt.Checked if self.layer_visible[key] else Qt.Unchecked)
             row.setCheckState(2, Qt.Unchecked)
             self.layer_tree.addTopLevelItem(row)
             self._layer_rows[key] = row
@@ -1536,7 +1654,7 @@ class MainWindow(QMainWindow):
             f"Ctrl+Z removes the whole group.", 5000)
 
     def save_selection_as_prefab(self) -> None:
-        items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
+        items = [it for it in self.scene.selectedItems() if isinstance(it, MAP_ITEM_TYPES)]
         if not items:
             self.statusBar().showMessage(
                 "Select the entities to save first (drag a box around them).", 5000)
@@ -1767,8 +1885,7 @@ class MainWindow(QMainWindow):
         its recorded start, as one undo step."""
         moves = []
         for item, (old_x, old_y) in start.items():
-            new_x = item.x() + item.info.hotspot_x
-            new_y = item.y() + item.info.hotspot_y
+            new_x, new_y = item.dragged_anchor()
             if round(new_x, 3) != round(old_x, 3) or round(new_y, 3) != round(old_y, 3):
                 moves.append((item, (old_x, old_y), (new_x, new_y)))
         if len(moves) > 1:
@@ -1799,7 +1916,7 @@ class MainWindow(QMainWindow):
         focus = self.focusWidget() or QApplication.focusWidget()
         if isinstance(focus, (QLineEdit, QAbstractSpinBox, QPlainTextEdit)):
             return
-        items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
+        items = [it for it in self.scene.selectedItems() if isinstance(it, MAP_ITEM_TYPES)]
         if not items:
             return
         if len(items) > 1:
@@ -1818,7 +1935,7 @@ class MainWindow(QMainWindow):
     def copy_selected(self):
         if self._text_has_focus():
             return
-        items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
+        items = [it for it in self.scene.selectedItems() if isinstance(it, MAP_ITEM_TYPES)]
         if not items:
             self.statusBar().showMessage("Copy: nothing selected.", 3000)
             return
@@ -1854,8 +1971,9 @@ class MainWindow(QMainWindow):
     def paste_entities(self):
         if self._text_has_focus() or not self._entity_clipboard:
             return
-        xs = [float(n.get("Position X") or 0) for n in self._entity_clipboard]
-        ys = [float(n.get("Position Y") or 0) for n in self._entity_clipboard]
+        anchors = [node_anchor(n) for n in self._entity_clipboard]
+        xs = [x for x, _ in anchors]
+        ys = [y for _, y in anchors]
         cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
         # At the mouse if it is over the map -- that is where you were looking -- keeping
         # the group's layout. Otherwise beside the originals, stepping further each time
@@ -1883,7 +2001,7 @@ class MainWindow(QMainWindow):
     # -- properties dock ------------------------------------------------------
 
     def on_scene_selection_changed(self):
-        items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
+        items = [it for it in self.scene.selectedItems() if isinstance(it, MAP_ITEM_TYPES)]
         entity = items[0].entity if items else None
         self.show_entity_properties(entity)
         self.script_dock_widget.set_entity(entity)
@@ -1909,8 +2027,10 @@ class MainWindow(QMainWindow):
         else:
             self.prop_name.setText(entity.name)
             self.prop_model.setText(entity.model)
-            self.prop_x.setValue(entity.x)
-            self.prop_y.setValue(entity.y)
+            # The anchor: Position X/Y, or an area's centroid (editing it shifts the area).
+            ax, ay = entity.anchor
+            self.prop_x.setValue(ax)
+            self.prop_y.setValue(ay)
             self.prop_visible.setChecked((entity.node.get("Visible") or "1") != "0")
             self.prop_collideable.setChecked((entity.node.get("Collideable") or "0") == "1")
             self.prop_half.setChecked((entity.node.get("Half Height") or "0") == "1")
@@ -1928,7 +2048,7 @@ class MainWindow(QMainWindow):
         if self._updating_props or self._current_entity is None:
             return
         entity = self._current_entity
-        old = (entity.x, entity.y)
+        old = entity.anchor
         new = (self.prop_x.value(), self.prop_y.value())
         if round(old[0], 3) == round(new[0], 3) and round(old[1], 3) == round(new[1], 3):
             return
@@ -1936,7 +2056,7 @@ class MainWindow(QMainWindow):
         if item is not None:
             self.push_move(entity, item, old, new)
         else:
-            entity.move_to(*new)
+            entity.move_anchor_to(*new)
             self.doc.dirty = True
             self.schedule_validate()
 
@@ -2078,15 +2198,18 @@ class MainWindow(QMainWindow):
 
     def report_zoom(self, scale: float) -> None:
         self.zoom_label.setText(f"  {scale * 100:.0f}%  ")
+        width = AREA_HIT_PX / max(scale, 1e-6)
+        for item in self.entity_items.values():
+            if isinstance(item, PolygonItem):
+                item.set_hit_width(width)
 
     def on_markers_toggled(self, shown: bool) -> None:
         # A shortcut over the layer panel: every layer except scenery.
         if self._updating_layers:
             return
-        for key, _ in LAYERS:
-            if key != "scenery":
-                self.set_layer_visible(key, shown, quiet=True)
-        n = sum(1 for item in self.entity_items.values() if item.layer != "scenery")
+        for key in MARKER_LAYERS:
+            self.set_layer_visible(key, shown, quiet=True)
+        n = sum(1 for item in self.entity_items.values() if item.layer in MARKER_LAYERS)
         self.statusBar().showMessage(
             f"{'Showing' if shown else 'Hiding'} {n} marker(s).", 4000)
 
@@ -2465,6 +2588,9 @@ class MainWindow(QMainWindow):
         if ent is None:
             return
         scene_item = self.entity_items.get(id(ent.node))
+        if scene_item is not None and not self.layer_visible.get(scene_item.layer, True):
+            # Hidden items cannot be selected; asking for one by name is a request to see it.
+            self.set_layer_visible(scene_item.layer, True)
         if scene_item is not None:
             self.scene.clearSelection()
             scene_item.setSelected(True)
@@ -2558,9 +2684,10 @@ class MainWindow(QMainWindow):
         on Top lifts everything but scenery above it. 54 of the 116 hidden treasures in
         the shipped maps sit inside a sprite drawn in front of them, and are unclickable
         in the game's order. Markers still sort among themselves by y."""
+        y = item.entity.anchor[1]
         if self._markers_on_top() and item.layer != "scenery":
-            return item.entity.y + MARKER_DEPTH
-        return item.entity.y
+            return y + MARKER_DEPTH
+        return y
 
     def _markers_on_top(self) -> bool:
         action = getattr(self, "markers_on_top_action", None)
@@ -2594,7 +2721,7 @@ class MainWindow(QMainWindow):
         pixels do not count: pixmap items hit-test against their mask."""
         for it in self.scene.items(scene_pos, Qt.IntersectsItemShape,
                                    Qt.DescendingOrder, self.view.transform()):
-            if not isinstance(it, EntityItem) or not it.isVisible():
+            if not isinstance(it, MAP_ITEM_TYPES) or not it.isVisible():
                 continue
             if include_locked or it.flags() & QGraphicsItem.ItemIsSelectable:
                 return it
@@ -2604,7 +2731,7 @@ class MainWindow(QMainWindow):
         """Every visible, selectable entity under `scene_pos`, topmost first."""
         return [it for it in self.scene.items(scene_pos, Qt.IntersectsItemShape,
                                               Qt.DescendingOrder, self.view.transform())
-                if isinstance(it, EntityItem) and it.isVisible()
+                if isinstance(it, MAP_ITEM_TYPES) and it.isVisible()
                 and it.flags() & QGraphicsItem.ItemIsSelectable]
 
     def select_only(self, item) -> None:
@@ -2656,7 +2783,7 @@ class MainWindow(QMainWindow):
             for key, row in self._layer_rows.items():
                 row.setCheckState(1, Qt.Checked if self.layer_visible[key] else Qt.Unchecked)
                 row.setCheckState(2, Qt.Checked if self.layer_locked[key] else Qt.Unchecked)
-            markers = all(self.layer_visible[k] for k, _ in LAYERS if k != "scenery")
+            markers = all(self.layer_visible[k] for k in MARKER_LAYERS)
             self.markers_action.setChecked(markers)
         finally:
             self._updating_layers = False
@@ -2832,7 +2959,7 @@ class MainWindow(QMainWindow):
         self.open_dialogue_for(entity)
 
     def selected_entity(self):
-        items = [i for i in self.scene.selectedItems() if isinstance(i, EntityItem)]
+        items = [i for i in self.scene.selectedItems() if isinstance(i, MAP_ITEM_TYPES)]
         return items[0].entity if items else None
 
     def _mod_context(self):

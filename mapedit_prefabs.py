@@ -26,7 +26,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mapedit_core import MapDocument
+from mapedit_core import MapDocument, node_anchor
 from resource_format import ResourceNode
 
 VANILLA_LIBRARY = Path(__file__).resolve().parent / "prefabs" / "vanilla.json"
@@ -63,8 +63,9 @@ class Prefab:
 def prefab_from_nodes(name: str, nodes: list[ResourceNode], folder: str = "") -> Prefab:
     """A prefab from placed entities, anchored on their rounded centroid -- so placing
     it puts the group's middle under the cursor, as paste does."""
-    xs = [float(n.get("Position X") or 0) for n in nodes]
-    ys = [float(n.get("Position Y") or 0) for n in nodes]
+    anchors = [node_anchor(n) for n in nodes]     # areas have no Position X/Y
+    xs = [x for x, _ in anchors]
+    ys = [y for _, y in anchors]
     cx, cy = round(sum(xs) / len(xs)), round(sum(ys) / len(ys))
     return Prefab(name, folder, [(round(x - cx), round(y - cy), copy.deepcopy(n))
                                  for n, x, y in zip(nodes, xs, ys)])

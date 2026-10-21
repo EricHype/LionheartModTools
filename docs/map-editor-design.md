@@ -453,6 +453,24 @@ selected item, but only the grabbed one's release wrote its position back, so th
 moved on screen and not in the file. `commit_drag` now writes back every item that moved,
 as one undo step.
 
+### Areas
+
+~9,100 objects in the shipped maps have no sprite and no position, only a `Polygon=`
+vertex list: `CFreeRangePoly` (3,717), `CRenderablePolygon` (3,338), `CWayPointsPolygon`
+(2,028). None were drawn. They are now `PolygonItem` outlines, coloured by class and
+labelled by class only -- what each does in-game is not established here. The Areas
+layer starts hidden. The 73 that carry loot are in Loot instead, shown by default.
+
+- **Anchor.** `Entity.anchor` is Position X/Y, or the vertex centroid for an area;
+  `move_anchor_to` moves either. Dragging, paste, prefabs and the properties panel's X/Y
+  all work through it. An area move shifts every vertex by a whole-unit delta, so the
+  file's decimals ("1312.67") survive unchanged, and no Position X/Y is ever added.
+- **Clicks hit the outline**, an 8-screen-pixel band kept constant across zoom, not the
+  fill, or a walkable area spanning a room would swallow every click inside it.
+- 6 waypoint paths are open (last vertex is not the first); they are drawn open.
+- No vertex editing. **Pasting an area makes a new one**, and per "Interaction zones"
+  below, hand-made `CFreeRangePoly` zones have not been seen to work in-game.
+
 ## Explicitly out of scope for v1
 
 - **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring
