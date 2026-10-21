@@ -747,13 +747,17 @@ class MapView(QGraphicsView):
             # position() not pos(): the latter is deprecated in Qt 6 and warns on every
             # click, which is a lot of noise in a tool you click constantly.
             scene_pos = self.mapToScene(event.position().toPoint())
-            item = self.scene().itemAt(scene_pos, self.transform())
+            # Entities only. scene.itemAt() also returns the terrain picture and the
+            # validation circles, which cover the ground -- so "nothing under the
+            # cursor" was never true over terrain, and click-to-place never fired.
+            item = self.window.entity_at(scene_pos)
 
             # Eyedropper: pick the clicked entity's model in the palette, so "more of
             # that" does not mean hunting for it among 4787 entries. Alt is the usual
             # modifier for this in paint tools; the toolbar toggle does the same thing
             # without needing a modifier held.
             if self.window.eyedropper_active(event.modifiers()):
+                item = self.window.entity_at(scene_pos, include_locked=True)
                 if isinstance(item, EntityItem):
                     self.window.pick_model(item.entity.model)
                 else:
@@ -1243,6 +1247,16 @@ class MainWindow(QMainWindow):
             "Draw treasures, chests, spawners, triggers and effects above all scenery, "
             "so a rock drawn in front cannot hide them. Off shows the game's own order.")
         self.markers_on_top_action.toggled.connect(self.on_markers_on_top_toggled)
+
+        self.lock_scenery_action = view_menu.addAction("&Lock Scenery")
+        self.lock_scenery_action.setCheckable(True)
+        self.lock_scenery_action.setShortcut(QKeySequence("Shift+L"))
+        self.lock_scenery_action.setStatusTip(
+            "Scenery stays visible but cannot be clicked, dragged or box-selected -- "
+            "for picking out treasures and triggers in a dense cave. The eyedropper "
+            "still reads it.")
+        self.lock_scenery_action.toggled.connect(
+            lambda on: self.set_layer_locked("scenery", on))
 
         self.statusBar()
         self.zoom_label = QLabel()
@@ -2466,6 +2480,30 @@ class MainWindow(QMainWindow):
         if not interactive and item.isSelected():
             item.setSelected(False)
         item.setZValue(self.depth_for(item))
+
+    def entity_at(self, scene_pos, *, include_locked: bool = False):
+        """Topmost visible entity under `scene_pos` that can be clicked (or, with
+        `include_locked`, that could be if its layer were unlocked). Transparent
+        pixels do not count: pixmap items hit-test against their mask."""
+        for it in self.scene.items(scene_pos, Qt.IntersectsItemShape,
+                                   Qt.DescendingOrder, self.view.transform()):
+            if not isinstance(it, EntityItem) or not it.isVisible():
+                continue
+            if include_locked or it.flags() & QGraphicsItem.ItemIsSelectable:
+                return it
+        return None
+
+    def set_layer_locked(self, layer: str, locked: bool) -> None:
+        if self.layer_locked.get(layer) == locked:
+            return
+        self.layer_locked[layer] = locked
+        if layer == "scenery" and self.lock_scenery_action.isChecked() != locked:
+            self.lock_scenery_action.setChecked(locked)     # re-enters, returns above
+        self.refresh_all_items()
+        label = dict(LAYERS)[layer]
+        self.statusBar().showMessage(
+            f"{label} {'locked: visible, but clicks pass through' if locked else 'unlocked'}.",
+            4000)
 
     def refresh_all_items(self) -> None:
         for item in self.entity_items.values():

@@ -413,6 +413,18 @@ The "drawn behind X" hint on Find respects it. The remaining 3 sit under other m
 (an enemy spawner, two Spirit Generators), which is what layer hiding and click-through
 are for.
 
+### Locking, and what a click hits
+
+**Lock Scenery** (View, Shift+L) leaves scenery drawn but not selectable, movable or
+box-selectable. Clicks pass through to what is below, so a chest can be placed on top of
+a rock. The eyedropper still reads locked items -- it edits nothing.
+
+What a click lands on is `MainWindow.entity_at`: the topmost *visible, selectable entity*.
+It replaced `scene.itemAt`, which also returns the terrain picture and the validation
+circles. Since the terrain covers the whole map, "nothing under the cursor" was never
+true over ground, and **click-to-place had never fired on any map with terrain** -- only
+drag-and-drop placed things.
+
 ## Explicitly out of scope for v1
 
 - **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring
