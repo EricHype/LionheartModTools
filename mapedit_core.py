@@ -355,6 +355,57 @@ class Entity:
         return True
 
 
+# ---------------------------------------------------------------------------
+# Layers
+# ---------------------------------------------------------------------------
+
+# Editor-only grouping: the .zax has no layers (Child List is empty on all 74,016
+# placed objects in the shipped maps, Category on all but ~530), so these are derived
+# from what each object is and never written back. Order is the layer panel's.
+LAYERS = [
+    ("loot", "Loot & secrets"),
+    ("characters", "Characters"),
+    ("logic", "Triggers & logic"),
+    ("effects", "Effects"),
+    ("areas", "Areas"),
+    ("scenery", "Scenery"),
+]
+
+_POLYGON_TYPES = ("CFreeRangePoly", "CRenderablePolygon", "CWayPointsPolygon")
+
+
+def _contains_type(node: ResourceNode, prefixes: tuple[str, ...]) -> bool:
+    for _key, value in node.fields:
+        if isinstance(value, ResourceNode):
+            if value.type_name.startswith(prefixes) or _contains_type(value, prefixes):
+                return True
+    return False
+
+
+def entity_layer(entity: Entity) -> str:
+    """Which LAYERS key `entity` belongs to. First matching rule wins, so a chest that
+    carries loot is Loot, not Scenery, and a Secret Icon is Loot, not Effects."""
+    node, model = entity.node, entity.model
+    if not model and node.type_name in _POLYGON_TYPES:
+        return "areas"
+    activity = node.get("Activity")
+    has_activity = isinstance(activity, ResourceNode)
+    if (model.endswith("/Secret Icon") or model.startswith("Items/")
+            or "/Chest" in model
+            or (has_activity and _contains_type(activity, ("CInventoryItemGenerator",)))):
+        return "loot"
+    # Not by CEntityWalking/Flying: those also carry moving scenery (Editor/Landscape,
+    # Calle Perdida's floating islands), which is not what you go looking for here.
+    if (model.startswith("Characters/")
+            or (has_activity and _contains_type(activity, ("CGeneratorAIGroup",)))):
+        return "characters"
+    if model.startswith(("Special Effects/", "Spell Effects/", "Particles/")):
+        return "effects"
+    if entity.is_scenery():
+        return "scenery"
+    return "logic"
+
+
 def _num(v: float) -> str:
     return str(int(v)) if float(v).is_integer() else f"{v:g}"
 

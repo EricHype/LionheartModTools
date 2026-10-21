@@ -37,7 +37,7 @@ import zax_render as zr
 from mapedit_core import (
     MapDocument, SpriteCatalogue, validate, tiling_vector, known_non_tiling,
     TerrainLayer, GRID_CELL, plan_wall_run, MAX_RUN_PIECES,
-    learn_vector_from_map,
+    learn_vector_from_map, entity_layer, LAYERS,
 )
 from script_schema import dialog_refs, dialog_ref_to_relpath
 from dialogedit import DialogWindow
@@ -212,6 +212,7 @@ class EntityItem(QGraphicsPixmapItem):
         self.info = info
         self.window = window
         self.marker = marker
+        self.layer = entity_layer(entity)
         self.setFlags(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
         self.setPos(entity.x - info.hotspot_x, entity.y - info.hotspot_y)
         self.setZValue(entity.y)
@@ -278,7 +279,7 @@ class MoveEntityCommand(QUndoCommand):
     def _apply(self, x, y):
         self.entity.move_to(x, y)
         self.item.setPos(x - self.item.info.hotspot_x, y - self.item.info.hotspot_y)
-        self.item.setZValue(y)
+        self.item.setZValue(self.window.depth_for(self.item))
         self.window.doc.dirty = True
         self.window.schedule_validate()
 
@@ -836,6 +837,11 @@ class MainWindow(QMainWindow):
         self.overlay_items: list[QGraphicsEllipseItem] = []
         self.highlight_items: list[QGraphicsItem] = []
         self.focused_node_id = None
+        # Per-layer toggles (LAYERS keys), and whether a tool -- terrain paint, pan,
+        # wall run -- has switched entity interaction off. refresh_item combines them.
+        self.layer_visible = {key: True for key, _ in LAYERS}
+        self.layer_locked = {key: False for key, _ in LAYERS}
+        self._entities_interactive = True
         self.issues = []
         self.selected_palette_model: str | None = None
         self.selected_prefab: Prefab | None = None   # set instead of the model, never both
@@ -920,11 +926,9 @@ class MainWindow(QMainWindow):
         if info is None or pm is None:
             return None
         item = EntityItem(entity, pm, info, self, marker=marker)
-        if self.terrain_paint_action.isChecked():
-            # Entities placed/undone while a paint stroke tool is active must stay
-            # non-interactive too, matching whatever's already on the map.
-            item.setFlag(QGraphicsItem.ItemIsSelectable, False)
-            item.setFlag(QGraphicsItem.ItemIsMovable, False)
+        # Entities placed/undone while a tool has switched entities off must match
+        # whatever is already on the map, and likewise for the layer toggles.
+        self.refresh_item(item)
         return item
 
     def _populate_scene(self):
@@ -1786,7 +1790,7 @@ class MainWindow(QMainWindow):
         entity.set_field("Visible", "1" if checked else "0")
         item = self.entity_items.get(id(entity.node))
         if item is not None:
-            item.setVisible(checked)
+            self.refresh_item(item)
         self.doc.dirty = True
         self.schedule_validate()
 
@@ -2079,9 +2083,8 @@ class MainWindow(QMainWindow):
     def set_entities_interactive(self, enabled: bool) -> None:
         """Toggle whether entity items can be selected/dragged. Turned off while terrain
         painting so a left-drag over an entity paints the ground instead of moving it."""
-        for item in self.entity_items.values():
-            item.setFlag(QGraphicsItem.ItemIsSelectable, enabled)
-            item.setFlag(QGraphicsItem.ItemIsMovable, enabled)
+        self._entities_interactive = enabled
+        self.refresh_all_items()
         if not enabled:
             self.scene.clearSelection()
 
@@ -2380,15 +2383,38 @@ class MainWindow(QMainWindow):
             self.highlight_items.append(p)
 
     def _natural_visible(self, item) -> bool:
+        if not self.layer_visible.get(item.layer, True):
+            return False
         if item.marker:
             return self.markers_action.isChecked()
         return (item.entity.node.get("Visible") or "1") != "0"
 
+    def depth_for(self, item) -> float:
+        """Draw order. The game's rule -- lower on the map is in front -- is the default."""
+        return item.entity.y
+
+    def refresh_item(self, item) -> None:
+        """Visibility, interactivity and depth for one item, from every toggle that
+        affects them: layers, Show Markers, Isolate, and tools that switch entities off.
+        The one place these are decided, so no toggle can quietly undo another."""
+        if self.isolate_action.isChecked():
+            visible = id(item.entity.node) == self.focused_node_id
+        else:
+            visible = self._natural_visible(item)
+        item.setVisible(visible)
+        interactive = self._entities_interactive and not self.layer_locked.get(item.layer)
+        item.setFlag(QGraphicsItem.ItemIsSelectable, interactive)
+        item.setFlag(QGraphicsItem.ItemIsMovable, interactive)
+        if not interactive and item.isSelected():
+            item.setSelected(False)
+        item.setZValue(self.depth_for(item))
+
+    def refresh_all_items(self) -> None:
+        for item in self.entity_items.values():
+            self.refresh_item(item)
+
     def _apply_isolate(self) -> None:
-        on = self.isolate_action.isChecked()
-        for nid, item in self.entity_items.items():
-            item.setVisible(nid == self.focused_node_id if on
-                            else self._natural_visible(item))
+        self.refresh_all_items()
 
     def on_isolate_toggled(self, on: bool) -> None:
         self._apply_isolate()
