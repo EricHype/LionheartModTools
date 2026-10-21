@@ -380,6 +380,39 @@ Corner pieces are *not* placed automatically — nothing in the data model ident
 piece as a corner. Two runs meeting at a right angle still leave a gap, which is what
 `find_wall_gaps` exists to flag; validation reruns after every run is laid.
 
+## Layers and selection
+
+The `.zax` has no layers. `Child List` is empty on all 74,016 placed objects in the
+shipped maps and `Category` is blank on all but ~530, so there is nothing to read
+grouping from. The editor derives a layer per object (`entity_layer` in
+`mapedit_core.py`): loot & secrets, characters, triggers & logic, effects, areas,
+scenery, in that order of precedence, so a chest carrying loot is Loot and a Secret Icon
+is Loot rather than Effects. Nothing is written back.
+
+Visibility, interactivity and depth are decided in one place, `MainWindow.refresh_item`.
+Show Markers, Isolate, the Visible box, the layer toggles and the tools that switch
+entities off (terrain paint, pan, wall run) all feed it, so no toggle can quietly undo
+another.
+
+### Why hidden treasures could not be clicked
+
+Not depth, mostly. **The Secret Icon sprite decodes to nothing but transparent pixels**,
+and a pixmap item hit-tests against its opaque pixels, so every hidden treasure was both
+invisible and unclickable. ~1,900 placed objects decode blank the same way -- Dwarf
+brick walls, candles, smoke. These files hold several frames; `decode_icon` takes the
+first, and for these the first is empty (Wall 01 A's art is frame 5 of 6; Secret Icon's
+main colour plane is near-empty in every frame). Choosing another frame would move
+hotspots and so every wall, which is a decoder decision of its own, not made here.
+Instead a blank sprite is drawn as a hatched box of the same size and hotspot, and
+hit-tests on its bounding rect.
+
+With that, 13 of the 116 shipped treasures are still drawn under scenery in the game's
+order. **Markers on Top** (View, Shift+M, on by default) adds a fixed offset to the depth
+of everything but scenery, which frees all 13; markers still sort among themselves by y.
+The "drawn behind X" hint on Find respects it. The remaining 3 sit under other markers
+(an enemy spawner, two Spirit Generators), which is what layer hiding and click-through
+are for.
+
 ## Explicitly out of scope for v1
 
 - **Terrain *editing*.** Rendering it is solved and implemented (see "Terrain" above); authoring

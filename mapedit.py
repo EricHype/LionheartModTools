@@ -64,6 +64,20 @@ def pixels_to_qpixmap(data: dict) -> QPixmap:
     return QPixmap.fromImage(img.copy())
 
 
+def blank_sprite_stand_in(w: int, h: int) -> QPixmap:
+    """A translucent hatched box, for sprites whose decode has no visible pixels."""
+    pm = QPixmap(max(1, w), max(1, h))
+    pm.fill(QColor(255, 110, 200, 60))
+    painter = QPainter(pm)
+    painter.setPen(QPen(QColor(255, 110, 200, 220), 1))
+    painter.drawRect(0, 0, pm.width() - 1, pm.height() - 1)
+    painter.setPen(QPen(QColor(255, 110, 200, 120), 1))
+    painter.drawLine(0, 0, pm.width() - 1, pm.height() - 1)
+    painter.drawLine(0, pm.height() - 1, pm.width() - 1, 0)
+    painter.end()
+    return pm
+
+
 def make_eyedropper_cursor() -> QCursor:
     """Draw a pipette cursor, hotspot at the tip.
 
@@ -405,6 +419,10 @@ class PaletteTree(QTreeWidget):
 # ---------------------------------------------------------------------------
 # Map view (click-to-place, drag-drop-to-place, otherwise normal QGraphicsView)
 # ---------------------------------------------------------------------------
+
+# Added to the depth of everything but scenery while Markers on Top is on. Map y tops
+# out in the low thousands; the highlight ring sits at 1e9, above this.
+MARKER_DEPTH = 1e6
 
 PREFAB_PREFIX = "prefab:"   # palette leaf data for a prefab; no model path starts so
 
@@ -833,6 +851,7 @@ class MainWindow(QMainWindow):
         self._redraw_timer.timeout.connect(self.flush_pending_redraw)
 
         self.pixmap_cache: dict[str, QPixmap | None] = {}
+        self.blank_models: set[str] = set()   # drawn with blank_sprite_stand_in()
         self.entity_items: dict[int, EntityItem] = {}
         self.overlay_items: list[QGraphicsEllipseItem] = []
         self.highlight_items: list[QGraphicsItem] = []
@@ -917,6 +936,15 @@ class MainWindow(QMainWindow):
             return self.pixmap_cache[model]
         data = self.cat.pixels(model)
         pm = pixels_to_qpixmap(data) if data is not None else None
+        if data is not None and not any(px[3] for row in data["rows"] for px in row):
+            # Decodes to nothing but transparency. ~1,900 placed objects in the shipped
+            # maps do -- every hidden treasure (Special Effects/Secret Icon), the Dwarf
+            # brick walls, candles, smoke -- because decode_icon reads the first frame
+            # of the file's colour plane, and for these that frame is empty. Drawn as
+            # is they are invisible, and unclickable too, since a pixmap item hit-tests
+            # against its opaque pixels. Stand in a box of the same size and hotspot.
+            pm = blank_sprite_stand_in(data["width"], data["height"])
+            self.blank_models.add(model)
         self.pixmap_cache[model] = pm
         return pm
 
@@ -926,6 +954,9 @@ class MainWindow(QMainWindow):
         if info is None or pm is None:
             return None
         item = EntityItem(entity, pm, info, self, marker=marker)
+        if entity.model in self.blank_models:
+            item.setShapeMode(QGraphicsPixmapItem.BoundingRectShape)
+            item.setToolTip(f"{entity.model}\n(sprite decodes blank; drawn as a box)")
         # Entities placed/undone while a tool has switched entities off must match
         # whatever is already on the map, and likewise for the layer toggles.
         self.refresh_item(item)
@@ -1203,6 +1234,15 @@ class MainWindow(QMainWindow):
         self.markers_action.setStatusTip(
             "Show spawn points, doors, generators and other non-scenery entities")
         self.markers_action.toggled.connect(self.on_markers_toggled)
+
+        self.markers_on_top_action = view_menu.addAction("Markers on &Top")
+        self.markers_on_top_action.setCheckable(True)
+        self.markers_on_top_action.setChecked(True)
+        self.markers_on_top_action.setShortcut(QKeySequence("Shift+M"))
+        self.markers_on_top_action.setStatusTip(
+            "Draw treasures, chests, spawners, triggers and effects above all scenery, "
+            "so a rock drawn in front cannot hide them. Off shows the game's own order.")
+        self.markers_on_top_action.toggled.connect(self.on_markers_on_top_toggled)
 
         self.statusBar()
         self.zoom_label = QLabel()
@@ -2343,9 +2383,12 @@ class MainWindow(QMainWindow):
         ax, ay = ent.x - info.hotspot_x, ent.y - info.hotspot_y
         bx, by = ax + info.width, ay + info.height
         out = set()
+        lifted = self._markers_on_top() and entity_layer(ent) != "scenery"
         for other in self.doc.entities():
             if other.node is ent.node or not other.model:
                 continue
+            if lifted and entity_layer(other) == "scenery":
+                continue        # drawn above all scenery, so none of it can bury this
             oi = self.cat.info(other.model)
             if oi is None or other.y <= ent.y:
                 continue
@@ -2390,8 +2433,23 @@ class MainWindow(QMainWindow):
         return (item.entity.node.get("Visible") or "1") != "0"
 
     def depth_for(self, item) -> float:
-        """Draw order. The game's rule -- lower on the map is in front -- is the default."""
+        """Draw order. The game's rule -- lower on the map is in front -- unless Markers
+        on Top lifts everything but scenery above it. 54 of the 116 hidden treasures in
+        the shipped maps sit inside a sprite drawn in front of them, and are unclickable
+        in the game's order. Markers still sort among themselves by y."""
+        if self._markers_on_top() and item.layer != "scenery":
+            return item.entity.y + MARKER_DEPTH
         return item.entity.y
+
+    def _markers_on_top(self) -> bool:
+        action = getattr(self, "markers_on_top_action", None)
+        return action is None or action.isChecked()
+
+    def on_markers_on_top_toggled(self, on: bool) -> None:
+        self.refresh_all_items()
+        self.statusBar().showMessage(
+            "Markers drawn above scenery." if on
+            else "Game draw order: lower on the map is in front.", 4000)
 
     def refresh_item(self, item) -> None:
         """Visibility, interactivity and depth for one item, from every toggle that
