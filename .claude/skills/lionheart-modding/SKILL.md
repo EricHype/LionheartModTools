@@ -310,6 +310,90 @@ Repointing is safe for model-based checks: anti-<creature> weapon bonuses use
 race does not break them (verified for Ratsbane). Note that a tougher race also raises
 melee skill — Wererat Boss hits at 45 vs the weak variant's 8.
 
+### A race can preset ANY derived attribute -- which is how enemies get "player-only" perks
+
+`CPresetDerivedCharacterAttribute` is not limited to AC and hit points. Across the 503 shipped races it
+presets **21 different** derived attributes, and the unusual ones prove the mechanism is general:
+
+| attribute | races | example |
+|---|---|---|
+| `(AC) Armor Class` / `(HP) Hit Points` | 493 each | every race |
+| `Damage Related/*` resistances and thresholds | 19-199 | `Wasp Cursed` crushing 25/40/50 |
+| `Speed/Walk Animation Speed Multiplier` | 6 | `Summoned Wolf 01 Gray` = 3 |
+| `HealingRate` | 3 | `Invulnerable Chicken` = 1337 |
+| `Damage Related/Melee Damage Percentage Gives Health To Attacker Zero To One` | 3 | `Lance Guardian` 0.4/0.45/0.6 |
+| `CriticalChance`, `Damage Related/Acid Damage Threshold` | 1 each | `Shapeshifting Daeva` |
+
+That last one matters: a `...Zero To One` percentage attribute, which is the same shape as the ones the
+perk system writes. So **anything a perk grants the player through
+`CCharacterModifierDerivedAttribute`, a race can preset on an NPC.** Perks themselves are not usable
+here -- `Selected Perks=Array` exists on every monster can and is `Item Count=0` in **all 478 of them**,
+so there is no precedent for granting an NPC a perk. Presetting the attributes the perk would have
+written is the supported route. (The can's own
+`Derived Character Attribute Permanent Modifiers` table works too -- non-zero in 5 cans -- but it is a
+serialized snapshot whose contents vary per can, and the backstab attributes are absent from many of
+them, so the race is the reliable lever.)
+
+#### Worked example: the Backstab gate, and why no shipped enemy ever backstabs
+
+Traced in `Lionheart.exe`. The gate lives in the damage-resolution routine at **`0x0049a1b0`** and is
+four conditions on **whoever is attacking** -- there is no player, party, or `Player1` test anywhere:
+
+1. A sneak flag at `[this+0x6d]`, set earlier in the same function from `FUN_00442050()`, which reads the
+   attacker's **`Sneak Enabled`** attribute and returns `0 < round(value)`.
+2. The attacker's **`Is Backstab Mode Enabled`** attribute, magnitude at least 0.01.
+3. `param_1 == 1 || param_1 == 3` -- the attack type. One of the four callers passes 0 and so can never
+   backstab, consistent with the perk text saying melee weapons.
+4. `ABS(attackerAngle - targetAngle) >= 1.5707964` (pi/2), checked at `0x0049a3ac`. Below that, line 118
+   clears the flag again.
+
+Both attribute reads go through **`FUN_00441ea0`**, the generic derived-attribute accessor (48 incoming
+refs), which is a thiscall indexing the attribute array hanging off the object in ECX:
+
+```
+0x00441ec1: MOV EDX, dword ptr [EDI + 0x138]     ; the character's derived-attribute array
+0x00441ecd: MOV ESI, dword ptr [EDX + EBP*0x4]   ; indexed by the attribute handle
+```
+
+The combat-log templates are generic too -- `"%s[Attacker] sneaks up on %s[Defender] and hits for
+%s[Damage] ... (%s[BackstabBonus] percent backstab bonus)"` -- so an NPC backstab is loggable and
+therefore verifiable from a `.sav`.
+
+**So the perk is player-only by DATA, not by code:** no enemy race presets either attribute. Preset both
+on a race and the bonus becomes reachable.
+
+#### `Sneak Enabled` looks engine-owned but a preset survives
+
+The attribute's own description says *"Modified by game engine to have a value of 1 when sneeking and 0
+when not sneaking"*, which reads like a preset would be stamped over. It is not, and the reason is worth
+knowing before trusting any preset of an "engine-modified" attribute:
+
+The setter is **`FUN_004420c0(char enable)`**, thiscall, logging `Start Sneaking` / `Stop Sneaking`. It
+does two separate things:
+
+```
+*(undefined4 *)(this + 0x134) = 1;                       // the engine's real sneak STATE field
+*(float *)(*(int *)(this + 0xe0) + handle*4) += delta;    // the attribute MODIFIER array, by +/-1
+```
+
+The second write goes into the same modifier array at `+0xe0` that `CCharacterModifierDerivedAttribute`
+writes, and by a **delta**, not an assignment -- so a preset is the same kind of value and is not
+clobbered. And it only runs at all when something calls the setter, which happens from three places, all
+in the player's sneak subsystem: a stop-sneaking wrapper (`FUN_00442210`), the vtable message handler at
+`0x0043ff80` (message `DAT_0080b324` = stop sneaking, `DAT_0080b320` = run the detection check), and the
+input handler at `0x00638270`. Nothing in the enemy AI sends those.
+
+The useful consequence: **a preset sets the attribute the gate reads and leaves `+0x134` at 0.** Movement
+speed and rendering key on the state field, not the attribute, so an NPC with `Sneak Enabled=1` preset
+does not creep, vanish, or change appearance. The residual risk is that if the engine ever does deliver
+the stop-sneaking message to that NPC, the delta drops the attribute to 0 permanently, since nothing
+re-enables it for a non-player.
+
+Detection is the other reader: **`FUN_0043fff0`** reads `Sneak Enabled`, bails if it rounds to <= 0, then
+reads `Skills/Thieving/Sneak` and applies the same pi/2 rule -- an attacker behind its target gets
+`* 1.25` on one term and `* 0.75` on the other. That is why presetting the Sneak *skill* on an NPC is a
+separate decision from presetting the attribute, and why it was left out of the first attempt.
+
 ### The spawner: use `CGeneratorAI`, not `CSimpleGeneratorForCannedEntitiesAI`
 
 This is the single easiest mistake to make, and it fails **silently** (the entity just never
