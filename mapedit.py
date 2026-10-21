@@ -12,6 +12,7 @@ delete. See docs/map-editor-design.md, "The rendering model" and "Phase 1", for 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import sys
@@ -287,27 +288,31 @@ class MoveEntityCommand(QUndoCommand):
 
 class AddEntityCommand(QUndoCommand):
     def __init__(self, window: "MainWindow", model, x, y, *,
-                 collideable=True, half_height=False):
-        super().__init__(f"Add {model.rsplit('/', 1)[-1]}")
+                 collideable=True, half_height=False, source=None):
+        verb = "Paste" if source is not None else "Add"
+        super().__init__(f"{verb} {model.rsplit('/', 1)[-1]}")
         self.window = window
         self.model = model
         self.x = x
         self.y = y
         self.collideable = collideable
         self.half_height = half_height
+        self.source = source  # a ResourceNode to clone instead of a fresh template
         self.entity = None  # created on first redo, then identity is preserved
         self.item = None
 
     def redo(self):
         doc = self.window.doc
-        if self.entity is None:
+        if self.entity is None and self.source is not None:
+            self.entity = doc.add_entity_copy(self.source, self.x, self.y)
+        elif self.entity is None:
             self.entity = doc.add_entity(
                 self.model, self.x, self.y,
                 collideable=self.collideable, half_height=self.half_height)
         else:
             doc.tree.fields.append(("Level Part", self.entity.node))
             doc.dirty = True
-        self.item = self.window.create_item(self.entity)
+        self.item = self.window.create_item(self.entity, marker=not self.entity.is_scenery())
         if self.item is not None:
             self.window.scene.addItem(self.item)
             self.window.entity_items[id(self.entity.node)] = self.item
@@ -825,6 +830,10 @@ class MainWindow(QMainWindow):
         self._dialog_windows = []        # kept alive; Qt does not own them
         self._run_vec = None             # step resolved at drag start
         self._suppress_autoselect = False
+        # Copied entities, as private snapshots of their nodes taken at copy time, so
+        # moving or deleting the originals afterwards does not change what pastes.
+        self._entity_clipboard: list[ResourceNode] = []
+        self._paste_count = 0
         self._updating_props = False
         self._palette_leaf_items: list[QTreeWidgetItem] = []
 
@@ -1082,6 +1091,14 @@ class MainWindow(QMainWindow):
         delete_action.setShortcuts([QKeySequence(Qt.Key_Delete),
                                     QKeySequence(Qt.Key_Backspace)])
         delete_action.triggered.connect(self.delete_selected)
+        copy_action = edit_menu.addAction("&Copy Entity")
+        copy_action.setShortcut(QKeySequence.Copy)
+        copy_action.triggered.connect(self.copy_selected)
+        paste_action = edit_menu.addAction("&Paste Entity")
+        paste_action.setShortcut(QKeySequence.Paste)
+        paste_action.setStatusTip(
+            "Paste the copied entities at the mouse cursor (or beside the originals)")
+        paste_action.triggered.connect(self.paste_entities)
         edit_menu.addSeparator()
         find_action = edit_menu.addAction("&Find Entity...")
         find_action.setShortcut(QKeySequence.Find)
@@ -1451,6 +1468,65 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(DeleteEntityCommand(self, item.entity, item))
         if len(items) > 1:
             self.undo_stack.endMacro()
+
+    def _text_has_focus(self) -> bool:
+        # Same reasoning as delete_selected: Ctrl+C/V in the filter box or a property
+        # field must copy text, not entities.
+        focus = self.focusWidget() or QApplication.focusWidget()
+        return isinstance(focus, (QLineEdit, QAbstractSpinBox, QPlainTextEdit))
+
+    def copy_selected(self):
+        if self._text_has_focus():
+            return
+        items = [it for it in self.scene.selectedItems() if isinstance(it, EntityItem)]
+        if not items:
+            self.statusBar().showMessage("Copy: nothing selected.", 3000)
+            return
+        self._entity_clipboard = [copy.deepcopy(it.entity.node) for it in items]
+        self._paste_count = 0
+        self.statusBar().showMessage(
+            f"Copied {len(items)} entit{'y' if len(items) == 1 else 'ies'}.", 3000)
+
+    def paste_entities(self):
+        if self._text_has_focus() or not self._entity_clipboard:
+            return
+        xs = [float(n.get("Position X") or 0) for n in self._entity_clipboard]
+        ys = [float(n.get("Position Y") or 0) for n in self._entity_clipboard]
+        cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+        # At the mouse if it is over the map -- that is where you were looking -- keeping
+        # the group's layout. Otherwise beside the originals, stepping further each time
+        # so repeated pastes do not stack invisibly on one spot.
+        view_pos = self.view.viewport().mapFromGlobal(QCursor.pos())
+        if self.view.viewport().rect().contains(view_pos):
+            target = self.view.mapToScene(view_pos)
+            dx, dy = target.x() - cx, target.y() - cy
+        else:
+            self._paste_count += 1
+            dx = dy = 32 * self._paste_count
+
+        n = len(self._entity_clipboard)
+        self._suppress_autoselect = True
+        try:
+            self.undo_stack.beginMacro(f"Paste {n} entit{'y' if n == 1 else 'ies'}")
+            cmds = []
+            for node, x, y in zip(self._entity_clipboard, xs, ys):
+                cmd = AddEntityCommand(self, node.get("Model") or "",
+                                       round(x + dx), round(y + dy), source=node)
+                self.undo_stack.push(cmd)
+                cmds.append(cmd)
+            self.undo_stack.endMacro()
+        finally:
+            self._suppress_autoselect = False
+        self.scene.clearSelection()
+        for cmd in cmds:
+            if cmd.item is not None:
+                cmd.item.setSelected(True)
+        named = [c.entity.name for c in cmds if c.entity.name]
+        msg = f"Pasted {n} entit{'y' if n == 1 else 'ies'}."
+        if named:
+            # Scripts find entities by name, so a pasted copy answers to the same one.
+            msg += f" Note: copies keep their names ({', '.join(sorted(set(named)))})."
+        self.statusBar().showMessage(msg, 6000)
 
     # -- properties dock ------------------------------------------------------
 

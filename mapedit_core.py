@@ -13,6 +13,7 @@ See docs/map-editor-design.md for the format details this builds on.
 """
 from __future__ import annotations
 
+import copy
 import math
 import re
 from dataclasses import dataclass, field
@@ -415,6 +416,17 @@ class MapDocument:
         self.tree.fields.append(("Level Part", node))
         self.dirty = True
         return Entity(node, len(self.tree.fields) - 1)
+
+    def add_entity_copy(self, source: ResourceNode, x: float, y: float) -> Entity:
+        """Append a deep copy of `source` (every field: name, flags, Activity scripts)
+        placed at (x, y). The copy shares nothing with `source`, so editing either later
+        leaves the other alone."""
+        node = copy.deepcopy(source)
+        self.tree.fields.append(("Level Part", node))
+        entity = Entity(node, len(self.tree.fields) - 1)
+        entity.move_to(x, y)
+        self.dirty = True
+        return entity
 
     def remove_entity(self, entity: Entity) -> None:
         for i, (key, value) in enumerate(self.tree.fields):
