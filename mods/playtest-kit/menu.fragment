@@ -27,6 +27,10 @@ Reply Text=Wands under test.
 Go to node ID=9006 wands
 
 Requirement=!None
+Reply Text=Weapon models under test.
+Go to node ID=9010 weapon models
+
+Requirement=!None
 Reply Text=Nothing more.
 Go to node ID=
 Icon=Exit Icon
@@ -681,4 +685,776 @@ Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Special/Swarm
 Requirement=!None
 Reply Text=Back.
 Go to node ID=9006 wands
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9010 weapon models
+Text=The seams of the armoury. Every mesh in here has sat unused since the game shipped, and at least one of them is reversed, so take the plain one alongside and hold them up together.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Long and short swords.
+Go to node ID=9011 swords
+
+Requirement=!None
+Reply Text=Bastard swords, two-handers and scimitars.
+Go to node ID=9012 big swords
+
+Requirement=!None
+Reply Text=Axes and maces. The Great Axe and Holy Mace ship and render correctly, so they are the controls that prove the test.
+Go to node ID=9013 axes and maces
+
+Requirement=!None
+Reply Text=Morning stars, war hammers and clubs.
+Go to node ID=9014 hammers and clubs
+
+Requirement=!None
+Reply Text=Bows and crossbows. The Composite Long Bow already uses the BowSpecial mesh in vanilla, so it is the control that proves the test.
+Go to node ID=9015 bows
+
+Requirement=!None
+Reply Text=Roll magic weapons from the real pools.
+Go to node ID=9016 rolls
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9000 playtest menu
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9011 swords
+Text=Long and short swords.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Long Sword, plain. (control)
+Go to node ID=9011 swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/LongSword
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=LongSword, Better. (expect LongSwordBetter)
+Go to node ID=9011 swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/LongSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test LongSwordBetter
+}
+}
+
+Requirement=!None
+Reply Text=LongSword, Special. (expect LongSwordSpecial)
+Go to node ID=9011 swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/LongSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test LongSwordSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Short Sword, plain. (control)
+Go to node ID=9011 swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ShortSword
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=ShortSword, Better. (expect ShortSwordBetter)
+Go to node ID=9011 swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ShortSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test ShortSwordBetter
+}
+}
+
+Requirement=!None
+Reply Text=ShortSword, Special. (expect ShortSwordSpecial)
+Go to node ID=9011 swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ShortSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test ShortSwordSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9012 big swords
+Text=Bastard swords, two-handers and scimitars.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Bastard Sword, plain. (control)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BastardSword
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=BastardSword, Better. (expect BastardSwordBetter)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BastardSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test BastardSwordBetter
+}
+}
+
+Requirement=!None
+Reply Text=BastardSword, Special. (expect BastardSwordSpecial)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BastardSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test BastardSwordSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Two-Handed Sword, plain. (control)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/TwoHandedSword
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=TwoHandedSword, Better. (expect TwoHndedSwordBetter)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/TwoHandedSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test TwoHndedSwordBetter
+}
+}
+
+Requirement=!None
+Reply Text=TwoHandedSword, Special. (expect TwoHndedSwordSpecial)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/TwoHandedSword
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test TwoHndedSwordSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Scimitar, plain. (control)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Scimitar
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Scimitar, Special. (expect ScimitarSpecial)
+Go to node ID=9012 big swords
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Scimitar
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test ScimitarSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9013 axes and maces
+Text=Axes and maces. The Great Axe and Holy Mace ship and render correctly, so they are the controls that prove the test.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Battle Axe, plain. (control)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BattleAxe
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Great Battle Axe. (SHIPPING control)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BattleAxeGreat
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=BattleAxe, Better. (expect BattleAxeBetter)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BattleAxe
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test BattleAxeBetter
+}
+}
+
+Requirement=!None
+Reply Text=BattleAxe, Special. (expect BattleAxeSpecial)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BattleAxe
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test BattleAxeSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Mace, plain. (control)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Mace
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Holy Mace. (SHIPPING control)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Unique Magic Items/Holy Mace
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Mace, Better. (expect MaceBetter)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Mace
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test MaceBetter
+}
+}
+
+Requirement=!None
+Reply Text=Mace, Special. (expect MaceSpecial)
+Go to node ID=9013 axes and maces
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Mace
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test MaceSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9014 hammers and clubs
+Text=Morning stars, war hammers and clubs.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Morning Star, plain. (control)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/MorningStar
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=MorningStar, Better. (expect MorningStarBetter)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/MorningStar
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test MorningStarBetter
+}
+}
+
+Requirement=!None
+Reply Text=MorningStar, Special. (expect MorningStarSpecial)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/MorningStar
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test MorningStarSpecial
+}
+}
+
+Requirement=!None
+Reply Text=War Hammer, plain. (control)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/WarHammer
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=WarHammer, Better. (expect WarHammerBetter)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/WarHammer
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test WarHammerBetter
+}
+}
+
+Requirement=!None
+Reply Text=WarHammer, Special. (expect WarHammerSpecial)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/WarHammer
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test WarHammerSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Club, plain. (control)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Club
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Club, Better. (expect ClubBetter)
+Go to node ID=9014 hammers and clubs
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Club
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test ClubBetter
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9015 bows
+Text=Bows and crossbows. The Composite Long Bow already uses the BowSpecial mesh in vanilla, so it is the control that proves the test.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Long Bow, plain. (control)
+Go to node ID=9015 bows
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/LongBow
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Composite Long Bow. (SHIPPING control, BowSpecial)
+Go to node ID=9015 bows
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/LongBow Composite
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=LongBow, Better. (expect BowBetter)
+Go to node ID=9015 bows
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/LongBow
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test BowBetter
+}
+}
+
+Requirement=!None
+Reply Text=Crossbow, plain. (control)
+Go to node ID=9015 bows
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Crossbow
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Crossbow, Better. (expect CrossBowBetter)
+Go to node ID=9015 bows
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Crossbow
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test CrossBowBetter
+}
+}
+
+Requirement=!None
+Reply Text=Crossbow, Special. (expect CrossBowSpecial)
+Go to node ID=9015 bows
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Crossbow
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Model Test CrossBowSpecial
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9016 rolls
+Text=Rolling, not granting. These run the real generator: a base weapon is picked, then additions are rolled from that weapon's own pool. Every other reply in this kit names its addition directly and would look fine even if the pools were empty. They drop at my feet.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Ten magic weapons. (ordinary mojo)
+Go to node ID=9016 rolls
+Custom Action=CGenerateInventoryItemAction
+{
+Number of items to generate=10
+Level of item to generate=CUseCannedExpressionExpression
+{
+Canned Expression=Common Objects and Scripts/Generate Magic Item Level Cans/Chest Generator Good
+}
+Location=$Trigger
+Location Offset=0,0
+Generate Within Radius=128
+Aspect Ratio=0.712766
+Item List=CInventoryItemGeneratorMixedList
+{
+Items=Array
+{
+Array Count=1
+Array Item=CInventoryItemGeneratorMixedListItem
+{
+Weighting=1
+Item=CInventoryItemGeneratorCannedList
+{
+Canned Item List=Inventory/Creating Random Magic Items/All Weapons
+}
+}
+}
+}
+}
+
+Requirement=!None
+Reply Text=Ten magic weapons, very high mojo. (biased to Special)
+Go to node ID=9016 rolls
+Custom Action=CGenerateInventoryItemAction
+{
+Number of items to generate=10
+Level of item to generate=CUseCannedExpressionExpression
+{
+Canned Expression=Common Objects and Scripts/Generate Magic Item Level Cans/Shopkeeper Generation Very High Mojo
+}
+Location=$Trigger
+Location Offset=0,0
+Generate Within Radius=128
+Aspect Ratio=0.712766
+Item List=CInventoryItemGeneratorMixedList
+{
+Items=Array
+{
+Array Count=1
+Array Item=CInventoryItemGeneratorMixedListItem
+{
+Weighting=1
+Item=CInventoryItemGeneratorCannedList
+{
+Canned Item List=Inventory/Creating Random Magic Items/All Weapons
+}
+}
+}
+}
+}
+
+Requirement=!None
+Reply Text=Ten magic bows and crossbows, very high mojo.
+Go to node ID=9016 rolls
+Custom Action=CGenerateInventoryItemAction
+{
+Number of items to generate=10
+Level of item to generate=CUseCannedExpressionExpression
+{
+Canned Expression=Common Objects and Scripts/Generate Magic Item Level Cans/Shopkeeper Generation Very High Mojo
+}
+Location=$Trigger
+Location Offset=0,0
+Generate Within Radius=128
+Aspect Ratio=0.712766
+Item List=CInventoryItemGeneratorMixedList
+{
+Items=Array
+{
+Array Count=1
+Array Item=CInventoryItemGeneratorMixedListItem
+{
+Weighting=1
+Item=CInventoryItemGeneratorCannedList
+{
+Canned Item List=Inventory/Creating Random Magic Items/Magic Bows and Xbows
+}
+}
+}
+}
+}
+
+Requirement=!None
+Reply Text=One magic weapon.
+Go to node ID=9016 rolls
+Custom Action=CGenerateInventoryItemAction
+{
+Number of items to generate=1
+Level of item to generate=CUseCannedExpressionExpression
+{
+Canned Expression=Common Objects and Scripts/Generate Magic Item Level Cans/Chest Generator Good
+}
+Location=$Trigger
+Location Offset=0,0
+Generate Within Radius=128
+Aspect Ratio=0.712766
+Item List=CInventoryItemGeneratorMixedList
+{
+Items=Array
+{
+Array Count=1
+Array Item=CInventoryItemGeneratorMixedListItem
+{
+Weighting=1
+Item=CInventoryItemGeneratorCannedList
+{
+Canned Item List=Inventory/Creating Random Magic Items/All Weapons
+}
+}
+}
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
 Icon=Exit Icon

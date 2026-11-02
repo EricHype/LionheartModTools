@@ -41,6 +41,76 @@ observation that settles whether the three faction tiers stack or replace each o
 The menu loops, so effects stack — three presses of the rank option reaches Champion, and
 does it through the accumulation cascade rather than around it.
 
+## Weapon models under test
+
+The newest menu node, `9010`, probes one unproven engine behaviour: whether an
+`InventoryAddition` can override the **Weapon** slot's granny model. Vanilla proves an
+addition can override `Arm` (34 shield additions) and `Head` (10 helmet additions), and the
+player composite already registers every unused `Better` and `Special` weapon mesh, but
+nothing in the shipped game overrides `Weapon` from an addition. Wiring the magic-weapon
+appearance properly means per-base addition groups and a few hundred generated files, so it
+is worth a single press of a button first.
+
+Four probe additions sit in `Inventory Additions/Weapons/Model Test *`. Each carries the
+override plugin plus +10 Fire Resistance, so the tester can tell the addition attached even
+if the mesh does not change, and each sits in group `Inventory/!None` so none of them leak
+into the random magic pool. They arrive named *Long Sword of the Special Mesh* and so on,
+since the engine composes `"<Base Item> of <Display Name>"` and will not be talked out of
+it.
+
+| Reply | Expected |
+|---|---|
+| Long Bow, plain | the base `Bow-LP` mesh, as the control |
+| Long Bow, Better | `BowBetter`, visibly not the control |
+| Long Sword, plain | the base `LongSword` mesh |
+| Long Sword, Better | `LongSwordBetter` |
+| Long Sword, Special | `LongSwordSpecial` |
+| Scimitar, plain | the base `Scimitar` mesh |
+| Scimitar, Special | `ScimitarSpecial` on a **female** character only |
+
+All 22 unused grade meshes were loaded through `gr2_format` before the probe was written:
+every one carries 1 mesh, 1 model, 1 skeleton and its own textures, several of them richer
+than the base weapon they would replace (`CrossBowBetter` is 95 KB against the base
+crossbow's, `WarHammerBetter` 53 KB). None of them is a stub, so a failed probe is the
+override's fault and not the art's.
+
+### Rolling, which is a different test from granting
+
+The last reply on the probe index, `Roll magic weapons from the real pools`, is the only row
+in this kit that exercises an addition **pool**. Every other reply, here and in the item
+menus, uses `CActionGiveStandardInventoryItem` and names its addition by path -- which
+bypasses the base weapon's pool entirely, so a grant row looks correct even if every pool
+were empty.
+
+`CGenerateInventoryItemAction` runs the real pipeline instead: a base weapon is picked from a
+canned list, then additions are rolled against that base item's own `Inventory Addition
+Group` at the given item level. Shape copied from vanilla rather than invented -- four
+dialogue trees generate from a reply, `shakespeare` and `Generic Drop Gold Dialog` among
+them, all with `Location=$Trigger`, which resolves to the NPC. The weapons land at the
+merchant's feet.
+
+Ten at a time, because one roll proves little: if the pools are broken you want a pile of
+plain weapons to be obvious at a glance rather than a coin flip. The very-high-mojo rows use
+level 7 (`Shopkeeper Generation Very High Mojo`), which biases toward expensive additions and
+so toward Special grades, which is how you reach the Special meshes without farming.
+
+**This row stays trustworthy with the kit installed.** The kit's own additions sit in group
+`Inventory/!None` and its only other footprint is two dialogue trees, so it adds nothing to
+any weapon's pool and cannot flatter the result. Turn the kit off before signing a release
+off regardless.
+
+**Equip them, do not just look at the inventory.** The icon already tiers off `Item Grade`
+in vanilla, so the inventory picture changes whether or not the probe works. The claim under
+test is the mesh in the character's hand.
+
+**The scimitar row is the interesting failure.** `ScimitarSpecial` and `WarHammerBetter` are
+registered in `Human Female.mdl16` and absent from `Human Male.mdl16` (90 model entries
+against 88). A male character asking for that mesh is the real-world missing-name case, and
+what happens then -- base mesh, no weapon, or a crash -- is worth seeing once.
+
+`mods/male-weapon-mesh-patch/` closes that gap in 128 bytes, but **run the probe before
+installing it**, or the observation is gone.
+
 ## Travel goes to the gate, not past it
 
 Landing inside the Warrens skips the entrance encounter on Mongol Camp, where you talk your
