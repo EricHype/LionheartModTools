@@ -1487,40 +1487,216 @@ Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world 
 Should Have Voiceover=0
 
 Requirement=!None
-Reply Text=Send me to the goblin camp gate.
-Go to node ID=9000 playtest menu
-Custom Action=CUseCannedActionAction
+Reply Text=Items under test.
+Go to node ID=9001 items
+
+Requirement=!None
+Reply Text=Older item tests.
+Go to node ID=9002 older items
+
+Requirement=!None
+Reply Text=Character setup.
+Go to node ID=9003 character
+
+Requirement=!None
+Reply Text=Goblin and wilderness travel.
+Go to node ID=9004 travel
+
+Requirement=!None
+Reply Text=Goblin and wilderness state.
+Go to node ID=9005 state
+
+Requirement=!None
+Reply Text=Wands under test.
+Go to node ID=9006 wands
+
+Requirement=!None
+Reply Text=Nothing more.
+Go to node ID=
+Icon=Exit Icon
+Is Default Reply=1
+
+------------------------------------------------------------
+Node ID=9001 items
+Text=What is being tested?
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Cape of the Thief. (+4 Stealth, +4 Evasion, +2 AC; doubles with the belt)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
 {
-Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Camp Gate
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Cloak
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Cloaks/Thief
+}
 }
 
 Requirement=!None
-Reply Text=Send me straight into the Warrens. (skips the gate; the camp stays hostile)
-Go to node ID=9000 playtest menu
-Custom Action=CUseCannedActionAction
+Reply Text=Belt of the Thief. (completes the set)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
 {
-Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Direct
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Belt
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Belts/Thief
+}
 }
 
 Requirement=!None
-Reply Text=Send me to the Goblin Warrens (world map).
-Go to node ID=9000 playtest menu
-Custom Action=CUseCannedActionAction
+Reply Text=Cape of Protection. (AC bonus is rolled -- read the tooltip)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
 {
-Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Worldmap
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Cloak
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Cloaks/Protection
+}
 }
 
 Requirement=!None
-Reply Text=Unlock the wilderness on my world map.
-Go to node ID=9000 playtest menu
-Custom Action=CUseCannedActionAction
+Reply Text=Leather Armor. (plain, +10 AC, no penalty)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
 {
-Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Unlock World Map
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ArmorLeather
+Additions to add=Array
+{
+Item Count=0
 }
+}
+
+Requirement=!None
+Reply Text=Full Plate Armor. (plain, +40 AC, -15 Evasion)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ArmorFullPlate
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Plain cloak. (no enchantment -- drop it to see the new ground sprite)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Cloak
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Chain Mail. (drop it beside the cloak; its pickup is what the sprite was matched to)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ArmorChainMail
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9000 playtest menu
+
+------------------------------------------------------------
+Node ID=9002 older items
+Text=The ones from earlier work.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Bastard Sword. (needs OneHandedMelee 50; refuses to equip below it)
+Go to node ID=9002 older items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/BastardSword
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Snakebiting test sword. (should read 6 a tick)
+Go to node ID=9002 older items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/TwoHandedSwordGreat
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Snakebite TEST
+}
+}
+
+Requirement=!None
+Reply Text=Venom test sword. (50% chance, 4-20 a tick)
+Go to node ID=9002 older items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/TwoHandedSwordGreat
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Weapons/Gas Cloud TEST
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9000 playtest menu
+
+------------------------------------------------------------
+Node ID=9003 character
+Text=What shall I make of you?
+Should Have Voiceover=0
 
 Requirement=!None
 Reply Text=Make me able to survive out there. (the developers' own level-10 package)
-Go to node ID=9000 playtest menu
+Go to node ID=9003 character
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Make Viable
@@ -1528,7 +1704,7 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Make Viable
 
 Requirement=!None
 Reply Text=Raise me one level.
-Go to node ID=9000 playtest menu
+Go to node ID=9003 character
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Level Up
@@ -1536,7 +1712,7 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Level Up
 
 Requirement=!None
 Reply Text=Grant me experience. (4000)
-Go to node ID=9000 playtest menu
+Go to node ID=9003 character
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Grant Experience
@@ -1544,15 +1720,65 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Grant Experience
 
 Requirement=!None
 Reply Text=Heal me.
-Go to node ID=9000 playtest menu
+Go to node ID=9003 character
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Heal
 }
 
 Requirement=!None
-Reply Text=Raise my standing with the goblins by one rank.
+Reply Text=Back.
 Go to node ID=9000 playtest menu
+
+------------------------------------------------------------
+Node ID=9004 travel
+Text=Where to?
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=The goblin camp gate.
+Go to node ID=9004 travel
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Camp Gate
+}
+
+Requirement=!None
+Reply Text=Straight into the Warrens. (skips the gate; the camp stays hostile)
+Go to node ID=9004 travel
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Direct
+}
+
+Requirement=!None
+Reply Text=The Goblin Warrens, by world map.
+Go to node ID=9004 travel
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Warrens Worldmap
+}
+
+Requirement=!None
+Reply Text=Unlock the wilderness on my world map.
+Go to node ID=9004 travel
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Unlock World Map
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9000 playtest menu
+
+------------------------------------------------------------
+Node ID=9005 state
+Text=What shall the world believe?
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Raise my standing with the goblins by one rank.
+Go to node ID=9005 state
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/Wilderness/Quests/Advance Goblin Rank
@@ -1560,7 +1786,7 @@ Canned Object=Levels/Wilderness/Quests/Advance Goblin Rank
 
 Requirement=!None
 Reply Text=The woodcutter is dead, as far as the world knows.
-Go to node ID=9000 playtest menu
+Go to node ID=9005 state
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Woodcutter Dead
@@ -1568,7 +1794,7 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Woodcutter Dead
 
 Requirement=!None
 Reply Text=The river dryad is dead, as far as the world knows.
-Go to node ID=9000 playtest menu
+Go to node ID=9005 state
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag River Dryad Dead
@@ -1576,43 +1802,368 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag River Dryad Dead
 
 Requirement=!None
 Reply Text=I have already met the goblin girl.
-Go to node ID=9000 playtest menu
+Go to node ID=9005 state
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Flag Met Goblin Girl
 }
 
-Requirement=Rank at least 1
-Reply Text=(reading) my goblin standing is 1 or more.
-Go to node ID=9000 playtest menu
-
-Requirement=Rank at least 2
-Reply Text=(reading) my goblin standing is 2 or more (the contract needs this).
-Go to node ID=9000 playtest menu
-
-Requirement=Rank at least 3
-Reply Text=(reading) my goblin standing is 3.
-Go to node ID=9000 playtest menu
-
 Requirement=Kept Blooded Bonus
 Reply Text=(reading) I have the disease resistance (Blooded's, and Champion should keep it).
-Go to node ID=9000 playtest menu
+Go to node ID=9005 state
 
-Requirement=Met Girl
-Reply Text=(reading) the goblin girl has met me before.
+Requirement=!None
+Reply Text=Back.
 Go to node ID=9000 playtest menu
+------------------------------------------------------------
+Node ID=9006 wands
+Text=Wands. Eighteen of them, and they do not all work the same way: five spend a Wand Charge from your pack, the rest carry their own charges.
+Should Have Voiceover=0
 
-Requirement=Woodcutter Is Dead
-Reply Text=(reading) the woodcutter is dead.
-Go to node ID=9000 playtest menu
+Requirement=!None
+Reply Text=The five that spend a Wand Charge.
+Go to node ID=9007 charge wands
 
-Requirement=Dryad Is Dead
-Reply Text=(reading) the river dryad is dead.
-Go to node ID=9000 playtest menu
+Requirement=!None
+Reply Text=Spell wands, which carry their own charges.
+Go to node ID=9008 spell wands
+
+Requirement=!None
+Reply Text=The three unique ones.
+Go to node ID=9009 unique wands
+
+Requirement=!None
+Reply Text=A stack of Wand Charges.
+Go to node ID=9006 wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand Charge
+Additions to add=Array
+{
+Item Count=0
+}
+}
 
 Requirement=!None
 Reply Text=Nothing more.
-Go to node ID=
+Go to node ID=9000 playtest menu
 Icon=Exit Icon
-Is Default Reply=1
+------------------------------------------------------------
+Node ID=9007 charge wands
+Text=These five pin a spell while you hold the wand and spend one Wand Charge per use.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Greater Healing. (cast)
+Go to node ID=9007 charge wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Cure Major Wounds
+}
+}
+
+Requirement=!None
+Reply Text=Lesser Healing. (cast)
+Go to node ID=9007 charge wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Cure Small Wounds
+}
+}
+
+Requirement=!None
+Reply Text=Lockpicking. (cast)
+Go to node ID=9007 charge wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Open Locks
+}
+}
+
+Requirement=!None
+Reply Text=Poisonous Touch. (strike or cast)
+Go to node ID=9007 charge wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Poison Touch
+}
+}
+
+Requirement=!None
+Reply Text=Rigor Mortis. (strike or cast)
+Go to node ID=9007 charge wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Rigor Mortis
+}
+}
+
+Requirement=!None
+Reply Text=Revelation. (cast)
+Go to node ID=9007 charge wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Secret Reveal
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9006 wands
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9008 spell wands
+Text=These carry their own charges. Your Wand Charge stack is not touched by any of them.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Fire Circles. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Fire Circle
+}
+}
+
+Requirement=!None
+Reply Text=Greater Fireballs. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Fireball Major
+}
+}
+
+Requirement=!None
+Reply Text=Fireballs. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Fireball Minor
+}
+}
+
+Requirement=!None
+Reply Text=Greater Lightning Bolts. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Lightning Major
+}
+}
+
+Requirement=!None
+Reply Text=Lightning Bolts. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Lightning Minor
+}
+}
+
+Requirement=!None
+Reply Text=Poison Rings. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Poison Ring
+}
+}
+
+Requirement=!None
+Reply Text=Slowing. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Slow
+}
+}
+
+Requirement=!None
+Reply Text=Greater Spikes. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Spikes Major
+}
+}
+
+Requirement=!None
+Reply Text=Spikes. (cast)
+Go to node ID=9008 spell wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Spikes Minor
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9006 wands
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9009 unique wands
+Text=The three unique wands.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Fire and Ice. (cast)
+Go to node ID=9009 unique wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Special/Fire and Ice
+}
+}
+
+Requirement=!None
+Reply Text=The Mage. (cast)
+Go to node ID=9009 unique wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Special/Mage
+}
+}
+
+Requirement=!None
+Reply Text=The Swarm. (cast)
+Go to node ID=9009 unique wands
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Wand
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Wands/Special/Swarm
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9006 wands
+Icon=Exit Icon
 }

@@ -30,7 +30,10 @@ Code: `mdl16_format.py`.
    failed for a long time; the cause is now found and fixed (see "The per-row offset
    table" below). Gate: decode → re-encode → re-parse under the engine's own algorithm
    is exact on **264/264** vanilla inventory icons, and 69 of those re-encode to the
-   same buffer size as the original.
+   same buffer size as the original. **Confirmed correct in-game for inventory icons
+   only.** A from-scratch icon declares buffers 4/5 empty, and an icon without them
+   renders but cannot be hit-tested as a ground pickup -- see "Ground pickups need
+   buffers 4/5" below.
 4. **`encode_icon_raw()`** -- the uncompressed 16bpp mode. Structurally valid but
    **confirmed to crash the game**; no shipped asset uses it. Kept for reference only.
 
@@ -44,6 +47,15 @@ root cause -- a decoder that walked buffer 1 as one continuous stream from byte 
   Both exist, in every file. The community wiki at `lionheart.eowyn.cz` described this
   correctly all along; the contradicting measurement was an artifact of the same bug.
 - *"The `ShortSwordSpecial` top-row artifact is unexplained"* -- **solved.** See below.
+
+A fourth, with a different root cause: generalising from inventory icons to every sprite.
+
+- *"A from-scratch icon should declare buffers 4/5 empty, as the two vanilla
+  buffer-1-only icons do"* -- **true for inventory icons, false for ground pickups.**
+  Both of those vanilla examples are inventory images; all 143 pickups populate 1/4/5,
+  and a single-plane pickup renders but cannot be picked up. What let it through was
+  `verify_icon`, which checks structure rather than behaviour, and an in-game check that
+  looked at the sprite instead of clicking it.
 
 ## File layout
 
@@ -84,8 +96,10 @@ highlight/overlay plane) are populated; buffers 2/3 are unused in every sample s
 while leaving their sizes declared shifts every following offset and crashed the game
 outright on opening the inventory screen. When only buffer 1 needs to change, carry
 buffers 4/5 (and their row tables) forward unchanged, which is what a recolor needs
-anyway. A from-scratch icon should instead declare them empty, as the two vanilla
-buffer-1-only icons do.
+anyway. A from-scratch icon may instead declare them empty, as the two vanilla
+buffer-1-only icons do -- but only if it is an inventory icon. Both of those two are
+inventory images, every one of the 143 ground pickups populates 1/4/5, and a
+single-plane pickup cannot be picked up. See "Ground pickups need buffers 4/5" below.
 
 ### The confirmed buffer 1/4/5 compositing algorithm (from decompiling `FUN_0055ec80`)
 
@@ -306,6 +320,33 @@ Run `verify_icon()` before deploying. It re-parses with the engine's own algorit
 checks the size prefix, `table[0] == 4`, that each row consumes exactly its declared byte
 span, and whole-file size accounting.
 
+### Ground pickups need buffers 4/5 -- `verify_icon` will not tell you
+
+**A from-scratch, buffer-1-only icon works as an inventory image and is broken as a
+ground pickup.** It draws correctly on the floor, and the cursor spins over it instead of
+offering the green pickup, so the item cannot be collected. Found the hard way in
+Lionheart Fixt 0.86.1 while replacing `Cloak_PU.mdl16`: the first build passed
+`verify_icon`, round-tripped all 1240 pixels exactly, looked right in game, and could not
+be picked up.
+
+The evidence that it is the planes and not something else:
+
+* **Every one of the 143 files under `Cache/Models/Items/PickUps/` populates buffers
+  1/4/5.** Not one is single-plane. The only two buffer-1-only files in the game are
+  `Deed Silver Mine` and `Lava Troll Hide`, and both are inventory images, never dropped.
+* The hit test is `0x0055f2a0` (vtable slot 61), which walks the opcode stream with the
+  same logic as `GetColorAt`. Which buffers it consults has not been read out of the
+  binary -- see the note on that address below -- so the mechanism is inferred, while the
+  symptom and the fix are both confirmed in game.
+
+So for anything that can lie on the ground, do not build from scratch. Take a real pickup
+of about the right size and silhouette and use `recolor_icon_in_place()` with a positional
+transform: it passes the pixel index to the callback, which gives arbitrary per-position
+colour inside a shipped silhouette, and it leaves every control byte, run length, row
+table and the file length untouched, so all three planes survive by construction. Return
+`0` unchanged for a stored `0`, or the silhouette moves. The outline is then the donor's,
+which is the real cost of this route.
+
 ## Useful Ghidra addresses (in `Lionheart.exe`)
 
 - `0x006364b0` -- `CStandAloneFrame_Load` (named during this investigation), the
@@ -329,10 +370,13 @@ span, and whole-file size accounting.
   RLE16, matching the header `flags` field), `in_ECX[3]`/`in_ECX[0xd]`/`in_ECX[0xb]` are
   buffer 1/4/5's data-base pointers respectively, `in_ECX[0xe]`/`in_ECX[0xc]` their
   row-offset tables.
-- `0x0055f2a0`, `0x00560f90` -- hit-test/opacity-test helpers with the same opcode
-  walking logic but no real color extraction (only ever return `0`/`0xffffffff`/a
-  delegate call) -- a genuine dead end hit early in this investigation, worth knowing
-  about so it isn't re-explored.
+- `0x0055f2a0` (vtable slot 61), `0x00560f90` -- hit-test/opacity-test helpers with the
+  same opcode walking logic but no real color extraction (only ever return
+  `0`/`0xffffffff`/a delegate call). A dead end for *colour* work, which is what this
+  note used to say and all it should have said. **For pickups they are the functions that
+  matter**: a single-plane icon renders and does not hit-test, so one of these needs
+  buffers 4/5. Reading which buffers they consult is the open question, and it would
+  settle whether a bespoke pickup silhouette is possible -- which today it is not.
 - `0x006e0cc0` -- `CStandAloneFrame`'s vtable base. Read directly via `read-memory`
   (76 slots, `0x006e0cc0`-`0x006e0ecc`): slot 0 = destructor-ish, slots 58-64 cluster
   around the per-pixel accessors (58/59 unknown, 60 = GetColorAt, 61 = hit-test #1
