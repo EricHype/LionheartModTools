@@ -74,6 +74,21 @@ than the base weapon they would replace (`CrossBowBetter` is 95 KB against the b
 crossbow's, `WarHammerBetter` 53 KB). None of them is a stub, so a failed probe is the
 override's fault and not the art's.
 
+### The buckler
+
+Node `9017`. Bucklers are merchant-only by design, which is good for the game and awkward for
+testing, so the kit hands them over directly: a plain one and a plain Small Shield side by
+side, because the design rests on them being different objects rather than different tiers;
+a Better-grade magic buckler, which should show the **base** mesh since no Better buckler art
+was ever drawn; and a Special-grade one, which should show `BucklerSpecial`.
+
+The last row rolls ten shields from `All Shields and Buckler`, the merchant pool, which is the
+only row that exercises the placement rather than a grant. Roughly one buckler in four.
+
+For the row that decides the design -- whether an unarmed attack can crit at all -- equip the
+buckler, put the weapon away, and punch things for a while. Nothing in the game's files
+answers it.
+
 ### Rolling, which is a different test from granting
 
 The last reply on the probe index, `Roll magic weapons from the real pools`, is the only row

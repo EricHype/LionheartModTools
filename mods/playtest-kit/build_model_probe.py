@@ -162,6 +162,37 @@ ROLLS = ("9016 rolls",
            "Shopkeeper Generation Very High Mojo", BOWS),
           ("One magic weapon.", 1, "Chest Generator Good", ALL_WEAPONS)])
 
+SHIELDS_AND_BUCKLER = "Inventory/Creating Random Magic Items/All Shields and Buckler"
+BUCKLER_ADD = "Inventory/Inventory Additions/Shield/BUCKLER/"
+
+
+def grant_path(text, item, goto, add=None):
+    """Like grant(), but the addition is a full resource path rather than a weapon-folder name."""
+    out = ("Requirement=!None" + CR + "Reply Text=" + text + CR + "Go to node ID=" + goto + CR +
+           "Custom Action=CActionGiveStandardInventoryItem" + CR + "{" + CR +
+           "Who to give to=$instigator" + CR + "Delete Trigger=0" + CR + "Notify Player=1" + CR +
+           "Inventory Item To Give=" + item + CR +
+           "Additions to add=Array" + CR + "{" + CR +
+           "Item Count=" + ("1" if add else "0") + CR)
+    if add:
+        out += "Addition to add=" + add + CR
+    return out + "}" + CR + "}" + CR + CR
+
+
+BUCKLER = ("9017 buckler",
+           "The buckler. It is not a smaller shield -- it mitigates nothing and fights instead: "
+           "+1 AC, no resistances, +4 Unarmed, +2 Critical Chance. Take the Small Shield too; the "
+           "design rests on them being different objects. For the row that matters, equip the "
+           "buckler, put your weapon away, and punch things.",
+           [("item", "Inventory Items/ShieldBuckler", None, "Buckler, plain."),
+            ("item", "Inventory Items/ShieldSmall", None, "Small Shield, plain. (the control)"),
+            ("item", "Inventory Items/ShieldBuckler", BUCKLER_ADD + "Fire Lizard",
+             "Buckler, Better grade. (expect the BASE mesh -- no Better art exists)"),
+            ("item", "Inventory Items/ShieldBuckler", BUCKLER_ADD + "Metal Skill",
+             "Buckler, Special grade. (expect BucklerSpecial)"),
+            ("roll", SHIELDS_AND_BUCKLER, None,
+             "Ten shields from the merchant pool. (expect roughly one buckler in four)")])
+
 def override_block(mesh):
     """As the 34 working vanilla cases write it. `Override Models` is inert: base items set
     all 14 entries to !None and let the name do the work."""
@@ -289,6 +320,8 @@ for gid, title, _, in [(g[0], g[1], None) for g in GROUPS]:
     index += "Requirement=!None" + CR + "Reply Text=" + title + CR + "Go to node ID=" + gid + CR + CR
 index += ("Requirement=!None" + CR + "Reply Text=Roll magic weapons from the real pools." + CR +
           "Go to node ID=" + ROLLS[0] + CR + CR)
+index += ("Requirement=!None" + CR + "Reply Text=The buckler, and the shield pool." + CR +
+          "Go to node ID=" + BUCKLER[0] + CR + CR)
 index += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=9000 playtest menu" + CR + "Icon=Exit Icon" + CR
 
 body = []
@@ -310,6 +343,17 @@ for label, count, level, canned in rows:
     node += roll(label, count, level, canned, gid)
 node += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=" + ROOT + CR + "Icon=Exit Icon" + CR
 assert node.count("Reply Text=") <= 9, "the rolls node carries %d replies" % node.count("Reply Text=")
+body.append(node)
+
+gid, title, rows = BUCKLER
+node = "Node ID=" + gid + CR + "Text=" + title + CR + "Should Have Voiceover=0" + CR + CR
+for kind, a, add, label in rows:
+    if kind == "roll":
+        node += roll(label, 10, "Chest Generator Good", a, gid)
+    else:
+        node += grant_path(label, a, gid, add)
+node += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=" + ROOT + CR + "Icon=Exit Icon" + CR
+assert node.count("Reply Text=") <= 9, "the buckler node carries %d replies" % node.count("Reply Text=")
 body.append(node)
 
 assert frag.endswith("Icon=Exit Icon" + CR), repr(frag[-40:])
