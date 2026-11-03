@@ -1,0 +1,20 @@
+{
+  "mod_format_version": 1,
+  "id": "valve-filter-probe",
+  "name": "Valve Filter Probe",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "A probe, not content. Three questions in one fight, on ten wolf cans. The picker filter is stripped to Valid Targets=Player so a companion is NOT an eligible target, then the valve fires at one anyway: if the wolf turns on the companion, CSetTargetAction bypasses the filter and the twenty Player-only enemies need no widening; if it stays on the player, the filter wins. Target shooter if hit is left exactly as vanilla had it, so shooting a pinned wolf answers whether retaliation overrides the valve. And the decoder asks for Summoned Creature as well as Player, Player Friend and Enemy, since no picker in the game combines Summoned Creature with Player Friend and it is unclear which way that cuts. Uninstall before testing anything else.",
+  "files": [
+    "Resources/Monster Cans/Animals/Rabid Wolf Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black Super.can",
+    "Resources/Monster Cans/Animals/Wolf Black Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Super.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Brown.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Super.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Gray.can"
+  ]
+}

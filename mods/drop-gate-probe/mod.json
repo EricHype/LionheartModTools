@@ -1,0 +1,20 @@
+{
+  "mod_format_version": 1,
+  "id": "drop-gate-probe",
+  "name": "Drop Gate Probe",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "A probe, not content. Answers one question: does CWasDamagedByPlayerAction return true when only a COMPANION damaged the creature? It is the only damaged/killed test class in the game, 648 uses, and it gates experience and every drop from the Destroyed Effect Action. If the answer is no, the aggro valve costs the player xp and loot every time it works. The empty Else branch of ten wolf cans now prints GATE FALSE and the Then branch prints GATE TRUE while keeping every original action, so the gate reports its own answer instead of being inferred from whether xp appeared. Both branches also decode what $Instigator resolves to at death. Reaches any wolf spawned after install. Uninstall before testing anything else.",
+  "files": [
+    "Resources/Monster Cans/Animals/Rabid Wolf Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black Super.can",
+    "Resources/Monster Cans/Animals/Wolf Black Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Super.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Brown.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Super.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Gray.can"
+  ]
+}

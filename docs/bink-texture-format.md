@@ -189,6 +189,40 @@ by `decode_low` throwing `IndexError` once the packed-add rewrite landed, since 
 much smaller alphabet than the per-pixel contexts and hits the corrupted state almost
 immediately.
 
+## Encoding — you do not need one of these
+
+Everything above is the decoder. There is no hand-written encoder and there does not need to
+be: `granny2.dll` exports the builder half of the texture API, so the game's own codec does
+the work and the output is by construction what the engine expects.
+
+    from binktc0_encode import encode_binktc0
+    payload = encode_binktc0(width, height, rgb_bytes)
+
+See `binktc0_encode.py`, and `.claude/skills/retexturing-a-model/` for the whole pipeline
+around it — decode, recolour, encode, splice, register, wire.
+
+**It needs a 32-bit interpreter.** `granny2.dll` is 32-bit; a 64-bit python raises
+`OSError: [WinError 193]` on load. The module refuses to import under 64-bit and names the
+fix. Everything else in the pipeline runs fine under 64-bit, so the usual shape is a one-line
+shell-out for the encode step alone.
+
+**Feed RGBA8888.** Three-byte RGB produces a payload nearly twice the size and decodes at the
+wrong hue, even though the texture's own `Layout` reports `BytesPerPixel=3`. `encode_binktc0`
+takes RGB and widens it for you.
+
+**The `granny_texture` struct layout** needed to get the payload back out is not in any SDK
+doc we had. It is declared in `binktc0_encode.py` from the headers and then *checked* —
+`Width`, `Height` and `Encoding` are read back and compared to what was passed before any
+pointer inside the struct is dereferenced. A wrong layout otherwise surfaces as a crash, or
+worse, as a plausible-looking payload of nonsense.
+
+**Expect growth.** You are recompressing an image that has been through the codec once.
+Observed: 13,304 bytes in, 16,580 out on a 256x256 buckler skin, a factor of 1.25.
+
+**Verify by round-tripping through the decoder**, not by inspecting bytes. A correct encode
+comes back with a mean absolute error around **0.07** and a maximum of about **2** out of 255
+— effectively lossless. A large error or a hue shift means RGB went in where RGBA was wanted.
+
 ## Verification status
 
 Confirmed **bit-exact** against the compiled reference decoder, for

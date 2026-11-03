@@ -1,0 +1,13 @@
+{
+  "mod_format_version": 1,
+  "id": "cape-slot-probe",
+  "name": "Cape Slot Probe",
+  "version": "0.4.0",
+  "author": "vkays",
+  "description": "A probe, not content. Gives capes a slot of their own by re-homing them onto Shield.CharacterSlotType, which has one slot, is selectable, sits at index 11 of every save's equipment array, and is referenced by zero items because all three shields use Hand. Body is left at one slot, so this needs no flag, no requirement and no second body square. Supersedes v0.3.0, which widened Body to two slots and found that Sub Slot Used In is ignored and that a failed Requirement traps the worn item on. Also turns the Herbalist's mana potions into Cloaks of Protection. Uninstall before testing anything else.",
+  "files": [
+    "Resources/Inventory Items/Cloak.InventoryItem",
+    "Resources/Character Slot Types/Shield.CharacterSlotType",
+    "Resources/Inventory/Specific Item Cans/Misc Items/Potion Mana Recharge.can"
+  ]
+}

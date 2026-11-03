@@ -1,0 +1,87 @@
+CDialogTree
+{
+Name=Companion
+Portrait=!None
+Should Have Voiceovers=0
+Default Canceled Node Action=
+------------------------------------------------------------
+Node ID=01 Conversation Start
+Text=<What would you like your companion to do?>
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Release Companion
+Go to node ID=
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=4
+Action=CReleaseCompanionAction
+{
+Companion To Release=$Trigger
+}
+Action=CPrintCombatTextAction
+{
+Text to print=A companion has left your party
+Character to show text to=$Instigator
+Emphasize=0
+Suppress Duplicates=0
+}
+Action=CSendMessageAction
+{
+Message=Released companion
+Target=$Trigger
+}
+Action=CUseCannedActionAction
+{
+Canned Object=Common Objects and Scripts/Fixt Companion Growth Install
+}
+}
+}
+
+Requirement=!None
+Reply Text=[PROBE] rename, target $Trigger
+Go to node ID=
+Custom Action=CSetCharacterDisplayNameAction
+{
+Scriping name of LayerPart=$Trigger
+New Display Name=Fernand Desoto -- VIA TRIGGER
+}
+
+Requirement=!None
+Reply Text=[PROBE] rename, target $Instigator
+Go to node ID=
+Custom Action=CSetCharacterDisplayNameAction
+{
+Scriping name of LayerPart=$Instigator
+New Display Name=Fernand Desoto -- VIA INSTIGATOR
+}
+
+Requirement=!None
+Reply Text=[PROBE] rename Fernand, target by literal name
+Go to node ID=
+Custom Action=CSetCharacterDisplayNameAction
+{
+Scriping name of LayerPart=Distressed Sailor
+New Display Name=Fernand Desoto -- VIA LITERAL
+}
+
+Requirement=!None
+Reply Text=[PROBE] clear Fernand's name back
+Go to node ID=
+Custom Action=CSetCharacterDisplayNameAction
+{
+Scriping name of LayerPart=Distressed Sailor
+New Display Name=Fernand Desoto
+}
+
+Requirement=!None
+Reply Text=Nothing
+Go to node ID=
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Common Objects and Scripts/Fixt Companion Growth Install
+}
+Is Default Reply=1
+}

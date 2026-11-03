@@ -1,0 +1,26 @@
+CCannedObject
+{
+	Object=CInventoryItemGeneratorMiscellaneousMagic
+	{
+		Items=Array
+		{
+			Array Count=1
+			Array Item=CInventoryItemGeneratorBasicItem
+			{
+				Weighting=10
+				Item=Inventory Items/Cloak
+			}
+		}
+		Chance Has Additional Magic=1
+		Additional Magic=Array
+		{
+			Array Count=1
+			Array Item=CInventoryItemGeneratorAdditionalMagicItem
+			{
+				Weighting=10
+				Additional Magic=Inventory/Inventory Additions/Miscellaneous/Cloaks/Protection
+			}
+		}
+	}
+	Use=Shared Global Instance
+}

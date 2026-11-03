@@ -1,0 +1,21 @@
+{
+  "mod_format_version": 1,
+  "id": "aggro-valve-probe",
+  "name": "Aggro Valve Probe",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "A probe, not content. Answers two questions about damage hooks. (1) What do the tokens mean: vanilla implies $Instigator is the attacker and $Trigger is the thing that was hit, but nothing prints a name, so every hit on a wolf decodes both by asking their categories and printing a different literal per answer. (2) Does CSetDamagedScriptActionAction carry its body unevaluated: vanilla installs with an $Instigator target OR a token in the body but never both, which is exactly the generator After Action pattern, so the same decoder goes in twice, labelled CAN and GEN, and the label that prints says which path ran. Also installs the one-way valve itself: a Player Friend that is not the Player retargets the wolf onto itself; the player hitting a wolf changes nothing. Touches ten wolf cans and the fourteen Crossroads wolf generators. Uninstall before testing anything else.",
+  "files": [
+    "Levels/Wilderness Maps/Crossroads.zax",
+    "Resources/Monster Cans/Animals/Rabid Wolf Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black Super.can",
+    "Resources/Monster Cans/Animals/Wolf Black Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Super.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Brown.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Super.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Gray.can"
+  ]
+}

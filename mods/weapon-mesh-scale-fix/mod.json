@@ -1,0 +1,17 @@
+{
+  "mod_format_version": 1,
+  "id": "weapon-mesh-scale-fix",
+  "name": "Weapon Mesh Scale Fix",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "Fills in the Render Scaling that six weapon MODEL.TXT files shipped without. Short Name=undefined plus Render Scaling=1 marks a metadata file nobody authored, and each of these sits beside a base weapon that carries a real value, so the variant renders up to 2x oversize. Includes MaceGreat, which is the shipped Great Mace's own mesh and 11% oversize in vanilla today. Built by mods/weapon-mesh-scale-fix/build.py from vanilla.",
+  "files": [
+    "Resources/Models3D/Weapons/Bows/Bow Better/BowBetter.MODEL.TXT",
+    "Resources/Models3D/Weapons/Bows/CrossBow Better/CrossBowBetter.MODEL.TXT",
+    "Resources/Models3D/Weapons/Bows/CrossBow Special/CrossBowSpecial.MODEL.TXT",
+    "Resources/Models3D/Weapons/Misc_NonSwords/Mace Better/MaceBetter.MODEL.TXT",
+    "Resources/Models3D/Weapons/Misc_NonSwords/Mace Great/MaceGreat.MODEL.TXT",
+    "Resources/Models3D/Weapons/Swords/Bastard Sword Better/BastardSwordBetter.MODEL.TXT",
+    "Resources/Models3D/Weapons/Swords/Bastard Sword Special/BastardSwordSpecial.MODEL.TXT"
+  ]
+}

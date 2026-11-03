@@ -1,0 +1,217 @@
+CCannedObject
+{
+	Object=CMultipleActionsAction
+	{
+		Action=Array
+		{
+			Item Count=7
+			Action=CAddCharacterModifierToCharacterAction
+			{
+				Modifier Description=
+				Modification is permanent=0
+				Character to modify=Player1
+				Modifiers=Array
+				{
+					Item Count=1
+					Modifier=CCharacterModifierDerivedAttribute
+					{
+						Modification Amount=CConstant
+						{
+							Constant Value=1
+						}
+						Modification amount is a percent=0
+						Allow Accumulation=1
+						Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Probe Can Ran
+					}
+				}
+				OPTIONAL Duration=
+				Expression Context=$Instigator
+			}
+			Action=CPrintCombatTextAction
+			{
+				Text to print=CAN RAN
+				Character to show text to=Player#1-9#
+				Emphasize=0
+				Suppress Duplicates=1
+			}
+			Action=CAddCharacterModifierToCharacterAction
+			{
+				Modifier Description=
+				Modification is permanent=0
+				Character to modify=$Trigger
+				Modifiers=Array
+				{
+					Item Count=1
+					Modifier=CCharacterModifierDerivedAttribute
+					{
+						Modification Amount=CConstant
+						{
+							Constant Value=1
+						}
+						Modification amount is a percent=0
+						Allow Accumulation=1
+						Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Probe Trigger OK
+					}
+				}
+				OPTIONAL Duration=
+				Expression Context=$Instigator
+			}
+			Action=CIfAction
+			{
+				If=CCheckCategoryAction
+				{
+					Target Name=$Instigator
+					Category to check for=Player
+				}
+				Then=CMultipleActionsAction
+				{
+					Action=Array
+					{
+						Item Count=2
+						Action=CAddCharacterModifierToCharacterAction
+						{
+							Modifier Description=
+							Modification is permanent=0
+							Character to modify=Player1
+							Modifiers=Array
+							{
+								Item Count=1
+								Modifier=CCharacterModifierDerivedAttribute
+								{
+									Modification Amount=CConstant
+									{
+										Constant Value=1
+									}
+									Modification amount is a percent=0
+									Allow Accumulation=1
+									Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Probe Instigator OK
+								}
+							}
+							OPTIONAL Duration=
+							Expression Context=$Instigator
+						}
+						Action=CPrintCombatTextAction
+						{
+							Text to print=CAN SEES: Player
+							Character to show text to=Player#1-9#
+							Emphasize=0
+							Suppress Duplicates=1
+						}
+					}
+				}
+				Else=
+				Return failure if the If failes=0
+			}
+			Action=CIfAction
+			{
+				If=CCheckCategoryAction
+				{
+					Target Name=$Instigator
+					Category to check for=Player Friend
+				}
+				Then=CMultipleActionsAction
+				{
+					Action=Array
+					{
+						Item Count=2
+						Action=CAddCharacterModifierToCharacterAction
+						{
+							Modifier Description=
+							Modification is permanent=0
+							Character to modify=Player1
+							Modifiers=Array
+							{
+								Item Count=1
+								Modifier=CCharacterModifierDerivedAttribute
+								{
+									Modification Amount=CConstant
+									{
+										Constant Value=1
+									}
+									Modification amount is a percent=0
+									Allow Accumulation=1
+									Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Probe Instigator OK
+								}
+							}
+							OPTIONAL Duration=
+							Expression Context=$Instigator
+						}
+						Action=CPrintCombatTextAction
+						{
+							Text to print=CAN SEES: Player Friend
+							Character to show text to=Player#1-9#
+							Emphasize=0
+							Suppress Duplicates=1
+						}
+					}
+				}
+				Else=
+				Return failure if the If failes=0
+			}
+			Action=CIfAction
+			{
+				If=CCheckCategoryAction
+				{
+					Target Name=$Instigator
+					Category to check for=Player
+				}
+				Then=CAddCharacterModifierToCharacterAction
+				{
+					Modifier Description=
+					Modification is permanent=0
+					Character to modify=$Trigger
+					Modifiers=Array
+					{
+						Item Count=1
+						Modifier=CCharacterModifierDerivedAttribute
+						{
+							Modification Amount=CConstant
+							{
+								Constant Value=1
+							}
+							Modification amount is a percent=0
+							Allow Accumulation=1
+							Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Threat Player
+						}
+					}
+					OPTIONAL Duration=
+					Expression Context=$Instigator
+				}
+				Else=
+				Return failure if the If failes=0
+			}
+			Action=CIfAction
+			{
+				If=CCheckCategoryAction
+				{
+					Target Name=$Instigator
+					Category to check for=Player Friend
+				}
+				Then=CAddCharacterModifierToCharacterAction
+				{
+					Modifier Description=
+					Modification is permanent=0
+					Character to modify=$Trigger
+					Modifiers=Array
+					{
+						Item Count=1
+						Modifier=CCharacterModifierDerivedAttribute
+						{
+							Modification Amount=CConstant
+							{
+								Constant Value=2
+							}
+							Modification amount is a percent=0
+							Allow Accumulation=1
+							Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Threat Ally
+						}
+					}
+					OPTIONAL Duration=
+					Expression Context=$Instigator
+				}
+				Else=
+				Return failure if the If failes=0
+			}
+		}
+	}
+}

@@ -1,0 +1,22 @@
+{
+  "mod_format_version": 1,
+  "id": "threat-counter-probe",
+  "name": "Threat Counter Probe",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "A probe, not content. One question: can a derived-attribute counter be written to and read back from a non-player creature, per instance? The whole threat-table design rests on it, because a per-enemy accumulator with a stickiness margin is what commercial RPGs use and is the standard answer to last-hitter oscillation. Every hit on a wolf bumps Fixt Threat Player or Fixt Threat Ally on the wolf itself, prints a threshold ladder read back off the wolf, compares the two with a 1.3x margin and retargets to whoever leads. CSetTargetAction is already proven, so any failure here is the counter. If the counters silently read zero, nothing fires and the fight looks like vanilla, which is a clean negative. Valid Targets is left vanilla this time. Uninstall before testing anything else.",
+  "files": [
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Threat Ally.DerivedCharacterAttribute",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Threat Player.DerivedCharacterAttribute",
+    "Resources/Monster Cans/Animals/Rabid Wolf Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black Super.can",
+    "Resources/Monster Cans/Animals/Wolf Black Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Super.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Brown.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Super.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Gray.can"
+  ]
+}

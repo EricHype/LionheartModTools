@@ -1,0 +1,12 @@
+{
+  "mod_format_version": 1,
+  "id": "weapon-mesh-rotate-fix",
+  "name": "Weapon Mesh Rotate Fix",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "Rotates ScimitarSpecial and BattleAxeBetter 180 degrees so their blades hang down in the hand instead of up, confirmed broken in play. Patches vertex positions and normals rather than Model.InitialPlacement, which the engine does not apply. A 180 degree rotation negates two components so winding is preserved and no triangle indices need reversing. Built by mods/weapon-mesh-rotate-fix/build.py from vanilla; the rotation axis is a guess the game settles.",
+  "files": [
+    "Resources/Models3D/Weapons/Misc_NonSwords/Battle Axe Better/BattleAxeBetter.MODEL.GR2",
+    "Resources/Models3D/Weapons/Swords/Scimitar Special/ScimitarSpecial.MODEL.GR2"
+  ]
+}

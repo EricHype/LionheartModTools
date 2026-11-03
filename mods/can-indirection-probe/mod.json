@@ -1,0 +1,26 @@
+{
+  "mod_format_version": 1,
+  "id": "can-indirection-probe",
+  "name": "Can Indirection Probe",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "A probe, not content. One question: do $Instigator and $Trigger survive into a canned object invoked from a damage hook? It decides whether a threat table can ship game-wide, because inlining costs 516 lines per install across 2568 generator slots and serializes per spawn, while a can costs three. Four counters decode the answer independently from STORED STATE, never the combat log, which is lossy: Fixt Probe Can Ran needs no token, Fixt Probe Trigger OK needs only $Trigger, Fixt Probe Instigator OK needs only $Instigator, and Fixt Threat Player/Ally need both together. Read them as Game Scripting Variables/<name>=<n> in the save. Uninstall before testing anything else.",
+  "files": [
+    "Resources/Common Objects and Scripts/Fixt Threat Probe.can",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Probe Can Ran.DerivedCharacterAttribute",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Probe Instigator OK.DerivedCharacterAttribute",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Probe Trigger OK.DerivedCharacterAttribute",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Threat Ally.DerivedCharacterAttribute",
+    "Resources/Derived Character Attributes/Game Scripting Variables/Fixt Threat Player.DerivedCharacterAttribute",
+    "Resources/Monster Cans/Animals/Rabid Wolf Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black Super.can",
+    "Resources/Monster Cans/Animals/Wolf Black Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Black.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Super.can",
+    "Resources/Monster Cans/Animals/Wolf Brown Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Brown.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Super.can",
+    "Resources/Monster Cans/Animals/Wolf Gray Tough.can",
+    "Resources/Monster Cans/Animals/Wolf Gray.can"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "mod_format_version": 1,
+  "id": "companion-name-probe",
+  "name": "Companion Name Probe",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "A probe, not content. Tests whether CSetCharacterDisplayNameAction can rewrite a companion's display name repeatedly from a Damaged Script Action, so that pointing at a companion could tell you how hurt they are. The class is real (6 vanilla uses, and %s[OldName] interpolates the previous name) but every shipped use is a one-shot rename inside a conversation. Fernand gets a fixed string so the question is only 'does it fire'; Fang gets %s[OldName]! so each hit appends an exclamation mark and the invocations become countable; and the companion conversation gets four replies to test the same class from dialogue against three different target tokens. Uninstall before testing anything else.",
+  "files": [
+    "Resources/Levels/1 Barcelona/Character Templates/Port District/Distressed Sailor.can",
+    "Resources/Levels/Generic Companion Dialog.DialogTree",
+    "Resources/Monster Cans/Animals/Cub Companion.can"
+  ]
+}

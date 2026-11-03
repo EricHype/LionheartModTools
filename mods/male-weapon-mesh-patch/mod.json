@@ -1,0 +1,11 @@
+{
+  "mod_format_version": 1,
+  "id": "male-weapon-mesh-patch",
+  "name": "Male Weapon Mesh Patch",
+  "version": "0.1.0",
+  "author": "vkays",
+  "description": "Registers WarHammerBetter and ScimitarSpecial in the male player composite, which ships with 88 model entries against the female composite's 90. No art is added: both GR2s ship and both composites already point at the same shared files under Models3D/Weapons/, so the gap is two entries in a registry rather than two missing meshes. Built by mods/male-weapon-mesh-patch/build.py from vanilla, so rerun it rather than editing the binary by hand.",
+  "files": [
+    "Cache/Models/Characters/Player Characters/Human Male.mdl16"
+  ]
+}
