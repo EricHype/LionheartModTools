@@ -2204,6 +2204,10 @@ Reply Text=The buckler, and the shield pool.
 Go to node ID=9017 buckler
 
 Requirement=!None
+Reply Text=Art that was never pointed at.
+Go to node ID=9018 art fixes
+
+Requirement=!None
 Reply Text=Back.
 Go to node ID=9000 playtest menu
 Icon=Exit Icon
@@ -3041,6 +3045,137 @@ Canned Item List=Inventory/Creating Random Magic Items/All Shields and Buckler
 }
 }
 }
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9018 art fixes
+Text=Art the game shipped and never pointed at. Each of these used to wear another item's picture. Take the pair and hold them side by side -- on its own, 'it has an icon' proves nothing. The rod is the odd one: its inventory picture was always right, so that one has to be dropped on the ground.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Bracers of Defense. (0.92.0 -- its own icon at last)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Bracers
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Bracers/Protection
+}
+}
+
+Requirement=!None
+Reply Text=Bracers, plain. (the control)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Bracers
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Bracers of Archery. (control: should STILL wear the plain icon)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Bracers
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Bracers/Archery
+}
+}
+
+Requirement=!None
+Reply Text=Nightshade Root. (0.90.0 -- was identical to Darkwood)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Nightshade Root
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Darkwood. (the control)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Darkwood
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Amulet of Dour Tidings. (0.90.0 -- was the shared green opal)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Special Objects for RED file/Amulet of Dour Tidings
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Gauntlets of La Mancha. (0.90.0 -- judgement row, is it gauntlets?)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Unique Magic Items/Gauntlets of La Mancha
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Wielder Rod of Bone. (0.90.0 -- DROP IT, the ground sprite is the fix)
+Go to node ID=9018 art fixes
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Wielder DARK Quest Rod Bone NO Spirit
+Additions to add=Array
+{
+Item Count=0
 }
 }
 

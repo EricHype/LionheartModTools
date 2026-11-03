@@ -127,42 +127,13 @@ def encode_binktc0(width: int, height: int, rgb: bytes, dll_path: str = DLL) -> 
 
 
 # --------------------------------------------------------------------------- CLI
-def _read_png_rgb(path: Path) -> tuple[int, int, bytearray]:
-    """Minimal 8-bit RGB PNG reader, so the CLI needs no third-party imaging library."""
-    d = path.read_bytes()
-    assert d[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
-    i, idat, w, h = 8, b"", None, None
-    while i < len(d):
-        ln = struct.unpack(">I", d[i:i + 4])[0]
-        tag, body = d[i + 4:i + 8], d[i + 8:i + 8 + ln]
-        if tag == b"IHDR":
-            w, h, bd, ct = struct.unpack(">IIBB", body[:10])
-            assert (bd, ct) == (8, 2), "expected 8-bit RGB, got depth %d colour type %d" % (bd, ct)
-        elif tag == b"IDAT":
-            idat += body
-        i += 12 + ln
-    raw, stride = zlib.decompress(idat), w * 3
-    out, prev, p = bytearray(), bytearray(stride), 0
-    for _ in range(h):
-        f = raw[p]; p += 1
-        line = bytearray(raw[p:p + stride]); p += stride
-        for k in range(stride):
-            a = line[k - 3] if k >= 3 else 0
-            b = prev[k]
-            c = prev[k - 3] if k >= 3 else 0
-            if f == 1:
-                line[k] = (line[k] + a) & 255
-            elif f == 2:
-                line[k] = (line[k] + b) & 255
-            elif f == 3:
-                line[k] = (line[k] + ((a + b) >> 1)) & 255
-            elif f == 4:
-                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
-                line[k] = (line[k] + (a if (pa <= pb and pa <= pc) else (b if pb <= pc else c))) & 255
-        out += line
-        prev = line
-    return w, h, out
 
+# The PNG reader lives in png_io so that tools which never touch granny2.dll do not
+# inherit this module's 32-bit-only restriction merely to read an image.
+# add our own directory: python -I strips the script's directory from sys.path, so a
+# sibling module is otherwise unimportable when this is run as a CLI
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from png_io import read_rgb as _read_png_rgb  # noqa: E402
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
