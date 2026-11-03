@@ -193,6 +193,28 @@ BUCKLER = ("9017 buckler",
             ("roll", SHIELDS_AND_BUCKLER, None,
              "Ten shields from the merchant pool. (expect roughly one buckler in four)")])
 
+ART = ("9018 art fixes",
+       "Art the game shipped and never pointed at. Each of these used to wear another item's "
+       "picture. Take the pair and hold them side by side -- on its own, 'it has an icon' "
+       "proves nothing. The rod is the odd one: its inventory picture was always right, so "
+       "that one has to be dropped on the ground.",
+       [("Inventory Items/Bracers", "Inventory/Inventory Additions/Miscellaneous/Bracers/Protection",
+         "Bracers of Defense. (0.92.0 -- its own icon at last)"),
+        ("Inventory Items/Bracers", None,
+         "Bracers, plain. (the control)"),
+        ("Inventory Items/Bracers", "Inventory/Inventory Additions/Miscellaneous/Bracers/Archery",
+         "Bracers of Archery. (control: should STILL wear the plain icon)"),
+        ("Inventory/Specific Item Cans/Quest Items/Nightshade Root", None,
+         "Nightshade Root. (0.90.0 -- was identical to Darkwood)"),
+        ("Inventory/Specific Item Cans/Quest Items/Darkwood", None,
+         "Darkwood. (the control)"),
+        ("Inventory/Specific Item Cans/Quest Items/Special Objects for RED file/Amulet of Dour Tidings", None,
+         "Amulet of Dour Tidings. (0.90.0 -- was the shared green opal)"),
+        ("Inventory/Specific Item Cans/Unique Magic Items/Gauntlets of La Mancha", None,
+         "Gauntlets of La Mancha. (0.90.0 -- judgement row, is it gauntlets?)"),
+        ("Inventory/Specific Item Cans/Quest Items/Wielder DARK Quest Rod Bone NO Spirit", None,
+         "Wielder Rod of Bone. (0.90.0 -- DROP IT, the ground sprite is the fix)")])
+
 def override_block(mesh):
     """As the 34 working vanilla cases write it. `Override Models` is inert: base items set
     all 14 entries to !None and let the name do the work."""
@@ -322,6 +344,8 @@ index += ("Requirement=!None" + CR + "Reply Text=Roll magic weapons from the rea
           "Go to node ID=" + ROLLS[0] + CR + CR)
 index += ("Requirement=!None" + CR + "Reply Text=The buckler, and the shield pool." + CR +
           "Go to node ID=" + BUCKLER[0] + CR + CR)
+index += ("Requirement=!None" + CR + "Reply Text=Art that was never pointed at." + CR +
+          "Go to node ID=" + ART[0] + CR + CR)
 index += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=9000 playtest menu" + CR + "Icon=Exit Icon" + CR
 
 body = []
@@ -354,6 +378,14 @@ for kind, a, add, label in rows:
         node += grant_path(label, a, gid, add)
 node += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=" + ROOT + CR + "Icon=Exit Icon" + CR
 assert node.count("Reply Text=") <= 9, "the buckler node carries %d replies" % node.count("Reply Text=")
+body.append(node)
+
+gid, title, rows = ART
+node = "Node ID=" + gid + CR + "Text=" + title + CR + "Should Have Voiceover=0" + CR + CR
+for item, add, label in rows:
+    node += grant_path(label, item, gid, add)
+node += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=" + ROOT + CR + "Icon=Exit Icon" + CR
+assert node.count("Reply Text=") <= 9, "the art node carries %d replies" % node.count("Reply Text=")
 body.append(node)
 
 assert frag.endswith("Icon=Exit Icon" + CR), repr(frag[-40:])
