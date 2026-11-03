@@ -15,6 +15,26 @@ that is a one-field change and this whole workflow is the wrong tool -- check
 `tools/orphan_art.py` in Lionheart Fixt first, which finds assets the game ships and nothing
 references.
 
+## The boundary: you can repaint a model, not reshape one
+
+**New geometry is not available.** `docs/gltf-roundtrip.md` gets a model out to glTF and back
+with a zero-edit round trip verified across 24,510 element slots, and an in-game 2x scale, but
+its limitations are real and still open:
+
+> **Same topology only.** Adding or removing vertices or triangles isn't supported -- the
+> patcher errors out if the vertex count changes. Real retopology support needs a general
+> sector and fixup-table rebuild, not just byte patching.
+
+So the moves actually on the table are: **repaint** the texture (this skill), **transform** the
+existing vertices in place -- Lionheart Fixt 0.89.0 rotated two weapon meshes 180 degrees that
+way -- and **uniformly scale** a whole model (`scale_model.py`). Per-bone reposing is also
+unsolved; it hits the animation-curve-override problem recorded in that same document.
+
+This is why `BucklerBetter` is a recolour rather than a new shield shape: with two skins for
+three item grades, repainting was not the cheapest option, it was the only one. Decide which
+of the three moves your problem needs **before** starting, because the fourth does not exist
+and finding that out late is expensive.
+
 ## The one thing that blocks everything
 
 **The encode needs a 32-bit interpreter.** `granny2.dll` is 32-bit; a 64-bit python raises
@@ -163,3 +183,7 @@ the signature is wrong rather than the data. `@16` rules out the five-argument f
 SDKs.
 
 **There is no hand-written encoder and there does not need to be.** `granny2.dll` does it.
+
+**Do not start by trying to model a new shape.** See the boundary section at the top: the gr2
+patcher refuses a vertex-count change, so a new silhouette is not a thing this toolchain can
+currently produce. That is a capability someone would have to build, not a workflow to follow.
