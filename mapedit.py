@@ -406,6 +406,8 @@ class MoveEntityCommand(QUndoCommand):
         self.item.setZValue(self.window.depth_for(self.item))
         self.window.doc.dirty = True
         self.window.schedule_validate()
+        if self.window._current_entity is self.entity:
+            self.window.show_entity_properties(self.entity)
 
     def redo(self):
         self._apply(*self.new)

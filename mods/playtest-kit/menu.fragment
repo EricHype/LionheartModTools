@@ -3,6 +3,18 @@ Text=Ah. You are one of THOSE travelers -- the kind who steps outside the world 
 Should Have Voiceover=0
 
 Requirement=!None
+Reply Text=The Crossroads Siege. (XS rows; walk north to the standard. The map must be unvisited on this save)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Standard
+}
+
+Requirement=!None
+Reply Text=Ending tests.
+Go to node ID=9090 ending tests
+
+Requirement=!None
 Reply Text=Items under test.
 Go to node ID=9001 items
 
@@ -36,6 +48,676 @@ Go to node ID=
 Icon=Exit Icon
 Is Default Reply=1
 
+------------------------------------------------------------
+Node ID=9090 ending tests
+Text=Which ending? Each of these ends the game, so use a spare save.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=The epilogue stage. (the slides this character has earned, then credits)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Stage
+}
+
+Requirement=!None
+Reply Text=As I am. (EF1, EF3, EF4: no setup)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Ending
+}
+
+Requirement=!None
+Reply Text=With every companion alive. (EF2, EF5: the longest ending)
+Go to node ID=9000 playtest menu
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=15
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Bishop Diego
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Cervantes
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Cortes
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Darsh
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Distressed Sailor
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Fang
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Goblin Girl
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Goblin Grumdjum
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Golem
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Grace
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Joan of Arc
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Knight of Saladin
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Lost Knight
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=1
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Sir Roger Templeton
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Ending
+}
+}
+}
+
+Requirement=!None
+Reply Text=With every companion dead in my service. (EF2)
+Go to node ID=9000 playtest menu
+Custom Action=CMultipleActionsAction
+{
+Action=Array
+{
+Item Count=15
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Bishop Diego
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Cervantes
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Cortes
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Darsh
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Distressed Sailor
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Fang
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Goblin Girl
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Goblin Grumdjum
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Golem
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Grace
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Joan of Arc
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Knight of Saladin
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Lost Knight
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CAddCharacterModifierToCharacterAction
+{
+Modifier Description=
+Modification is permanent=0
+Character to modify=$Instigator
+Modifiers=Array
+{
+Item Count=1
+Modifier=CCharacterModifierDerivedAttribute
+{
+Modification Amount=CConstant
+{
+Constant Value=3
+}
+Modification amount is a percent=0
+Allow Accumulation=0
+Derived character attribute to modify=Derived Character Attributes/Game Scripting Variables/Fixt Companion Sir Roger Templeton
+}
+}
+OPTIONAL Duration=
+Expression Context=$Instigator
+}
+Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Ending
+}
+}
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9000 playtest menu
 ------------------------------------------------------------
 Node ID=9001 items
 Text=What is being tested?
@@ -261,6 +943,14 @@ Go to node ID=9004 travel
 Custom Action=CUseCannedActionAction
 {
 Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel Camp Gate
+}
+
+Requirement=!None
+Reply Text=The end of the game. (plays the ending and the credits; do this on a spare save)
+Go to node ID=9004 travel
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Ending
 }
 
 Requirement=!None
@@ -722,6 +1412,10 @@ Go to node ID=9017 buckler
 Requirement=!None
 Reply Text=Art that was never pointed at.
 Go to node ID=9018 art fixes
+
+Requirement=!None
+Reply Text=The Templar shields.
+Go to node ID=9019 templar shields
 
 Requirement=!None
 Reply Text=Back.
@@ -1693,6 +2387,121 @@ Additions to add=Array
 {
 Item Count=0
 }
+}
+
+Requirement=!None
+Reply Text=Back.
+Go to node ID=9010 weapon models
+Icon=Exit Icon
+------------------------------------------------------------
+Node ID=9019 templar shields
+Text=The Templar shield chain, acts 1 to 8: Lion at Squire, Holy at Warden, Aegis at Paladin. Take all three and hold them up together -- same shield three times, the lion ghosted under the cross in both upgrades. The Spirit Templar Shield and the Helm of the Templars rendered NOTHING on the character before 0.93.0, so equip each and look at yourself. Helm plus either Templar shield is +4 AC. The Aegis returns 15% of physical damage to whoever hits you: that number is calibrated, not measured, so go get hit and tell me if it feels right. To test the SCENE rather than the items: make yourself a Templar, take the Holy Shield, travel to act 7 and talk to Sir Roger. The row that matters is whether the conversation gives you control back.
+Should Have Voiceover=0
+
+Requirement=!None
+Reply Text=Aegis of the Templars. (tier 3 -- gold cross; 15% physical reflect, MEASURE IT)
+Go to node ID=9019 templar shields
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Aegis of the Templars
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Holy Shield of the Templars. (tier 2 -- red cross, ghosted lion)
+Go to node ID=9019 templar shields
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Holy Shield of the Templars
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Lion Shield. (what it upgrades FROM -- the control)
+Go to node ID=9019 templar shields
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Lion Shield Templar Quest
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Spirit Templar Shield. (0.93.0 -- was invisible on the character)
+Go to node ID=9019 templar shields
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Spirit Templar Shield
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Helm of the Templars. (0.93.0 -- was invisible too; +4 AC worn with either shield)
+Go to node ID=9019 templar shields
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory/Specific Item Cans/Quest Items/Helm of the Templars
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Large Shield, plain. (control for AC and mesh)
+Go to node ID=9019 templar shields
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/ShieldLarge
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
+Reply Text=Make me a Knight Templar. (the gate on Sir Roger's offer)
+Go to node ID=9019 templar shields
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Join Templars
+}
+
+Requirement=!None
+Reply Text=Take me to Sir Roger. (act 7, 02 Temple Initiate -- a ONE WAY trip)
+Go to node ID=9019 templar shields
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel English Shrine
 }
 
 Requirement=!None

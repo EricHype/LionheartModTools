@@ -215,6 +215,33 @@ ART = ("9018 art fixes",
         ("Inventory/Specific Item Cans/Quest Items/Wielder DARK Quest Rod Bone NO Spirit", None,
          "Wielder Rod of Bone. (0.90.0 -- DROP IT, the ground sprite is the fix)")])
 
+TEMPLAR = ("9019 templar shields",
+           "The Templar shield chain, acts 1 to 8: Lion at Squire, Holy at Warden, Aegis at "
+           "Paladin. Take all three and hold them up together -- same shield three times, the "
+           "lion ghosted under the cross in both upgrades. The Spirit Templar Shield and the "
+           "Helm of the Templars rendered NOTHING on the character before 0.93.0, so equip each "
+           "and look at yourself. Helm plus either Templar shield is +4 AC. The Aegis returns "
+           "15% of physical damage to whoever hits you: that number is calibrated, not measured, "
+           "so go get hit and tell me if it feels right. To test the SCENE rather than the items: "
+           "make yourself a Templar, take the Holy Shield, travel to act 7 and talk to Sir Roger. "
+           "The row that matters is whether the conversation gives you control back.",
+           [("Inventory/Specific Item Cans/Quest Items/Aegis of the Templars", None,
+             "Aegis of the Templars. (tier 3 -- gold cross; 15% physical reflect, MEASURE IT)"),
+            ("Inventory/Specific Item Cans/Quest Items/Holy Shield of the Templars", None,
+             "Holy Shield of the Templars. (tier 2 -- red cross, ghosted lion)"),
+            ("Inventory/Specific Item Cans/Quest Items/Lion Shield Templar Quest", None,
+             "Lion Shield. (what it upgrades FROM -- the control)"),
+            ("Inventory/Specific Item Cans/Quest Items/Spirit Templar Shield", None,
+             "Spirit Templar Shield. (0.93.0 -- was invisible on the character)"),
+            ("Inventory/Specific Item Cans/Quest Items/Helm of the Templars", None,
+             "Helm of the Templars. (0.93.0 -- was invisible too; +4 AC worn with either shield)"),
+            ("Inventory Items/ShieldLarge", None,
+             "Large Shield, plain. (control for AC and mesh)")],
+           [("Levels/1 Barcelona/Quests/Playtest Kit/Join Templars",
+             "Make me a Knight Templar. (the gate on Sir Roger's offer)"),
+            ("Levels/1 Barcelona/Quests/Playtest Kit/Travel English Shrine",
+             "Take me to Sir Roger. (act 7, 02 Temple Initiate -- a ONE WAY trip)")])
+
 def override_block(mesh):
     """As the 34 working vanilla cases write it. `Override Models` is inert: base items set
     all 14 entries to !None and let the name do the work."""
@@ -346,6 +373,8 @@ index += ("Requirement=!None" + CR + "Reply Text=The buckler, and the shield poo
           "Go to node ID=" + BUCKLER[0] + CR + CR)
 index += ("Requirement=!None" + CR + "Reply Text=Art that was never pointed at." + CR +
           "Go to node ID=" + ART[0] + CR + CR)
+index += ("Requirement=!None" + CR + "Reply Text=The Templar shields." + CR +
+          "Go to node ID=" + TEMPLAR[0] + CR + CR)
 index += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=9000 playtest menu" + CR + "Icon=Exit Icon" + CR
 
 body = []
@@ -386,6 +415,19 @@ for item, add, label in rows:
     node += grant_path(label, item, gid, add)
 node += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=" + ROOT + CR + "Icon=Exit Icon" + CR
 assert node.count("Reply Text=") <= 9, "the art node carries %d replies" % node.count("Reply Text=")
+body.append(node)
+
+gid, title, rows, canned = TEMPLAR
+node = "Node ID=" + gid + CR + "Text=" + title + CR + "Should Have Voiceover=0" + CR + CR
+for item, add, label in rows:
+    node += grant_path(label, item, gid, add)
+for obj, label in canned:
+    node += ("Requirement=!None" + CR + "Reply Text=" + label + CR +
+             "Go to node ID=" + gid + CR +
+             "Custom Action=CUseCannedActionAction" + CR + "{" + CR +
+             "Canned Object=" + obj + CR + "}" + CR + CR)
+node += "Requirement=!None" + CR + "Reply Text=Back." + CR + "Go to node ID=" + ROOT + CR + "Icon=Exit Icon" + CR
+assert node.count("Reply Text=") <= 9, "the templar node carries %d replies" % node.count("Reply Text=")
 body.append(node)
 
 assert frag.endswith("Icon=Exit Icon" + CR), repr(frag[-40:])

@@ -1,0 +1,14 @@
+CCannedObject
+{
+	Object=CTeleportAction
+	{
+		Return to map=definitely soon
+		New Map Name=8 Alamut/END GAME Siege Map
+		New Location=From Nostrodomus
+		Who To Switch=$Instigator
+		Relative Position=0
+		Ignore Party Ready Rules=1
+		Warp Behavior=
+	}
+	Use=Shared Global Instance
+}

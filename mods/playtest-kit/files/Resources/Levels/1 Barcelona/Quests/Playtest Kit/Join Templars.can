@@ -1,0 +1,9 @@
+CCannedObject
+{
+	Object=CAssignFactionToCharacterAction
+	{
+		Faction To Assign=Factions/Templar Squire
+		Character To assign=$Instigator
+	}
+	Use=Shared Global Instance
+}
