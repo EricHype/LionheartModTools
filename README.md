@@ -28,6 +28,8 @@ official modding support or SDK for this game — this project exists to establi
 - **`dialogtree_format.py`** — reader/writer for `.DialogTree`, the one format
   `resource_format.py` can't handle. Byte-identical round-trip on all 341 shipped files.
   `dialogedit.py` is the visual editor over it; see below.
+- **`canedit.py`** / **`canedit_core.py`** / **`can_schema.py`**: an editor for creature
+  cans with a Combat AI panel, and its headless core. See below.
 - **`mods/`** — real, working mods built with this toolkit (see below).
 - **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
   [authoring skill and attribute checks](docs/skill-and-attribute-checks.md), the `.mdl16`
@@ -343,6 +345,38 @@ nowhere in the game's own files.
 
 The round-trip is byte-identical across all 341 shipped files, which was the gate for
 building anything on top of it.
+
+## The can editor
+
+A monster's behaviour is one `CSkeletonAI` block deep inside its `.can`: who it targets and
+from how far, how far it chases, whether it answers a call for help, what attack AI it
+runs. `canedit.py` puts those in labelled controls:
+
+```
+python canedit.py                                         # pick from the Cans list
+python canedit.py "Monster Cans/Mongol Goblin Archer"      # a vanilla can, read-only
+python canedit.py "<mod>\files\Resources\...\X.can" --mod "<mod>"
+```
+
+| | |
+|---|---|
+| **Creature** | Name, race, category, team and model, and **Used by**: every map and generator part that spawns this can, so you see that `Soldier1` is 160 generator entries in 17 maps before you change it. A one-map change belongs in that generator's `AIs to Add` instead. |
+| **Combat AI** | Targeting, leash, group call, attack AI and its distances, the `Shoot Completed` attack bank, transitions, and a one-click "call for help when it first attacks" preset. Retreat is shown disabled: the engine never enters that state. |
+| **Can tree** | The map editor's Entity Script dock over the whole can, for everything else. |
+
+Every default says whether it came from the engine (read in Ghidra) or from a sweep of all
+1698 shipped cans. Two rules are enforced rather than documented:
+
+- **Classes that crash cannot be written.** `CAttackAI`, `CChargeAttackAI` and
+  `CStrafeAttackAI` are abstract; naming one is a crash to desktop. The class picker shows
+  them disabled with the reason, and every save scans the whole can and refuses if one
+  appears.
+- **Vanilla is never written.** A vanilla can opens read-only; Save As writes it into a
+  mod's `files/` at its resource path and lists it in that mod's `mod.json`.
+
+Load and save are byte-identical on all 1698 shipped cans, and one edit is a one-line diff.
+Usage, the engine facts behind each control, and the safety rules are in
+[`docs/can-editor.md`](docs/can-editor.md).
 
 ## Building your own mod
 
