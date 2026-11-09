@@ -272,6 +272,12 @@ class ScriptDock(QWidget):
         self.entity = entity
         self.refresh()
 
+    def script_slots(self) -> list[tuple[str, object]]:
+        """The top-level rows: (key, value) fields of `self.entity.node`. For a map
+        entity that is its script slots; the can editor overrides it to show the whole
+        can."""
+        return ss.entity_scripts(self.entity.node)
+
     # -- tree -------------------------------------------------------------
 
     def refresh(self, *, keep_selection: bool = False, select_node=None):
@@ -291,7 +297,7 @@ class ScriptDock(QWidget):
             return
 
         name = self.entity.name or self.entity.model.rsplit("/", 1)[-1]
-        slots = ss.entity_scripts(self.entity.node)
+        slots = self.script_slots()
         self.header.setText(
             f"<b>{name}</b> - {len(slots)} script slot(s)" if slots
             else f"<b>{name}</b> - no scripts. Use Add to give it one.")
