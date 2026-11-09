@@ -732,6 +732,53 @@ Text=What is being tested?
 Should Have Voiceover=0
 
 Requirement=!None
+Reply Text=Helmet of the Watch. (HM1; no sight penalty -- compare the clear area with a plain helmet)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Helmet
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Helmets/Watch
+}
+}
+
+Requirement=!None
+Reply Text=Helmet of Farsight. (HM2; sees farther than no helmet at all)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Helmet
+Additions to add=Array
+{
+Item Count=1
+Addition to add=Inventory/Inventory Additions/Miscellaneous/Helmets/Farsight
+}
+}
+
+Requirement=!None
+Reply Text=A plain Helmet. (the control for HM1 and HM2)
+Go to node ID=9001 items
+Custom Action=CActionGiveStandardInventoryItem
+{
+Who to give to=$instigator
+Delete Trigger=0
+Notify Player=1
+Inventory Item To Give=Inventory Items/Helmet
+Additions to add=Array
+{
+Item Count=0
+}
+}
+
+Requirement=!None
 Reply Text=Cape of the Thief. (+4 Stealth, +4 Evasion, +2 AC; doubles with the belt)
 Go to node ID=9001 items
 Custom Action=CActionGiveStandardInventoryItem
