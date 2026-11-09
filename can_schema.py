@@ -86,7 +86,7 @@ class PanelField:
 
 
 VALID_TARGETS_SEEN = ("Player,Player Friend", "", "Enemy", "Scripted Custom 2", "Player",
-                      "Player,Player Friend,Scripted Custom 1", "Enemy,Undead")
+                      "Player,Player Friend,Scripted Custom 1")
 
 GROUPS: tuple[tuple[str, tuple[PanelField, ...]], ...] = (
     ("Targeting", (
@@ -96,10 +96,10 @@ GROUPS: tuple[tuple[str, tuple[PanelField, ...]], ...] = (
                    "one: the shipped way to make a creature ignore everybody.", "engine"),
         PanelField("target", "Max Distance", "Acquire within (px)", "number", "550",
                    ("550", "1000", "400", "625", "375", "500", "300"),
-                   "How far away it notices a target. Engine default 550; 647 of 717 "
-                   "shipped cans keep it.", "engine"),
+                   "How far away it notices a target. Engine default 550; 647 of 716 "
+                   "shipped CSkeletonAIs keep it.", "engine"),
         PanelField("target", "Vision Cone", "Vision Cone (degrees)", "number", "360",
-                   ("360", "90"), "360 in every shipped can but one.", "engine"),
+                   ("360",), "360 in every shipped CSkeletonAI.", "engine"),
         PanelField("skeleton", "Target shooter if hit", "Target shooter if hit", "flag", "1",
                    hint="1 in 698 of 716 shipped CSkeletonAIs."),
         PanelField("skeleton", "Never Unacquire", "Never Unacquire", "flag", "0",
@@ -108,9 +108,9 @@ GROUPS: tuple[tuple[str, tuple[PanelField, ...]], ...] = (
                    ("0", "-50", "15", "-25", "10", "-20", "20", "40"),
                    "Observed range -300 to 100; 0 in 489 of 716."),
         PanelField("target", "Must Be Collideable", "Must Be Collideable", "flag", "1",
-                   hint="1 in 716 of 717."),
+                   hint="1 in 715 of 716."),
         PanelField("target", "Must Have HPs", "Must Have HPs", "flag", "1",
-                   hint="1 in 716 of 717."),
+                   hint="1 in 715 of 716."),
     )),
     ("Leash", (
         PanelField("skeleton", "Max dist from home", "Pursue: max dist from home", "number",
