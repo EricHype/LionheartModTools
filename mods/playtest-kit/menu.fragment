@@ -11,6 +11,14 @@ Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Standard
 }
 
 Requirement=!None
+Reply Text=The Doomed Plateau. (DW rows; walk west along the path to the Deathwatch. A ONE WAY trip, and the map must be unvisited on this save)
+Go to node ID=9000 playtest menu
+Custom Action=CUseCannedActionAction
+{
+Canned Object=Levels/1 Barcelona/Quests/Playtest Kit/Travel The Deathwatch
+}
+
+Requirement=!None
 Reply Text=Ending tests.
 Go to node ID=9090 ending tests
 
