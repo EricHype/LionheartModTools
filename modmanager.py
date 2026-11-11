@@ -622,6 +622,23 @@ def cmd_build(args: argparse.Namespace) -> None:
     print(f"Built data.dat with {len(enabled)} mod(s) enabled: {', '.join(enabled) or '(none)'}")
 
 
+def cmd_check(args: argparse.Namespace) -> None:
+    """Run lhcheck's engine-rule checks over a mod package's files/. See docs/checks.md."""
+    import lhcheck
+
+    mod_dir = Path(args.mod_dir)
+    if not (mod_dir / "mod.json").is_file():
+        raise SystemExit(f"No mod.json found in {mod_dir}")
+    if not (mod_dir / "files").is_dir():
+        raise SystemExit(f"No files/ directory in {mod_dir}")
+    try:
+        ctx = lhcheck.Context(mod_dir / "files", args.vanilla, args.exe)
+        findings, stats = lhcheck.run(ctx, lhcheck.split_ids(args.only), lhcheck.split_ids(args.skip))
+    except (FileNotFoundError, ValueError) as e:
+        raise SystemExit(f"check: {e}")
+    sys.exit(lhcheck.report(findings, stats, ctx.notes))
+
+
 def cmd_restore(args: argparse.Namespace) -> None:
     paths = _game_paths(args.game_dir)
     if not paths["vanilla_bak"].exists():
@@ -735,6 +752,16 @@ def main() -> None:
     p.add_argument("game_dir")
     p.add_argument("--no-build", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("check",
+                       help="Run the engine-rule checks (lhcheck) over a mod package; non-zero on any finding")
+    p.add_argument("mod_dir", help="Mod package directory (contains mod.json and files/)")
+    p.add_argument("--vanilla", default=None,
+                   help="Pristine data.dat (default: $LIONHEART_VANILLA, then the GOG install)")
+    p.add_argument("--exe", default=None, help="Lionheart.exe (default: beside the vanilla archive)")
+    p.add_argument("--skip", action="append", metavar="ID", help="Skip a check (repeatable or comma-separated)")
+    p.add_argument("--only", action="append", metavar="ID", help="Run only these checks")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("restore", help="Revert data.dat to the pristine vanilla backup")
     p.add_argument("game_dir")
