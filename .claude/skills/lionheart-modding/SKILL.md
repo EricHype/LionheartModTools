@@ -18,6 +18,13 @@ intuitive and cost many test cycles to pin down.
 - `archive.py` — unpack/repack `data.dat`.
 - `modmanager.py` — package, install, and build mods as lightweight overlays (see
   "Packaging & distributing mods" below). Reuses `archive.py`'s unpack/repack directly.
+- `lhcheck.py` — the engine-rule checks, each from a defect that shipped: byte-exact
+  node refs, orphan blocks, unknown classes, array counts, overridden drops, self-firing
+  relays and more. `python modmanager.py check <mod dir>` runs it on a package. Run it
+  after any change to a mod's files; see `docs/checks.md`. `auto_open_risk.py` is the
+  slower check for costly replies on proximity-opened conversations.
+- `savecheck.py` — read saves and `Last Character.RPG` (zlib streams) to verify a
+  playtest from disk.
 - `mdl16_format.py` — read, recolor, and author inventory icon art (`.mdl16`/`.frm16`).
   See `docs/mdl16-icon-format.md`, and the `adding-a-new-weapon` skill for a worked
   end-to-end example.
@@ -1618,7 +1625,8 @@ there. Dump the actual structure before concluding anything about it.
 1. **Back up** `data.dat` once before any mod work (`data.dat.original.bak`).
 2. Edit files directly in the unpacked `data\` directory.
 3. Before repacking, sanity-check the edited `.DialogTree`/`.txt` file:
-   `grep -c '^{$'` should equal `grep -c '^}$'` (brace balance).
+   `grep -c '^{$'` should equal `grep -c '^}$'` (brace balance). For a packaged mod,
+   `python modmanager.py check <mod dir>` does this and much more (`docs/checks.md`).
 4. Confirm `Lionheart.exe` is **not running** (`tasklist | grep -i lionheart`) — repack
    will fail with `PermissionError`/`WinError 5` otherwise, and the game must be fully
    closed (not just showing an error dialog) to release the file lock.

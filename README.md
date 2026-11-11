@@ -13,6 +13,16 @@ official modding support or SDK for this game — this project exists to establi
 - **`archive.py`** — unpack/repack `data.dat`.
 - **`modmanager.py`** — package, install, enable/disable, and build mods as layered
   overlays on top of a pristine vanilla backup.
+- **`lhcheck.py`** — static checks for the rules the engine enforces: byte-exact node
+  references, orphan blocks, unknown class names, wrong array counts, overridden drops,
+  self-firing relays and the rest. Each one comes from a defect that shipped. Run
+  `python lhcheck.py <mod root>` or `python modmanager.py check <mod dir>`; it exits
+  non-zero on any finding. See [`docs/checks.md`](docs/checks.md).
+  `auto_open_risk.py` is its slower companion: it flags costly replies on conversations
+  that open by proximity.
+- **`savecheck.py`** — reads saves and the character file (both zlib inside), so a
+  playtest can be checked from disk: faction ranks, scripting variables, the combat log,
+  and `snapshot`/`diff` around a scene.
 - **`mdl16_format.py`** — read, recolor, and author inventory icon art (`.mdl16`/`.frm16`
   2D sprites). Authoring genuinely new icon art works; see below.
 - **`gr2_format.py`** — the 3D character/model format (`.gr2`), with glTF round-tripping.
@@ -390,6 +400,8 @@ Usage, the engine facts behind each control, and the safety rules are in
 3. Once it works, package it: create `mods/<your-mod-id>/mod.json` (see an existing mod
    for the schema) and copy only the files you actually changed into
    `mods/<your-mod-id>/files/`, mirroring their path under `data\`.
+   Then run `python modmanager.py check mods/<your-mod-id>`. It catches the crashes and
+   silent failures that parse fine but break in game ([`docs/checks.md`](docs/checks.md)).
 4. `modmanager.py install` it into your local game to confirm the packaged version still
    works, same as any other mod.
 
