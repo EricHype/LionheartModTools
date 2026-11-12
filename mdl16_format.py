@@ -314,6 +314,85 @@ def decode_icon(data: bytes, header: IconHeader | None = None) -> dict:
     }
 
 
+def decode_icon_composite(data: bytes, header: IconHeader | None = None) -> dict:
+    """Decode an RLE-16bpp icon the way GetColorAt composites it: buffer 1 where it is
+    non-zero, else buffer 5's colour at buffer 4's alpha. `decode_icon` reads buffer 1
+    only, which leaves most of some icons blank (`Titan Crystal` keeps 87% of its colour
+    in buffer 5).
+
+    Buffer 4 holds one alpha byte per pixel that a buffer-5 run COVERS (repeat or
+    literal, not skip), in order, starting at buffer 4's own `table[y]`. That layout is
+    measured, not decompiled: it accounts for every row's byte span in 416 of the 426
+    item sprites that carry buffers 4/5. In the other 10, one to four rows run 8-53 bytes
+    past their span into the next row's bytes; reading from `table[y]` regardless gives
+    what the engine's own per-row seek gives.
+
+    Returns the same shape as `decode_icon`, plus `plane` rows: 1, 5 or 0 per pixel, so a
+    caller can tell which plane a visible pixel came from.
+    """
+    header = header or find_header(data)
+    if header is None:
+        raise ValueError("no CStandAloneFrame header found in data")
+    if header.flags & 6 != 4:
+        return dict(decode_icon(data, header),
+                    plane=[[1] * header.width for _ in range(header.height)])
+    w, h = header.width, header.height
+    buf1 = data[header.data_offset: header.data_offset + header.buffer_sizes[0]]
+    v1 = decode_plane_rows(buf1, read_row_table(data, header, 0), w, h)
+    have5 = bool(header.buffer_sizes[4] and header.buffer_sizes[3])
+    if have5:
+        o4, o5 = buffer_data_offset(header, 3), buffer_data_offset(header, 4)
+        buf4 = data[o4: o4 + header.buffer_sizes[3]]
+        buf5 = data[o5: o5 + header.buffer_sizes[4]]
+        t4 = read_row_table(data, header, 3)
+        t5 = read_row_table(data, header, 4)
+    rows, planes = [], []
+    for y in range(h):
+        c5 = [0] * w       # buffer-5 colour per x
+        a5 = [0] * w       # buffer-4 alpha per x
+        if have5:
+            i, x, k = t5[y], 0, 0
+            while x < w:
+                ctrl = buf5[i]
+                if ctrl & 0x80:
+                    x += ctrl & 0x7F
+                    i += 1
+                    continue
+                n = ctrl & 0x3F
+                if ctrl & 0x40 == 0:
+                    vals = [struct.unpack_from("<H", buf5, i + 1)[0]] * n
+                    i += 3
+                else:
+                    vals = list(struct.unpack_from(f"<{n}H", buf5, i + 1))
+                    i += 1 + 2 * n
+                for v in vals:
+                    if x < w:
+                        c5[x] = v
+                        p = t4[y] + k
+                        a5[x] = buf4[p] if p < len(buf4) else 0
+                    x += 1
+                    k += 1
+        row, prow = [], []
+        for x in range(w):
+            v = v1[y][x]
+            if v:
+                row.append(_rgb565_to_rgb888(v) + (255,))
+                prow.append(1)
+            elif have5 and c5[x] and a5[x]:
+                row.append(_rgb565_to_rgb888(c5[x]) + (a5[x],))
+                prow.append(5)
+            else:
+                row.append((0, 0, 0, 0))
+                prow.append(0)
+        rows.append(row)
+        planes.append(prow)
+    return {
+        "width": w, "height": h,
+        "hotspot_x": header.hotspot_x, "hotspot_y": header.hotspot_y,
+        "rows": rows, "plane": planes,
+    }
+
+
 def _rgb888_to_rgb565(r: int, g: int, b: int) -> int:
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
@@ -359,18 +438,28 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     # vary the recolor by position -- a gradient, or repainting only part of the
     # silhouette. It used to also be needed to work around the ShortSword "artifact
     # rows"; that was this function corrupting the buffer's size prefix, and is fixed.
+    #
+    # Two more optional arguments, for callers repainting from an image: `plane` (1 or 5,
+    # which colour plane this value is in) and `count` (how many pixels this one stored
+    # value covers -- a repeat run stores ONE value for up to 63 pixels starting at
+    # pixel_index, so positional detail inside it cannot be kept; a literal value covers
+    # 1). The callback's arity picks the form, so existing callers are unaffected.
     import inspect
-    _wants_index = len(inspect.signature(color_transform).parameters) >= 2
+    _arity = len(inspect.signature(color_transform).parameters)
 
-    def _apply(v, idx):
-        return color_transform(v, idx) if _wants_index else color_transform(v)
+    def _apply(v, idx, plane, count):
+        if _arity >= 4:
+            return color_transform(v, idx, plane, count)
+        if _arity == 3:
+            return color_transform(v, idx, plane)
+        return color_transform(v, idx) if _arity == 2 else color_transform(v)
 
     # Walk each row from its own table offset rather than continuously from byte 0. That
     # makes it structurally impossible to touch the 4-byte size prefix or to drift out of
     # opcode phase -- both of which the old continuous walker did on every real file.
     width = header.width
 
-    def _recolor_plane(buf: bytearray, table: list[int]) -> None:
+    def _recolor_plane(buf: bytearray, table: list[int], plane: int) -> None:
         for y in range(header.height):
             i = table[y]
             x = 0
@@ -382,7 +471,7 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
                 elif (ctrl & 0x40) == 0:
                     count = ctrl & 0x3F
                     v = struct.unpack_from("<H", buf, i + 1)[0]
-                    struct.pack_into("<H", buf, i + 1, _apply(v, y * width + x))
+                    struct.pack_into("<H", buf, i + 1, _apply(v, y * width + x, plane, count))
                     x += count
                     i += 3
                 else:
@@ -390,11 +479,11 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
                     for k in range(count):
                         off = i + 1 + k * 2
                         v = struct.unpack_from("<H", buf, off)[0]
-                        struct.pack_into("<H", buf, off, _apply(v, y * width + x + k))
+                        struct.pack_into("<H", buf, off, _apply(v, y * width + x + k, plane, 1))
                     x += count
                     i += 1 + count * 2
 
-    _recolor_plane(buf1, read_row_table(data, header, 0))
+    _recolor_plane(buf1, read_row_table(data, header, 0), 1)
     out = bytearray(data)
     out[buf1_off: buf1_off + header.buffer_sizes[0]] = buf1
 
@@ -413,7 +502,7 @@ def recolor_icon_in_place(data: bytes, color_transform, header: IconHeader | Non
     if plane5 and header.buffer_sizes[4]:
         off5 = buffer_data_offset(header, 4)
         buf5 = bytearray(data[off5: off5 + header.buffer_sizes[4]])
-        _recolor_plane(buf5, read_row_table(data, header, 4))
+        _recolor_plane(buf5, read_row_table(data, header, 4), 5)
         out[off5: off5 + header.buffer_sizes[4]] = buf5
 
     return bytes(out)

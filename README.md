@@ -40,6 +40,9 @@ official modding support or SDK for this game — this project exists to establi
   `dialogedit.py` is the visual editor over it; see below.
 - **`canedit.py`** / **`canedit_core.py`** / **`can_schema.py`**: an editor for creature
   cans with a Combat AI panel, and its headless core. See below.
+- **`icontool.py`**: export any item's inventory or ground art to a PNG, paint it in any
+  program, and import it back into a mod. Written for people who paint, not people who
+  script; see [`docs/icon-tool.md`](docs/icon-tool.md).
 - **`mods/`** — real, working mods built with this toolkit (see below).
 - **`docs/`** — format writeups and how-tos: adding a new item, adding a new character,
   [authoring skill and attribute checks](docs/skill-and-attribute-checks.md), the `.mdl16`
@@ -355,6 +358,23 @@ nowhere in the game's own files.
 
 The round-trip is byte-identical across all 341 shipped files, which was the gate for
 building anything on top of it.
+
+## Changing an item's art
+
+```
+python icontool.py find mancha
+python icontool.py export "Gauntlets of La Mancha" --mod <mod>
+python icontool.py import "Gauntlets of La Mancha" "Gauntlets of La Mancha - inventory.png" --mod <mod>
+```
+
+Export writes the item's inventory and ground art as PNGs at four times their size, with
+real transparency. Import shrinks the painting back, encodes it, checks it the way the
+engine reads it, and points the item at it. When other items, creatures or maps show the
+same picture (seven items share the plain gauntlet icon), the item gets its own copy, so
+one repaint doesn't change them all. Ground art stays inside its original outline, because
+a from-scratch ground sprite can't be picked up. Export followed by an unpainted import is
+byte-identical for all 428 item sprites. The walkthrough, written for non-programmers, is
+in [`docs/icon-tool.md`](docs/icon-tool.md).
 
 ## The can editor
 
