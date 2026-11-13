@@ -65,7 +65,8 @@ DASHES = "-" * 60
 # Binary payloads -- icon art, sprites, audio, models. They are shipped verbatim and are
 # not resource text, so the grammar and line-ending checks do not apply to them. Every
 # other extension is checked, so a new *text* type cannot slip through by being unlisted.
-BINARY = {".mdl16", ".frm16", ".ogg", ".wav", ".gr2", ".way", ".bmp", ".tga", ".png"}
+# .seq16 is the animated or multi-frame form of .frm16 (the title screen's painted backgrounds are one-frame .seq16s)
+BINARY = {".mdl16", ".frm16", ".seq16", ".ogg", ".wav", ".gr2", ".way", ".bmp", ".tga", ".png"}
 
 # Editor/* markers are placeholders the editor draws and the engine ignores, and the
 # empty value and !Unknown Model are both legal "no art" spellings.
