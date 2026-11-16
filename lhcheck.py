@@ -127,6 +127,7 @@ TREE_CHECKS = [
     ("nameless-spawns", "-", "no script aims at a name only a nameless spawn would bear"),
     ("corpse-specifier", "A0.18", "no interaction specifier is installed on the entity that is dying"),
     ("repeatable-grants", "A0.19", "no item-giving node is reachable ungated while other replies to it are gated"),
+    ("killer-grants", "A0.20", "no death script gives, records or reads on $Instigator outside CForEachPlayerAction"),
 ]
 ALL_IDS = [c[0] for c in FILE_CHECKS + TREE_CHECKS]
 
@@ -1197,6 +1198,65 @@ def check_corpse_specifier(ctx):
     return fails
 
 
+# (class, the field naming who receives or is read) for actions that reward or record something
+KILLER_FIELDS = (("CActionGiveStandardInventoryItem", "Who to give to"),
+                 ("CAddCharacterModifierToCharacterAction", "Character to modify"),
+                 ("CGiveCharacterPerkAction", "Character to give perk to"),
+                 ("CGiveMoneyAction", "Give to"),
+                 ("CExpressionAction", "Character to get attributes from"),
+                 ("CIfExpressionAction", "Character to get attributes from"))
+
+
+def check_killer_grants(ctx):
+    """A death script that gives, records or reads something on `$Instigator` outside a
+    `CForEachPlayerAction` (A0.20).
+
+    In a destroyed script `$Instigator` is whoever landed the killing blow, so a companion's kill
+    puts the reward on the companion, where the inventory screen cannot reach it. Vanilla's
+    woodcutter gives his eyes and liver that way; in a Fixt playtest Ernesto killed him and both
+    items sat in Ernesto's inventory, while `Woodcutter Dead`, written in the same script inside
+    `CForEachPlayerAction`, was on the player. Vanilla wraps `Relican Dead` the same way for the
+    same reason. `CForEachPlayerAction` rebinds `$Instigator` to each player, so wrapping the action
+    is the repair.
+    """
+    fails = []
+    fields = dict(KILLER_FIELDS)
+    for p in ctx.files:
+        if p.suffix.lower() not in (".zax", ".can"):
+            continue
+        raw = p.read_bytes().decode("latin-1")
+        if "New Destroyed Action" not in raw:
+            continue
+        try:
+            root = rf.parse_resource_text(raw)
+        except Exception:
+            continue                      # other checks own parse failures
+
+        def walk(n):
+            for k, v in n.fields:
+                if isinstance(v, rf.ResourceNode):
+                    if v.type_name == "CForEachPlayerAction":
+                        continue          # $Instigator is a player in here
+                    yield v
+                    yield from walk(v)
+
+        for node in walk(root):
+            if node.type_name != "CSetDestroyedScriptActionAction":
+                continue
+            script = node.get("New Destroyed Action")
+            if not isinstance(script, rf.ResourceNode) or script.type_name == "CForEachPlayerAction":
+                continue
+            for act in [script] + list(walk(script)):
+                field = fields.get(act.type_name)
+                if not field or (act.get(field) or "").strip().lower() != "$instigator":
+                    continue
+                what = act.get("Inventory Item To Give") or act.get("Perk to give") or ""
+                fails.append("%s: %s on $Instigator inside a destroyed script (%s); that is the killer, so a "
+                             "companion's kill takes it -- wrap it in CForEachPlayerAction"
+                             % (p.name, act.type_name, what))
+    return fails
+
+
 def check_repeatable_grants(ctx):
     """A node that hands out an item, reachable without crossing any gate, while some other
     reply to it IS gated (A0.19).
@@ -1499,6 +1559,7 @@ TREE_FNS = {
     "nameless-spawns": check_nameless_spawns,
     "corpse-specifier": check_corpse_specifier,
     "repeatable-grants": check_repeatable_grants,
+    "killer-grants": check_killer_grants,
 }
 
 
