@@ -204,6 +204,78 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(c.ItemError):
             c.clone(self.doc(GEM), self.lib, "../escape", "x")
 
+    # -- extra damage and strike effects ------------------------------------
+
+    def test_add_extra_damage_against_a_creature(self):
+        d = self.doc(SHORT_SWORD)
+        line = c.add_extra_damage(d, "Fire", "2", "4", against="Undead")
+        reread = c.ItemDocument("x", d.to_bytes(), "new")
+        lines = c.damage_lines(reread)
+        self.assertEqual([(l.kind, l.damage_type) for l in lines],
+                         [("ladder", "Slashing"), ("range", "Fire")])
+        self.assertEqual(c.extra_against(lines[1]), "Undead")
+        self.assertIsNone(c.extra_against(lines[0]))
+        c.set_extra_against(line, "Everything")
+        self.assertEqual(line.behaviour.get("Hit Or Miss"),
+                         "Damage Types/Damage Hit Or Miss/AlwaysHit")
+        # the shown text is the weapon's own damage only
+        self.assertEqual(c.tooltip(d).lines, ["(One-Handed) Slashing Damage 1-5."])
+        c.remove_damage(d, line)
+        self.assertEqual(d.to_bytes(), self.lib.read(SHORT_SWORD))
+        with self.assertRaises(c.ItemError):
+            c.remove_damage(d, c.damage_lines(d)[0])
+
+    def test_every_hit_condition_exists(self):
+        for tail in c.EXTRA_AGAINST.values():
+            self.assertTrue(self.lib.exists(f"Resources/{c.HIT_OR_MISS}{tail}.DamageHitOrMiss"),
+                            tail)
+
+    def test_add_strike_effects(self):
+        d = self.doc(SHORT_SWORD)
+        c.add_on_hit(d, "25", "Fire", "3", "6")
+        c.add_on_hit(d, "30", "Slashing", "2", "4", duration="15")
+        reread = c.ItemDocument("x", d.to_bytes(), "new")
+        hits = c.on_hits(reread)
+        self.assertEqual([(h.kind, h.editable, h.damage_type) for h in hits],
+                         [("instant", True, "Fire"), ("over time", True, "Slashing")])
+        v = c.on_hit_values(hits[1])
+        self.assertEqual((v["chance"], v["range"], v["duration"], v["total"], v["per_second"]),
+                         ("30", "2-4", "15", "6-12", "0.60"))
+        self.assertEqual(c.on_hit_sentence(hits[1]),
+                         "Successful strikes have a 30% chance to deal 2-4 Slashing damage "
+                         "every 5 seconds for 15 seconds.")
+        c.set_on_hit(hits[1], "50", "1", "3", "20")
+        self.assertEqual(hits[1].ticks_node.get("Constant Value"), "4")
+        self.assertEqual(c.on_hit_values(hits[1])["total"], "4-12")
+        with self.assertRaises(c.ItemError):
+            c.set_on_hit(hits[1], "50", "1", "3", "12")      # not a multiple of 5
+        with self.assertRaises(c.ItemError):
+            c.set_on_hit(hits[0], "0", "1", "3")
+        self.assertTrue(c.is_weapon(d))
+        self.assertFalse(c.is_weapon(self.doc(GEM)))
+
+    def test_new_bleed_has_the_bloodletter_shape(self):
+        """Bloodletter is a released, working bleed; ours must be the same tree with plain
+        numbers where it reads named amounts."""
+        path = (ROOT / "mods/bloodletter-scimitar/files/Resources/Inventory/Inventory "
+                "Additions/Weapons/Bloodletter.InventoryAddition")
+        if not path.is_file():
+            self.skipTest("Bloodletter mod not present")
+        theirs = next(b for b in c.ItemDocument("b", path.read_bytes(), "mod").behaviours()
+                      if b.type_name == "CPlugInBehaviorStrikeAction")
+        for n in c.walk(theirs):
+            for i, (k, v) in enumerate(n.fields):
+                if isinstance(v, c.ResourceNode) and \
+                        v.type_name == "CInventoryAdditionsNamedExpressionExpression":
+                    n.fields[i] = (k, c.constant("0"))
+
+        def skeleton(node):
+            return [ln.split("=")[0] + ("=" + ln.split("=", 1)[1] if ln.split("=", 1)[1:]
+                    and ln.split("=", 1)[1][:1] == "C" else "")
+                    for ln in node.to_text().split("\r\n")]
+        ours = c.new_on_hit("30", "Slashing", "2", "4", "15")
+        self.assertEqual(skeleton(ours), skeleton(theirs))
+
     # -- saving --------------------------------------------------------------
 
     def test_save_into_mod(self):

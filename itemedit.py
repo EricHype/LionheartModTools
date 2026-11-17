@@ -217,6 +217,61 @@ class StatPicker(QDialog):
         return it.data(ROLE_REL) if it is not None else None
 
 
+class DamageDialog(QDialog):
+    """Extra damage (who it hits) or a strike effect (chance, at once or over time)."""
+
+    def __init__(self, parent, extra: bool):
+        super().__init__(parent)
+        self.setWindowTitle("Add extra damage" if extra else "Add a strike effect")
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.type_box = NoScrollComboBox()
+        self.type_box.addItems(core.DAMAGE_TYPES)
+        self.type_box.setCurrentText("Fire")
+        self.lo, self.hi = QLineEdit("2"), QLineEdit("4")
+        rng = QHBoxLayout()
+        rng.addWidget(self.lo)
+        rng.addWidget(QLabel("to"))
+        rng.addWidget(self.hi)
+        if extra:
+            self.against = NoScrollComboBox()
+            for name in core.EXTRA_AGAINST:
+                label = name if name == "Everything" else f"{name} only"
+                if name in core.UNTRIED_AGAINST:
+                    label += " (no original item does this yet)"
+                self.against.addItem(label, name)
+            form.addRow("Damage type", self.type_box)
+            form.addRow("Damage", rng)
+            form.addRow("Against", self.against)
+            lay.addLayout(form)
+            lay.addWidget(note("Lands whenever the weapon's own blow does."))
+        else:
+            self.chance = QLineEdit("30")
+            self.over_time = QCheckBox("Over time, like poison or bleeding")
+            self.duration = QLineEdit("15")
+            self.duration.setEnabled(False)
+            self.over_time.toggled.connect(self.duration.setEnabled)
+            self.over_time.toggled.connect(self._label_range)
+            form.addRow("Chance (%)", self.chance)
+            form.addRow("Damage type", self.type_box)
+            self.range_label = QLabel("Damage")
+            form.addRow(self.range_label, rng)
+            form.addRow("", self.over_time)
+            form.addRow("Lasting (seconds)", self.duration)
+            lay.addLayout(form)
+            lay.addWidget(note(
+                f"Over time, the damage lands once every {core.TICK_SECONDS} seconds for as "
+                f"long as it lasts, so the duration must be a multiple of "
+                f"{core.TICK_SECONDS}. Hitting again restarts it; it does not stack."))
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+
+    def _label_range(self, on: bool):
+        self.range_label.setText("Damage each time" if on else "Damage")
+
+
 class NewItemDialog(QDialog):
     def __init__(self, parent, doc: core.ItemDocument):
         super().__init__(parent)
@@ -378,7 +433,8 @@ class ItemWindow(QMainWindow):
         self.step_box = NoScrollComboBox()
         self.step_box.addItems([label for _p, label in core.ROLL_STEPS])
         self.step_box.setCurrentText("Middle")
-        self.step_box.currentTextChanged.connect(lambda _t: self.refresh_preview())
+        # the strike card shows rolled values at the chosen roll, so redraw the cards
+        self.step_box.currentTextChanged.connect(lambda _t: self.rebuild())
         self.base_box = NoScrollComboBox()
         self.base_box.currentIndexChanged.connect(self._on_base_pick)
         self.preview_opts.addWidget(QLabel("Roll"))
@@ -542,7 +598,7 @@ class ItemWindow(QMainWindow):
             return
         try:
             doc = core.ItemDocument.from_library(self.lib, rel)
-        except (core.ItemError, ValueError) as e:
+        except (core.ItemError, ValueError, OSError) as e:
             QMessageBox.warning(self, APP, f"Cannot open {rel}: {e}")
             return
         self.set_document(doc)
@@ -637,9 +693,12 @@ class ItemWindow(QMainWindow):
         lay.addWidget(self._basics_card())
         if doc.is_addition:
             lay.addWidget(self._roll_card())
-        dmg = self._damage_card()
+        weapon = core.is_weapon(doc)
+        dmg = self._damage_card(weapon)
         if dmg is not None:
             lay.addWidget(dmg)
+        if weapon or core.on_hits(doc):
+            lay.addWidget(self._on_hit_card())
         lay.addWidget(self._bonus_card())
         lay.addWidget(self._art_card())
         lay.addStretch(1)
@@ -728,20 +787,33 @@ class ItemWindow(QMainWindow):
                     lambda: core.set_roll(doc, s.prefix, w, t)), width=110), row, col)
         return box
 
-    def _damage_card(self) -> QGroupBox | None:
+    def _damage_card(self, weapon: bool) -> QGroupBox | None:
         doc = self.doc
         lines = core.damage_lines(doc)
-        if not lines:
+        if not lines and not weapon:
             return None
         box = QGroupBox("Damage")
         grid = QGridLayout(box)
-        grid.setColumnStretch(4, 1)
-        first = lines[0].behaviour
+        grid.setColumnStretch(5, 1)
+        first = lines[0].behaviour if lines and not doc.is_addition else None
         for row, line in enumerate(lines):
-            if line.behaviour is not first and (row == 0 or lines[row - 1].behaviour is first):
-                grid.addWidget(note("Extra damage, dealt only in some cases (for example "
-                                    "against the undead):"), 2 * row, 0, 1, 5)
             r = 2 * row + 1
+            against = core.extra_against(line) if line.behaviour is not first else None
+            if against is not None:
+                tag = NoScrollComboBox()
+                for name in core.EXTRA_AGAINST:
+                    tag.addItem(f"Extra, against {name.lower()}" if name != "Everything"
+                                else "Extra, on every hit", name)
+                tag.setCurrentIndex(list(core.EXTRA_AGAINST).index(against))
+                tag.currentIndexChanged.connect(
+                    lambda _i, ln=line, cb=tag: self.edit(
+                        "Change who the extra damage hits",
+                        lambda: core.set_extra_against(ln, cb.currentData())))
+                grid.addWidget(tag, r - 1, 0, 1, 4)
+                rm = QPushButton("Remove")
+                rm.clicked.connect(lambda _c=False, ln=line: self.edit(
+                    "Remove extra damage", lambda: core.remove_damage(doc, ln), rebuild=True))
+                grid.addWidget(rm, r, 6)
             if line.kind == "over time":
                 grid.addWidget(QLabel(f"{line.damage_type} damage over time"), r, 0, 1, 5)
                 continue
@@ -772,6 +844,119 @@ class ItemWindow(QMainWindow):
                 grid.addWidget(note("set by the roll: change it on the roll card"), r, 1, 1, 4)
             else:
                 grid.addWidget(note("a formula this editor leaves as it is"), r, 1, 1, 4)
+        exprs = doc.expressions()
+        amount = core.roll_amounts(doc).get(self.step_box.currentText(), 0.0)
+        extra_rows = 2 * len(lines) + 3
+        for line in lines:
+            if line.behaviour is not first and self._suggest(
+                    grid, extra_rows, core.extra_damage_sentence(line, amount, exprs), 5):
+                extra_rows += 1
+        if weapon:
+            add = QPushButton("Add extra damage...")
+            add.clicked.connect(self.add_extra_damage)
+            grid.addWidget(add, 2 * len(lines) + 1, 0)
+            grid.addWidget(note("Extra damage lands whenever the weapon's own blow does, "
+                                "on every hit or only against one kind of creature."),
+                           2 * len(lines) + 2, 0, 1, 7)
+        return box
+
+    def _suggest(self, grid: QGridLayout, row: int, sentence: str, span: int) -> bool:
+        """Offer a description sentence, unless the description already has it."""
+        doc = self.doc
+        if not sentence or sentence in core.get_field(doc, "Description"):
+            return False
+        add_line = QPushButton("Add this to the description")
+        add_line.setToolTip(sentence)
+        add_line.clicked.connect(lambda _c=False: self.edit(
+            "Describe effect", lambda: core.set_field(
+                doc, "Description",
+                (core.get_field(doc, "Description").rstrip() + " " + sentence).strip()),
+            rebuild=True))
+        grid.addWidget(note(f'"{sentence}"'), row, 0, 1, span)
+        grid.addWidget(add_line, row, span, 1, 2)
+        return True
+
+    def _on_hit_card(self) -> QGroupBox:
+        doc = self.doc
+        box = QGroupBox("When a strike lands")
+        grid = QGridLayout(box)
+        grid.setColumnStretch(7, 1)
+        exprs = doc.expressions()
+        amount = core.roll_amounts(doc).get(self.step_box.currentText(), 0.0)
+        hits = core.on_hits(doc)
+        row = 0
+        if not hits:
+            grid.addWidget(note("None."), row, 0, 1, 8)
+            row += 1
+        for h in hits:
+            rm = QPushButton("Remove")
+            rm.clicked.connect(lambda _c=False, b=h.behaviour: self.edit(
+                "Remove strike effect", lambda: core.remove_behaviour(doc, b), rebuild=True))
+            if h.kind == "other":
+                grid.addWidget(note(h.summary), row, 0, 1, 7)
+                grid.addWidget(rm, row, 8)
+                row += 1
+                continue
+            v = core.on_hit_values(h, amount, exprs)
+            if not h.editable:
+                what = (f"{v['chance']}% chance: {v['range']} {h.damage_type} damage"
+                        + (f" every {core.TICK_SECONDS} s for {v['duration']} s"
+                           if h.kind == "over time" else ""))
+                grid.addWidget(QLabel(what), row, 0, 1, 7)
+                grid.addWidget(rm, row, 8)
+                grid.addWidget(note("Some of these numbers are set by the roll (shown at the "
+                                    "roll picked above the preview)."), row + 1, 0, 1, 8)
+                row += 2
+                continue
+            state = {"chance": v["chance"], "lo": core.damage_range_text(h)[0],
+                     "hi": core.damage_range_text(h)[1], "duration": v.get("duration")}
+
+            def commit(key, text, h=h, st=state):
+                st[key] = text
+                self.edit("Change strike effect", lambda: core.set_on_hit(
+                    h, st["chance"], st["lo"], st["hi"], st["duration"]), rebuild=True)
+            grid.addWidget(commit_edit(state["chance"], lambda t, c=commit: c("chance", t),
+                                       width=50), row, 0)
+            grid.addWidget(QLabel("% chance of"), row, 1)
+            grid.addWidget(commit_edit(state["lo"], lambda t, c=commit: c("lo", t), width=50),
+                           row, 2)
+            grid.addWidget(QLabel("to"), row, 3)
+            grid.addWidget(commit_edit(state["hi"], lambda t, c=commit: c("hi", t), width=50),
+                           row, 4)
+            types = NoScrollComboBox()
+            types.addItems(core.DAMAGE_TYPES)
+            types.setCurrentText(h.damage_type)
+            types.currentTextChanged.connect(lambda t, h=h: self.edit(
+                "Change strike damage type", lambda: core.set_on_hit_type(h, t), rebuild=True))
+            grid.addWidget(types, row, 5)
+            grid.addWidget(rm, row, 8)
+            row += 1
+            if h.kind == "over time":
+                grid.addWidget(QLabel(f"damage every {core.TICK_SECONDS} seconds, for"), row, 1,
+                               1, 2)
+                grid.addWidget(commit_edit(state["duration"] or "",
+                                           lambda t, c=commit: c("duration", t), width=50),
+                               row, 3, 1, 2)
+                grid.addWidget(QLabel("seconds"), row, 5)
+                row += 1
+                lo_b, hi_b = core.DOT_BAND
+                ps = float(v.get("per_second", "0"))
+                verdict = ("stronger than anything in the original game" if ps > hi_b
+                           else "weaker than anything in the original game" if ps < lo_b
+                           else f"within the original game's range ({lo_b:.2f} to {hi_b:.2f})")
+                grid.addWidget(note(
+                    f"In total {v['total']} damage, about {v['per_second']} a second: "
+                    f"{verdict}. Hitting again restarts it; it does not stack."),
+                    row, 0, 1, 9)
+                row += 1
+            if self._suggest(grid, row, core.on_hit_sentence(h, amount, exprs), 7):
+                row += 1
+        add = QPushButton("Add a strike effect...")
+        add.clicked.connect(self.add_on_hit)
+        grid.addWidget(add, row, 0, 1, 3)
+        grid.addWidget(note("The game shows only the description you write, so describe "
+                            "the effect there. The editor suggests a sentence."),
+                       row + 1, 0, 1, 9)
         return box
 
     def _bonus_card(self) -> QGroupBox:
@@ -880,6 +1065,23 @@ class ItemWindow(QMainWindow):
         target, amount, pct = dlg.chosen(), dlg.amount.text(), dlg.percent.isChecked()
         self.edit(f"Add {core.readable(target)}",
                   lambda: core.add_stat(self.doc, target, amount, pct), rebuild=True)
+
+    def add_extra_damage(self):
+        dlg = DamageDialog(self, extra=True)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self.edit("Add extra damage", lambda: core.add_extra_damage(
+            self.doc, dlg.type_box.currentText(), dlg.lo.text(), dlg.hi.text(),
+            dlg.against.currentData()), rebuild=True)
+
+    def add_on_hit(self):
+        dlg = DamageDialog(self, extra=False)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        duration = dlg.duration.text() if dlg.over_time.isChecked() else None
+        self.edit("Add strike effect", lambda: core.add_on_hit(
+            self.doc, dlg.chance.text(), dlg.type_box.currentText(), dlg.lo.text(),
+            dlg.hi.text(), duration), rebuild=True)
 
     def make_new(self):
         if self.doc is None or not self._confirm_discard():

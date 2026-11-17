@@ -516,6 +516,397 @@ def ladder_span(line: DamageLine) -> Interval | None:
     return evaluate(line.bonus, 0, {}) if line.kind == "ladder" else None
 
 
+def damage_entry(damage_type: str, lo: str, hi: str) -> ResourceNode:
+    if damage_type not in DAMAGE_TYPES:
+        raise ItemError(f"unknown damage type {damage_type}")
+    lo, hi = parse_number(lo, "Minimum damage"), parse_number(hi, "Maximum damage")
+    if float(lo) > float(hi):
+        raise ItemError("Minimum damage is more than maximum damage.")
+    return ResourceNode("CXRPGDamage", [
+        ("Damage Type", f"Damage Types/{damage_type}"),
+        ("Damage Amount", ResourceNode("CRandom", [
+            ("Operator", ""), ("Minimum", constant(lo)), ("Maximum", constant(hi))])),
+    ])
+
+
+HIT_OR_MISS = "Damage Types/Damage Hit Or Miss/"
+# Who extra damage lands on, by the hit condition its behaviour names. Each condition
+# misses everything that is not that kind of creature. Dragons and Titans are defined by
+# the game but no original item uses them.
+EXTRA_AGAINST = {
+    "Everything": "AlwaysHit",
+    "Undead": "Special conditions/HitUndeadOnly",
+    "Goblins": "Special conditions/HitGoblinsOnly",
+    "Dragons": "Special conditions/HitDragonsOnly",
+    "Titans": "Special conditions/HitTitansOnly",
+}
+UNTRIED_AGAINST = ("Dragons", "Titans")
+
+
+def extra_against(line: DamageLine) -> str | None:
+    """"Everything", "Undead"... for an extra damage behaviour, or None when its hit
+    condition is the weapon's own (one- or two-handed, ranged)."""
+    h = (line.behaviour.get("Hit Or Miss") or "")
+    for name, tail in EXTRA_AGAINST.items():
+        if h.lower() == (HIT_OR_MISS + tail).lower():
+            return name
+    return None
+
+
+def set_extra_against(line: DamageLine, name: str) -> None:
+    if name not in EXTRA_AGAINST or extra_against(line) is None:
+        raise ItemError("only extra damage can be aimed at one kind of creature")
+    line.behaviour.set("Hit Or Miss", HIT_OR_MISS + EXTRA_AGAINST[name])
+
+
+def add_extra_damage(doc: ItemDocument, damage_type: str, lo: str, hi: str,
+                     against: str = "Everything") -> DamageLine:
+    """Extra damage on every successful strike, built the way vanilla's elemental
+    suffixes are: a damage behaviour of its own whose hit condition always hits, so it
+    lands whenever the weapon's own blow does. `against` narrows it to one kind of
+    creature, the way the Ivory Mace's bonus against the undead works."""
+    if against not in EXTRA_AGAINST:
+        raise ItemError(f"unknown target {against}")
+    entry = damage_entry(damage_type, lo, hi)
+    behaviour = ResourceNode("CPlugInBehaviorDamage", [
+        ("Hit Or Miss", HIT_OR_MISS + EXTRA_AGAINST[against]),
+        ("Cache Hit Or Miss Result", "1"),
+        ("Hit Margin", "0"),
+        ("Damages", ResourceNode("Array", [("Item Count", "1"), ("Damage", entry)])),
+    ])
+    array_append(child(doc.root, "PlugIn Behaviors"), "PlugIn Behavior", behaviour)
+    return classify_damage(behaviour, entry)
+
+
+def extra_damage_sentence(line: DamageLine, amount: float = 0, exprs=None) -> str:
+    against = extra_against(line)
+    if against is None or line.kind == "over time":
+        return ""
+    rng = fmt_interval(evaluate(line.node.get("Damage Amount"), amount, exprs or {}))
+    if "?" in rng:
+        return ""
+    who = "" if against == "Everything" else f" against {against.lower()}"
+    return f"Successful strikes deal an extra {rng} {line.damage_type} damage{who}."
+
+
+def remove_damage(doc: ItemDocument, line: DamageLine) -> None:
+    """Remove one damage entry. A behaviour left with nothing is removed too. The
+    weapon's own damage cannot be removed: a weapon that deals nothing is broken."""
+    lines = damage_lines(doc)
+    if not doc.is_addition and lines and line.behaviour is lines[0].behaviour:
+        rest = [ln for ln in lines if ln.behaviour is line.behaviour and ln.node is not line.node]
+        if not rest:
+            raise ItemError("This is the weapon's own damage. Change it instead of removing "
+                            "it.")
+    arr = child(line.behaviour, "Damages")
+    array_remove(arr, line.node)
+    if not arr.items():
+        array_remove(child(doc.root, "PlugIn Behaviors"), line.behaviour)
+
+
+# ---------------------------------------------------------------------------
+# On a hit: a chance to deal damage, at once or over time
+# ---------------------------------------------------------------------------
+
+# A damage over time is dealt in one tick every 5 seconds, and its Damage Amount is the
+# TOTAL (Fixt engine notes, settled in the binary). Hitting again refreshes it; it never
+# stacks. The game's own over-time effects deal 0.20 to 1.20 damage a second.
+TICK_SECONDS = 5
+DOT_BAND = (0.20, 1.20)
+
+
+@dataclass
+class OnHit:
+    """One "when a strike lands" effect.
+
+    kind: "instant" or "over time" when the editor recognises it; "other" for the many
+    one-off effects (fear, freezing, healing the wielder...), which are described and
+    left alone."""
+    behaviour: ResourceNode
+    kind: str
+    chance: ResourceNode | None = None   # the Operand2 the 0-100 roll is compared with
+    damage: ResourceNode | None = None   # CXRPGDamage or CXRPGDamageOverTime
+    summary: str = ""
+
+    @property
+    def chance_fixed(self) -> bool:
+        return self.chance is None or self.chance.type_name == "CConstant"
+
+    @property
+    def per_hit(self) -> ResourceNode | None:
+        """The CRandom holding the per-hit (instant) or per-tick (over time) range, when
+        it is plain numbers."""
+        amt = self.damage.get("Damage Amount") if self.damage is not None else None
+        if self.kind == "over time" and isinstance(amt, ResourceNode) \
+                and amt.type_name == "CMultiply":
+            amt = amt.get("Operand1")
+        return amt if _is_const_random(amt) else None
+
+    @property
+    def ticks_node(self) -> ResourceNode | None:
+        amt = self.damage.get("Damage Amount") if self.damage is not None else None
+        if self.kind == "over time" and isinstance(amt, ResourceNode) \
+                and amt.type_name == "CMultiply":
+            t = amt.get("Operand2")
+            return t if isinstance(t, ResourceNode) and t.type_name == "CConstant" else None
+        return None
+
+    @property
+    def duration_node(self) -> ResourceNode | None:
+        d = self.damage.get("Duration") if self.damage is not None else None
+        return d if isinstance(d, ResourceNode) and d.type_name == "CConstant" else None
+
+    @property
+    def editable(self) -> bool:
+        if self.kind == "instant":
+            return self.per_hit is not None and self.chance_fixed
+        if self.kind == "over time":
+            return (self.per_hit is not None and self.chance_fixed
+                    and self.ticks_node is not None and self.duration_node is not None)
+        return False
+
+    @property
+    def damage_type(self) -> str:
+        return readable(self.damage.get("Damage Type") or "") if self.damage is not None else ""
+
+
+def _is_hit_check(n) -> bool:
+    return (isinstance(n, ResourceNode) and n.type_name == "CIsGreaterThan"
+            and isinstance(n.get("Operand1"), ResourceNode)
+            and n.get("Operand1").type_name == "CExpressionHitMargin")
+
+
+def _chance_test(n) -> ResourceNode | None:
+    """Operand2 of `CRandom(0..100) < X`, or None."""
+    if not (isinstance(n, ResourceNode) and n.type_name in ("CIsLessThan", "CIsLessThanOrEqual")):
+        return None
+    r = n.get("Operand1")
+    if not _is_const_random(r):
+        return None
+    if (r.get("Minimum").get("Constant Value") or "0") != "0" or \
+            (r.get("Maximum").get("Constant Value") or "") != "100":
+        return None
+    x = n.get("Operand2")
+    return x if isinstance(x, ResourceNode) else None
+
+
+def _describe_action(n) -> str:
+    names = {
+        "CActionDoDamage": "deals damage", "CAssignTemporaryTaskAction": "makes the target "
+        "freeze or flee", "CGiveHealthToCharacterAction": "heals", "CAddCharacterModifierTo"
+        "CharacterAction": "changes the target's stats for a while", "CDelayWithExpressionAction":
+        "acts after a delay", "CDelayAction": "acts after a delay", "CSpawnEffectAction":
+        "shows an effect"}
+    seen = []
+    for m in walk(n):
+        s = names.get(m.type_name)
+        if s and s not in seen:
+            seen.append(s)
+    return ", ".join(seen) if seen else "runs a script"
+
+
+def classify_on_hit(b: ResourceNode) -> OnHit:
+    root = b.get("Strike Action")
+    other = OnHit(b, "other", summary="A special effect that " + (
+        _describe_action(root) if isinstance(root, ResourceNode) else "does nothing") +
+        ". This editor leaves it as it is.")
+    if not (isinstance(root, ResourceNode) and root.type_name == "CIfExpressionAction"
+            and _is_hit_check(root.get("If Expression"))):
+        return other
+    t = root.get("Then")
+    chance = None
+    if isinstance(t, ResourceNode) and t.type_name == "CIfExpressionAction":
+        chance = _chance_test(t.get("If Expression"))
+        if chance is None:
+            return other
+        t = t.get("Then")
+    if isinstance(t, ResourceNode) and t.type_name == "CMultipleActionsAction":
+        # one damage, plus at most a visual effect or a sound
+        acts = child(t, "Action")
+        items = acts.items() if acts else []
+        hits = [a for a in items if a.type_name == "CActionDoDamage"]
+        cosmetic = all(a.type_name in ("CActionDoDamage", "CSpawnEffectAction",
+                                       "CPlaySoundAction") for a in items)
+        t = hits[0] if len(hits) == 1 and cosmetic else None
+    if not (isinstance(t, ResourceNode) and t.type_name == "CActionDoDamage"):
+        return other
+    dmg = child(t, "Damages")
+    entries = dmg.items() if dmg else []
+    if len(entries) != 1:
+        return other
+    d = entries[0]
+    kind = {"CXRPGDamage": "instant", "CXRPGDamageOverTime": "over time"}.get(d.type_name)
+    if kind is None:
+        return other
+    return OnHit(b, kind, chance, d)
+
+
+def on_hits(doc: ItemDocument) -> list[OnHit]:
+    return [classify_on_hit(b) for b in doc.behaviours()
+            if b.type_name == "CPlugInBehaviorStrikeAction"]
+
+
+def damage_range_text(h: OnHit) -> tuple[str, str]:
+    """The per-hit (or per-tick) range as the file stores it, for an editable effect."""
+    r = h.per_hit
+    if r is None:
+        return "", ""
+    return (r.get("Minimum").get("Constant Value") or "0",
+            r.get("Maximum").get("Constant Value") or "0")
+
+
+def _value_text(node, amount: float, exprs) -> str:
+    return fmt_interval(evaluate(node, amount, exprs))
+
+
+def on_hit_values(h: OnHit, amount: float = 0, exprs=None) -> dict:
+    """What the card shows: chance, per-hit or per-tick range, duration, total and damage a
+    second, as text. Rolled values are evaluated at `amount`."""
+    exprs = exprs or {}
+    out = {"chance": "100" if h.chance is None else _value_text(h.chance, amount, exprs)}
+    if h.kind == "instant":
+        out["range"] = _value_text(h.damage.get("Damage Amount"), amount, exprs)
+    elif h.kind == "over time":
+        amt = h.damage.get("Damage Amount")
+        dur = evaluate(h.damage.get("Duration"), amount, exprs)
+        total = evaluate(amt, amount, exprs)
+        per = h.per_hit
+        if per is None and isinstance(amt, ResourceNode) and amt.type_name == "CMultiply":
+            per = amt.get("Operand1")
+        out["range"] = _value_text(per, amount, exprs) if per is not None else "?"
+        out["duration"] = fmt_interval(dur)
+        out["total"] = fmt_interval(total)
+        if total and dur and dur[1]:
+            out["per_second"] = f"{(total[0] + total[1]) / 2 / dur[1]:.2f}"
+    return out
+
+
+def set_on_hit(h: OnHit, chance: str, lo: str, hi: str, duration: str | None = None) -> None:
+    """Change a recognised on-hit effect. For damage over time, `lo`-`hi` is per tick and
+    the total the file stores is worked out from the duration."""
+    if not h.editable:
+        raise ItemError("this effect is not plain numbers")
+    chance = parse_number(chance, "Chance")
+    if not 0 < float(chance) <= 100:
+        raise ItemError("Chance must be between 1 and 100.")
+    lo, hi = parse_number(lo, "Minimum damage"), parse_number(hi, "Maximum damage")
+    if float(lo) > float(hi):
+        raise ItemError("Minimum damage is more than maximum damage.")
+    if h.kind == "over time":
+        duration = parse_number(duration or "", "Duration")
+        secs = float(duration)
+        if secs < TICK_SECONDS or secs % TICK_SECONDS:
+            raise ItemError(f"Duration must be a multiple of {TICK_SECONDS} seconds: damage "
+                            f"over time lands once every {TICK_SECONDS} seconds.")
+        h.duration_node.set("Constant Value", duration)
+        h.ticks_node.set("Constant Value", fmt_number(secs / TICK_SECONDS))
+    if h.chance is not None:
+        h.chance.set("Constant Value", chance)
+    elif chance != "100":
+        raise ItemError("This effect always happens; it has no chance to change.")
+    h.per_hit.get("Minimum").set("Constant Value", lo)
+    h.per_hit.get("Maximum").set("Constant Value", hi)
+
+
+def set_on_hit_type(h: OnHit, damage_type: str) -> None:
+    if damage_type not in DAMAGE_TYPES:
+        raise ItemError(f"unknown damage type {damage_type}")
+    h.damage.set("Damage Type", f"Damage Types/{damage_type}")
+
+
+def new_on_hit(chance: str, damage_type: str, lo: str, hi: str,
+               duration: str | None = None) -> ResourceNode:
+    """A strike action in the shape of a working one: the Bloodletter mod's bleed, with
+    plain numbers instead of named amounts. `duration` makes it damage over time."""
+    entry = damage_entry(damage_type, lo, hi)
+    if duration is not None:
+        duration = parse_number(duration, "Duration")
+        secs = float(duration)
+        if secs < TICK_SECONDS or secs % TICK_SECONDS:
+            raise ItemError(f"Duration must be a multiple of {TICK_SECONDS} seconds.")
+        per_tick = entry.get("Damage Amount")
+        entry = ResourceNode("CXRPGDamageOverTime", [
+            ("Damage Type", entry.get("Damage Type")),
+            ("Damage Amount", ResourceNode("CMultiply", [
+                ("Operand1", per_tick), ("Operator", ""),
+                ("Operand2", constant(fmt_number(secs / TICK_SECONDS)))])),
+            ("Duration", constant(duration)),
+        ])
+    chance = parse_number(chance, "Chance")
+    if not 0 < float(chance) <= 100:
+        raise ItemError("Chance must be between 1 and 100.")
+    do_damage = ResourceNode("CActionDoDamage", [
+        ("Character Doing Damage", "$Instigator"),
+        ("Character To Damage", "$trigger"),
+        ("Defend Against", "0"),
+        ("No Friendly Fire Check", "0"),
+        ("Damages", ResourceNode("Array", [("Item Count", "1"), ("Damage", entry)])),
+    ])
+    roll = ResourceNode("CIfExpressionAction", [
+        ("If Expression", ResourceNode("CIsLessThan", [
+            ("Operand1", ResourceNode("CRandom", [
+                ("Operator", ""), ("Minimum", constant("0")), ("Maximum", constant("100"))])),
+            ("Operator", ""),
+            ("Operand2", constant(chance))])),
+        ("Character to get attributes from", "$Instigator"),
+        ("Then", ResourceNode("CMultipleActionsAction", [
+            ("Action", ResourceNode("Array", [("Item Count", "1"), ("Action", do_damage)]))])),
+        ("Else", ""),
+    ])
+    return ResourceNode("CPlugInBehaviorStrikeAction", [
+        ("Strike Action", ResourceNode("CIfExpressionAction", [
+            ("If Expression", ResourceNode("CIsGreaterThan", [
+                ("Operand1", ResourceNode("CExpressionHitMargin", [])),
+                ("Operator", ""),
+                ("Operand2", constant("0"))])),
+            ("Character to get attributes from", "$Instigator"),
+            ("Then", roll),
+            ("Else", ""),
+        ])),
+    ])
+
+
+def add_on_hit(doc: ItemDocument, chance: str, damage_type: str, lo: str, hi: str,
+               duration: str | None = None) -> OnHit:
+    b = new_on_hit(chance, damage_type, lo, hi, duration)
+    array_append(child(doc.root, "PlugIn Behaviors"), "PlugIn Behavior", b)
+    return classify_on_hit(b)
+
+
+def is_weapon(doc: ItemDocument) -> bool:
+    """Whether strikes can carry this item's effects: a weapon or ammunition, or magic
+    made for one."""
+    if doc.is_addition:
+        group = (doc.root.get("Inventory Addition Group") or "").lower()
+        return "/weapons/" in group or any(
+            b.type_name in ("CPlugInBehaviorDamage", "CPlugInBehaviorStrikeAction")
+            for b in doc.behaviours())
+    slot = (doc.root.get("Slot Used In") or "").lower()
+    return slot.endswith(("/weapon", "/arrow", "/bolt")) or bool(damage_lines(doc))
+
+
+def remove_behaviour(doc: ItemDocument, behaviour: ResourceNode) -> None:
+    array_remove(child(doc.root, "PlugIn Behaviors"), behaviour)
+
+
+def on_hit_sentence(h: OnHit, amount: float = 0, exprs=None) -> str:
+    """A description line for the effect, for the person to add if they want it. The
+    game does not write one: the description is whatever the item's text says."""
+    v = on_hit_values(h, amount, exprs)
+    if "?" in v.get("range", "?") or "?" in v["chance"]:
+        return ""
+    chance = "" if v["chance"] == "100" else f"a {v['chance']}% chance to "
+    if h.kind == "instant":
+        what = f"deal an extra {v['range']} {h.damage_type} damage"
+    elif h.kind == "over time":
+        what = (f"deal {v['range']} {h.damage_type} damage every {TICK_SECONDS} seconds for "
+                f"{v['duration']} seconds")
+    else:
+        return ""
+    return f"Successful strikes have {chance}{what}." if chance else \
+        f"Successful strikes {what}."
+
+
 # ---------------------------------------------------------------------------
 # Stats: "while worn" modifiers
 # ---------------------------------------------------------------------------

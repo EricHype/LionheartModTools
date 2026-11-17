@@ -39,7 +39,16 @@ is close to the game's, but not exact.
   `%s[damage]` is replaced by the item's damage, such as "Slashing Damage 1-5".
 - **Damage**: the damage type and its range. Every melee weapon also gets a bonus from the
   wielder's skill and weapon specialization. The card shows how big that bonus can get and
-  keeps it as it is.
+  keeps it as it is. **Add extra damage...** adds damage of another type that lands
+  whenever the weapon's own blow does. It can hit everything, or only the undead, goblins,
+  dragons or titans. No original item uses dragons or titans yet, so test those in the
+  game.
+- **When a strike lands** (weapons only): a chance to deal damage on a hit, either at once
+  or over time like poison or bleeding. Over time, the damage lands once every 5 seconds
+  for as long as it lasts, so the duration is a multiple of 5. The card shows the total
+  and the damage a second, and says whether that's within the original game's range
+  (0.20 to 1.20 a second). Hitting again restarts the effect; it doesn't add a second
+  one.
 - **Bonuses while worn or held**: each stat the item raises, and by how much. Tick **%**
   for a percentage. **Add a bonus...** opens a searchable list of every stat. Use a minus
   sign for a penalty.
@@ -47,6 +56,10 @@ is close to the game's, but not exact.
 
 Press Enter or click elsewhere to finish typing in a box. **Ctrl+Z** undoes, and
 **Ctrl+Y** redoes.
+
+**Describe what you add.** The game shows only the description you write; it never
+lists extra damage or strike effects by itself. Both cards suggest a sentence, and
+**Add this to the description** adds it.
 
 When you're done, press **Save into my mod**. The first time you save an item from the
 game, the editor reminds you that the change applies to every copy of that item in the
@@ -119,8 +132,10 @@ install the mod, and in a new game. It doesn't show up on ones already picked up
 
 ## What it doesn't do yet
 
-- Damage over time, wands, potions and other "when used" effects are shown but can't be
-  edited yet.
+- Wands, potions and other "when used" effects can't be edited yet.
+- Most of the original game's strike effects are one-off scripts (fear, freezing,
+  healing the wielder). The card describes them and can remove them, but can't change
+  them.
 - Damage and bonuses that come from a formula (a few special items have them) are left
   as they are.
 - It can't place items in the world. Use the map editor for that.
@@ -135,5 +150,8 @@ install the mod, and in a new game. It doesn't show up on ones already picked up
     roll and are edited through the roll card. The other 17 are formulas.
   - **Damage:** 79 of 125 entries are editable ranges. 17 come from the roll, and 18 are
     damage over time. The other 11 are formulas.
+- A new strike effect has the same tree as the Bloodletter mod's working bleed, with plain
+  numbers where Bloodletter reads named amounts; a test holds it to that. Damage over time
+  stores the total (per tick x duration / 5), as the Fixt engine notes establish.
 - Edits go through `QUndoStack` as whole-file snapshots. Item files are a few KB, so every
   kind of edit undoes the same way.

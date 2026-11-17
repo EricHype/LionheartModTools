@@ -148,6 +148,25 @@ class WindowTests(unittest.TestCase):
         # the shared gauntlet picture was copied for this item alone
         self.assertTrue(any(p.suffix == ".mdl16" for p in (self.mod / "files").rglob("*")))
 
+    def test_strike_effect_card(self):
+        from PySide6.QtWidgets import QLabel, QPushButton
+        w = self.win
+        w.open_rel(SHORT_SWORD)
+        texts = lambda cls: [x.text() for x in w.cards_area.widget().findChildren(cls)]
+        self.assertIn("Add a strike effect...", texts(QPushButton))
+        self.assertIn("Add extra damage...", texts(QPushButton))
+        w.edit("Add bleed", lambda: self.core.add_on_hit(w.doc, "30", "Slashing", "2", "4",
+                                                         duration="15"), rebuild=True)
+        self.assertTrue(any("about 0.60 a second" in t for t in texts(QLabel)))
+        add_line = next(b for b in w.cards_area.widget().findChildren(QPushButton)
+                        if b.text() == "Add this to the description")
+        add_line.click()
+        self.assertIn("every 5 seconds for 15 seconds", self.core.get_field(w.doc, "Description"))
+        self.assertIn("every 5 seconds for 15 seconds", w.preview.text())
+        # the gem is not a weapon: no strike card
+        w.open_rel("Resources/Inventory Items/Gem.InventoryItem", force=True)
+        self.assertNotIn("Add a strike effect...", texts(QPushButton))
+
     def test_magic_preview_follows_the_roll(self):
         w = self.win
         w.open_rel(POISON)
