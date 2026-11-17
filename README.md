@@ -376,9 +376,14 @@ worn, When used, Art), and see the result in a preview of the game's tooltip. We
 get extra damage, on every hit or against one kind of creature, and a chance on hit to
 deal damage at once or over time. Potions, scrolls and books show how long their effect
 lasts and what it changes. Wands are described but not editable, because the engine's
-wand support doesn't work as written (see Lionheart Fixt's engine notes). **Make a new item from this** copies the
-item under a new name. Every save goes into your mod and is listed in its `mod.json`;
-the game's own files are never written. **New mod** makes an empty mod to start from.
+wand support doesn't work as written (see Lionheart Fixt's engine notes).
+
+**Make a new item from this** copies the item under a new name. **Try it in the game**
+adds the item to a test menu in your mod, on Raymundo the Bowyer in the Barcelona Gate
+District, who hands it over on a save you already have. One button takes the menu out
+again before you share the mod. Every save goes into your mod and is listed in its
+`mod.json`; the game's own files are never written. **New mod** makes an empty mod to
+start from.
 
 It is built on `itemedit_core`, which needs no Qt:
 

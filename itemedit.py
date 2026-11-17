@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 import icontool
 import itemedit_core as core
+import itemedit_test as testmenu
 from canedit_core import default_vanilla_dat
 from icontool import Library
 from qtwidgets import NoScrollComboBox
@@ -364,6 +365,14 @@ class ItemWindow(QMainWindow):
             b = QPushButton(text)
             b.clicked.connect(slot)
             tb.addWidget(b)
+        tb.addSeparator()
+        self.test_label = QLabel()
+        self.test_label.setContentsMargins(12, 0, 6, 0)
+        self.test_label.setStyleSheet("color: #b35c00; font-weight: bold;")
+        self.test_manage = QPushButton("Test menu...")
+        self.test_manage.clicked.connect(self.manage_test_menu)
+        self.test_label_act = tb.addWidget(self.test_label)
+        self.test_manage_act = tb.addWidget(self.test_manage)
 
     def _build_library(self):
         dock = QDockWidget("Items", self)
@@ -417,8 +426,11 @@ class ItemWindow(QMainWindow):
         self.new_button.clicked.connect(self.make_new)
         self.save_button = QPushButton("Save into my mod")
         self.save_button.clicked.connect(self.save)
+        self.try_button = QPushButton("Try it in the game...")
+        self.try_button.clicked.connect(self.try_in_game)
         head.addWidget(self.new_button)
         head.addWidget(self.save_button)
+        head.addWidget(self.try_button)
         outer.addLayout(head)
 
         body = QHBoxLayout()
@@ -495,6 +507,7 @@ class ItemWindow(QMainWindow):
         self._thumbs.clear()
         self.mod_label.setText(f"My mod: <b>{self.mod.name}</b>" if self.mod
                                else "My mod: <i>none yet</i>")
+        self._sync_test_banner()
         self._fill_library()
         if self.doc is not None:
             self.open_rel(self.doc.rel, force=True)
@@ -1144,6 +1157,94 @@ class ItemWindow(QMainWindow):
         target, amount, pct = dlg.chosen(), dlg.amount.text(), dlg.percent.isChecked()
         self.edit(f"Add {core.readable(target)}",
                   lambda: core.add_stat_to(effect.action, target, amount, pct), rebuild=True)
+
+    def _sync_test_banner(self):
+        on = self.mod is not None and testmenu.is_installed(self.mod)
+        n = len(testmenu.load(self.mod)) if on else 0
+        self.test_label.setText(f"Test menu in this mod ({n} item{'s' * (n != 1)}): take it "
+                                "out before you share the mod" if on else "")
+        self.test_label_act.setVisible(on)
+        self.test_manage_act.setVisible(on)
+
+    def try_in_game(self):
+        doc = self.doc
+        if doc is None:
+            return
+        if doc.dirty and not self.save():
+            return
+        if not self._need_mod():
+            return
+        doc = self.doc
+        base = None
+        if doc.is_addition:
+            bases = core.bases_for(self.lib, self.entries, doc)
+            names = [e.name for e in bases]
+            current = self.base_box.currentText()
+            pick, ok = QInputDialog.getItem(
+                self, APP, "Which item should the magic go on?", names,
+                names.index(current) if current in names else 0, False)
+            if not ok:
+                return
+            base = core.ItemDocument.from_library(self.lib, bases[names.index(pick)].rel)
+        try:
+            item = testmenu.add(self.lib, self.mod, doc, base)
+        except core.ItemError as e:
+            QMessageBox.warning(self, APP, str(e))
+            return
+        self.set_mod(self.mod)
+        QMessageBox.information(
+            self, APP,
+            f"Added \"{item.label}\" to the test menu in your mod.\n\n"
+            f"1. Install your mod: python modmanager.py install <your mod folder> "
+            f"\"<game folder>\"\n"
+            f"2. In the game, talk to {testmenu.WHERE}.\n"
+            f"3. Choose \"{testmenu.HOOK_TEXT}\" and pick the item.\n\n"
+            "It works on a save you already have. Magic gets whatever roll the game "
+            "picks.\n\nThe test menu stays in your mod until you take it out with the "
+            "Test menu button at the top. Take it out before you share the mod.")
+
+    def manage_test_menu(self):
+        if self.mod is None:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Test menu")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(note(f"These items are handed out by {testmenu.WHERE}, through the "
+                           f"\"{testmenu.HOOK_TEXT}\" reply. The menu is part of your mod "
+                           "until you take it out."))
+        lst = QListWidget()
+        for it in testmenu.load(self.mod):
+            lst.addItem(it.label)
+        lay.addWidget(lst)
+        row = QHBoxLayout()
+        rm = QPushButton("Remove the chosen item")
+        out = QPushButton("Take the test menu out of my mod")
+        close = QPushButton("Close")
+        row.addWidget(rm)
+        row.addWidget(out)
+        row.addStretch(1)
+        row.addWidget(close)
+        lay.addLayout(row)
+
+        def remove_one():
+            i = lst.currentRow()
+            if i < 0:
+                return
+            testmenu.remove_item(self.lib, self.mod, i)
+            lst.takeItem(i)
+            self.set_mod(self.mod)
+            if lst.count() == 0:
+                dlg.accept()
+
+        def take_out():
+            testmenu.remove(self.mod)
+            self.set_mod(self.mod)
+            dlg.accept()
+        rm.clicked.connect(remove_one)
+        out.clicked.connect(take_out)
+        close.clicked.connect(dlg.reject)
+        dlg.resize(480, 360)
+        dlg.exec()
 
     def make_new(self):
         if self.doc is None or not self._confirm_discard():

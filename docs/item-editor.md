@@ -105,8 +105,9 @@ this...**. Give it a name, change it however you like, and save it.
 The editor takes care of the hidden places where an item names itself, so the copy reads
 its own numbers and never the original's.
 
-**A new item isn't in the game until something gives it to the player.** Put it in a
-chest or a shop with the map editor.
+**A new item isn't in the game until something gives it to the player.** To try it, use
+**Try it in the game...** (below). To put it in the game for real, place it in a chest
+or a shop with the map editor.
 
 ## Changing the art
 
@@ -133,13 +134,35 @@ game, for example:
 
 You can still save with problems, but the editor asks first.
 
+## Trying it in the game
+
+Press **Try it in the game...**. For magic, the editor asks which item to put it on. It
+saves your item if needed, then adds it to a test menu in your mod:
+
+1. Install your mod the usual way:
+
+   ```
+   python modmanager.py install <your mod folder> "<game folder>"
+   ```
+
+2. In the game, talk to **Raymundo the Bowyer**, the bow seller in the Barcelona Gate
+   District.
+3. Choose **[TEST] Show me the items I am testing.** and pick the item. It goes straight
+   into your inventory.
+
+It works on a save you already have. Magic gets whatever roll the game picks, so try it
+a few times to see the range. Wands can't be tested this way: a wand given by a
+conversation has no charges.
+
+**The test menu is part of your mod until you take it out.** While it's there, the
+toolbar says so. Press **Test menu...** to remove single items, or **Take the test menu
+out of my mod** before you share the mod.
+
+The menu uses Raymundo because nothing else this toolkit makes uses him. The Playtest
+Kit uses Merchant Lope and Jafar, and two mods that both replace the same conversation
+would hide one of the menus.
+
 ## Testing in the game
-
-Install your mod the usual way:
-
-```
-python modmanager.py install <your mod folder> "<game folder>"
-```
 
 **A saved game keeps its own copy of every item the player already has**, and of every
 item lying in a map they've visited. Your change shows up on items found after you
@@ -154,7 +177,8 @@ install the mod, and in a new game. It doesn't show up on ones already picked up
   them.
 - Damage and bonuses that come from a formula (a few special items have them) are left
   as they are.
-- It can't place items in the world. Use the map editor for that.
+- It can't place items in the world, apart from the test menu. Use the map editor for
+  that.
 
 ## For maintainers
 

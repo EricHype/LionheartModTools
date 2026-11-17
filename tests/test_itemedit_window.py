@@ -183,6 +183,19 @@ class WindowTests(unittest.TestCase):
                           e.icon_duration_node.get("Constant Value")), ("240", "240"))
         self.assertTrue(w.save())
 
+    def test_try_in_game_adds_to_the_test_menu(self):
+        import itemedit_test as testmenu
+        w = self.win
+        w.open_rel(SHORT_SWORD)
+        self.assertFalse(w.test_label_act.isVisible())
+        w.try_in_game()
+        self.assertTrue(testmenu.is_installed(self.mod))
+        self.assertEqual([i.label for i in testmenu.load(self.mod)], ["Short Sword"])
+        self.assertIn("1 item", w.test_label.text())
+        testmenu.remove(self.mod)
+        w.set_mod(self.mod)
+        self.assertEqual(w.test_label.text(), "")
+
     def test_magic_preview_follows_the_roll(self):
         w = self.win
         w.open_rel(POISON)
