@@ -113,6 +113,8 @@ FRIENDLY = {
         "Number of creatures summoned",
     "derived character attributes/carryweight": "Carrying capacity",
     "derived character attributes/healingrate": "Healing rate",
+    "derived character attributes/damage related/melee damage percentage gives health to "
+    "attacker zero to one": "Melee damage returned as health (0 to 1)",
 }
 
 
@@ -397,6 +399,13 @@ def set_roll(doc: ItemDocument, prefix: str, which: str, text: str) -> tuple[str
     key = f"{prefix} Addition Ammount" if which == "amount" else f"{prefix} Value"
     label = dict(ROLL_STEPS)[prefix] + (" roll" if which == "amount" else " price")
     return set_field(doc, key, text, numeric=True, label=label)
+
+
+def set_flat_price(doc: ItemDocument, text: str) -> None:
+    """For magic whose numbers do not depend on the roll: the same price at every roll."""
+    new = parse_number(text, "Price")
+    for prefix, _label in ROLL_STEPS:
+        set_field(doc, f"{prefix} Value", new, numeric=True, label="Price")
 
 
 def roll_amounts(doc: ItemDocument) -> dict[str, float]:
@@ -908,6 +917,142 @@ def on_hit_sentence(h: OnHit, amount: float = 0, exprs=None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# When used: potions, scrolls, books
+# ---------------------------------------------------------------------------
+
+@dataclass
+class UseEffect:
+    """What using the item does.
+
+    kind "timed": stat changes for a number of seconds (most potions and scrolls);
+    "permanent": stat changes that stay (the books, the Potion of Luck);
+    "other": healing, mana and the rest, which are built as one-off scripts and are
+    described, not edited."""
+    behaviour: ResourceNode
+    kind: str
+    action: ResourceNode | None = None      # CAddCharacterModifierToCharacterAction
+    icon: ResourceNode | None = None        # CDisplayAffectingPlayerIconAction
+    summary: str = ""
+
+    @property
+    def duration_node(self) -> ResourceNode | None:
+        d = self.action.get("OPTIONAL Duration") if self.action is not None else None
+        return d if isinstance(d, ResourceNode) and d.type_name == "CConstant" else None
+
+    @property
+    def icon_duration_node(self) -> ResourceNode | None:
+        d = self.icon.get("Duration") if self.icon is not None else None
+        return d if isinstance(d, ResourceNode) and d.type_name == "CConstant" else None
+
+    def stats(self) -> list[StatLine]:
+        return modifier_lines(self.action) if self.action is not None else []
+
+
+def use_effects(doc: ItemDocument) -> list[UseEffect]:
+    out = []
+    for b in doc.behaviours():
+        if b.type_name != "CPlugInBehaviorUseAction":
+            continue
+        root = b.get("Use Action")
+        acts = [root] if isinstance(root, ResourceNode) else []
+        if acts and acts[0].type_name == "CMultipleActionsAction":
+            arr = child(acts[0], "Action")
+            acts = arr.items() if arr else []
+        mods = [a for a in acts if a.type_name == "CAddCharacterModifierToCharacterAction"
+                and (a.get("Character to modify") or "").lower() == "$instigator"]
+        icons = [a for a in acts if a.type_name == "CDisplayAffectingPlayerIconAction"]
+        if len(mods) == 1:
+            permanent = (mods[0].get("Modification is permanent") or "0").strip() == "1"
+            out.append(UseEffect(b, "permanent" if permanent else "timed", mods[0],
+                                 icons[0] if len(icons) == 1 else None))
+        else:
+            out.append(UseEffect(b, "other", summary="Using it " + (
+                _describe_use(root) if isinstance(root, ResourceNode) else "does nothing")
+                + ". This editor leaves it as it is."))
+    return out
+
+
+def _describe_use(n: ResourceNode) -> str:
+    names = {"CGiveHealthToCharacterAction": "heals", "CGiveManaToCharacterAction":
+             "restores mana", "CActionCancelPendingDamageOverTime": "cures poison and "
+             "disease", "CActionRemoveCriticalHits": "heals wounds",
+             "CAddCharacterModifierToCharacterAction": "changes stats",
+             "CCreateCustomEntityAction": "creates something", "CAddAIAction":
+             "affects the people around", "CSpawnEffectAction": "shows an effect"}
+    seen = []
+    for m in walk(n):
+        s = names.get(m.type_name)
+        if s and s not in seen:
+            seen.append(s)
+    return ", ".join(seen) if seen else "runs a script"
+
+
+def get_use_duration(e: UseEffect) -> str:
+    d = e.duration_node
+    return (d.get("Constant Value") or "0") if d is not None else ""
+
+
+def set_use_duration(e: UseEffect, text: str) -> tuple[str, str]:
+    """Seconds the effect lasts. The HUD icon carries its own copy of the duration, and
+    an icon that outlasts the effect (or vanishes first) lies to the player, so both are
+    set together."""
+    if e.kind != "timed" or e.duration_node is None:
+        raise ItemError("this effect has no duration to change")
+    new = parse_number(text, "Duration")
+    if float(new) <= 0:
+        raise ItemError("Duration must be more than 0 seconds.")
+    old = get_use_duration(e)
+    e.duration_node.set("Constant Value", new)
+    if e.icon_duration_node is not None:
+        e.icon_duration_node.set("Constant Value", new)
+    return old, new
+
+
+def get_use_label(e: UseEffect) -> str:
+    return (e.icon.get("Affect Description") or "") if e.icon is not None else ""
+
+
+def set_use_label(e: UseEffect, text: str) -> None:
+    if e.icon is None:
+        raise ItemError("this effect shows nothing on screen")
+    if "\r" in text or "\n" in text:
+        raise ItemError("The on-screen name must be one line.")
+    e.icon.set("Affect Description", text)
+
+
+# ---------------------------------------------------------------------------
+# Wands: described, not edited
+# ---------------------------------------------------------------------------
+
+WAND_NOTE = ("Wands are shown here but can't be changed. In the original game, wands never "
+             "drop, they only work when the game's loot generator makes them, and their "
+             "charges never run down. Lionheart Fixt's engine notes cover this in detail.")
+
+
+def wand_summary(doc: ItemDocument) -> str:
+    """One line per wand behaviour: the spell, the charges and the level it casts at."""
+    exprs = doc.expressions()
+    lines = []
+    for b in doc.behaviours():
+        if b.type_name != "CPlugInBehaviorWand":
+            continue
+        spell = b.get("Spell") or ""
+        charges = fmt_interval(evaluate(b.get("Maximum Charges"), 0, exprs))
+        level = ""
+        for st in stat_lines(doc):
+            if st.target.lower() == spell.lower():
+                e = exprs.get(st.expression_name.lower())
+                inner = child(e, "Operand1") if e is not None and \
+                    e.type_name == "CCacheFirstResult" else None
+                if inner is not None and inner.type_name == "CSubtract" and \
+                        child(inner, "Operand1") is not None and \
+                        child(inner, "Operand1").type_name == "CConstant":
+                    level = f", at spell level {child(inner, 'Operand1').get('Constant Value')}"
+        lines.append(f"Casts {readable(spell)}, {charges} charges{level}.")
+    return " ".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Stats: "while worn" modifiers
 # ---------------------------------------------------------------------------
 
@@ -1034,6 +1179,32 @@ def add_stat(doc: ItemDocument, target: str, amount: str, percent: bool = False)
 
 def remove_stat(doc: ItemDocument, line: StatLine) -> None:
     array_remove(child(line.behaviour, "Modifiers"), line.node)
+
+
+def add_stat_to(host: ResourceNode, target: str, amount: str,
+                percent: bool = False) -> StatLine:
+    """Add a fixed modifier to any node holding a `Modifiers` array: a worn behaviour, or a
+    "when used" action."""
+    mod = new_modifier(target, amount, percent)
+    array_append(child(host, "Modifiers"), "Modifier", mod)
+    return StatLine(host, mod, "fixed")
+
+
+def modifier_lines(host: ResourceNode) -> list[StatLine]:
+    out = []
+    arr = child(host, "Modifiers")
+    for m in (arr.items() if arr else []):
+        if m.type_name not in STAT_KINDS:
+            continue
+        a = m.get("Modification Amount")
+        kind = "formula"
+        if isinstance(a, ResourceNode):
+            if a.type_name == "CConstant":
+                kind = "fixed"
+            elif a.type_name == "CInventoryAdditionsNamedExpressionExpression":
+                kind = "rolled"
+        out.append(StatLine(host, m, kind))
+    return out
 
 
 def array_append(arr: ResourceNode, key: str, node: ResourceNode) -> None:
@@ -1170,6 +1341,12 @@ def problems(doc: ItemDocument) -> list[str]:
             out.append("The rolls should go weakest <= middle <= strongest.")
     except ValueError:
         out.append("Every roll amount must be a number.")
+    for e in use_effects(doc):
+        if e.duration_node is not None and e.icon_duration_node is not None:
+            a, b = get_use_duration(e), e.icon_duration_node.get("Constant Value") or "0"
+            if a != b:
+                out.append(f"The effect lasts {a} seconds but its on-screen icon shows "
+                           f"{b}. Change the duration to set both.")
     me = doc.ref.lower()
     for n in walk(doc.root):
         for k, v in n.fields:
@@ -1347,6 +1524,29 @@ def group_for(rel: str, name: str, root_head: str) -> str:
 
 
 HIDDEN_GROUPS = ("Spell projectiles", "Creature weapons", "Spirit energy")
+
+
+def bases_for(lib: Library, entries: list[Entry], doc: ItemDocument) -> list[Entry]:
+    """The plain items a magic addition can be shown on, likeliest first.
+
+    Most magic names the same addition group as its base items. Potions, scrolls and
+    wands name none (`!None`: they are given whole, never rolled onto an item), so for
+    those the folder decides: magic in `Potions` goes on `Potion`."""
+    items = [e for e in entries if not e.is_addition and e.group == "Items"]
+    group = (doc.root.get("Inventory Addition Group") or "").strip().lower()
+    out = []
+    if group and not group.endswith("/!none"):
+        line = f"inventory addition group={group}".encode("latin-1")
+        out = [e for e in items if line in lib.read(e.rel).lower().replace(b"\t", b"")]
+    else:
+        folder = doc.rel.rsplit("/", 2)[-2].lower()
+        hint = folder[:-1] if folder.endswith("s") else folder
+        out = [e for e in items if e.rel.rsplit("/", 1)[-1].lower().startswith(hint)
+               or e.name.lower().startswith(hint)]
+    out = out or items
+    # the plain base items first: "Potion" before "Ale"
+    out.sort(key=lambda e: (e.rel.count("/") > 2, e.name.lower()))
+    return out
 
 
 def library_entries(lib: Library) -> list[Entry]:

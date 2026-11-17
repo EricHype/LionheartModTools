@@ -457,6 +457,7 @@ class ItemWindow(QMainWindow):
         side.addSpacing(10)
         side.addWidget(QLabel("<b>Problems</b>"))
         self.problems = QLabel()
+        self.problems.setTextFormat(Qt.RichText)
         self.problems.setWordWrap(True)
         self.problems.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         side.addWidget(self.problems)
@@ -617,17 +618,7 @@ class ItemWindow(QMainWindow):
         self.base_box.clear()
         self.preview_base = None
         if self.doc is not None and self.doc.is_addition:
-            group = (self.doc.root.get("Inventory Addition Group") or "").lower()
-            bases = []
-            for e in self.entries:
-                if e.is_addition or e.group != "Items":
-                    continue
-                raw = self.lib.read(e.rel)
-                if group and group.encode("latin-1") in raw.lower():
-                    bases.append(e)
-            if not bases:
-                bases = [e for e in self.entries if e.group == "Items"]
-            for e in bases:
+            for e in core.bases_for(self.lib, self.entries, self.doc):
                 self.base_box.addItem(e.name, e.rel)
             self._on_base_pick(0)
         self.base_box.blockSignals(False)
@@ -699,7 +690,11 @@ class ItemWindow(QMainWindow):
             lay.addWidget(dmg)
         if weapon or core.on_hits(doc):
             lay.addWidget(self._on_hit_card())
-        lay.addWidget(self._bonus_card())
+        used = core.use_effects(doc) or core.wand_summary(doc)
+        if used:
+            lay.addWidget(self._use_card())
+        if core.stat_lines(doc) or not used:
+            lay.addWidget(self._bonus_card())
         lay.addWidget(self._art_card())
         lay.addStretch(1)
         old = self.cards_area.takeWidget()
@@ -771,6 +766,14 @@ class ItemWindow(QMainWindow):
 
     def _roll_card(self) -> QGroupBox:
         doc = self.doc
+        if not doc.expressions():
+            # nothing reads the roll: one price is all there is
+            box = QGroupBox("Price")
+            form = QFormLayout(box)
+            form.addRow("Adds to the item's price", commit_edit(
+                core.roll(doc)[1].price, lambda t: self.edit(
+                    "Change price", lambda: core.set_flat_price(doc, t)), width=110))
+            return box
         box = QGroupBox("How strong it rolls")
         grid = QGridLayout(box)
         grid.addWidget(note("When the game makes this magic it rolls an amount between "
@@ -966,7 +969,63 @@ class ItemWindow(QMainWindow):
         lines = core.stat_lines(doc)
         if not lines:
             grid.addWidget(note("None."), 0, 0, 1, 4)
-        for row, st in enumerate(lines):
+        self._stat_rows(grid, lines, 0)
+        add = QPushButton("Add a bonus...")
+        add.clicked.connect(self.add_bonus)
+        grid.addWidget(add, len(lines) + 1, 0)
+        if doc.is_addition:
+            grid.addWidget(note("A bonus added here is a fixed amount. Bonuses set by the "
+                                "roll come from the roll card."), len(lines) + 2, 0, 1, 4)
+        return box
+
+    def _use_card(self) -> QGroupBox:
+        doc = self.doc
+        box = QGroupBox("When used")
+        grid = QGridLayout(box)
+        grid.setColumnStretch(1, 1)
+        row = 0
+        for e in core.use_effects(doc):
+            if e.kind == "other":
+                grid.addWidget(note(e.summary), row, 0, 1, 4)
+                row += 1
+                continue
+            if e.kind == "timed" and e.duration_node is not None:
+                line = QHBoxLayout()
+                line.addWidget(QLabel("Lasts"))
+                line.addWidget(commit_edit(core.get_use_duration(e), lambda t, e=e: self.edit(
+                    "Change how long it lasts", lambda: core.set_use_duration(e, t)), width=70))
+                line.addWidget(QLabel("seconds"))
+                line.addStretch(1)
+                grid.addLayout(line, row, 0, 1, 4)
+                row += 1
+            if e.icon is not None:
+                line = QHBoxLayout()
+                line.addWidget(QLabel("Shown on screen as"))
+                line.addWidget(commit_edit(core.get_use_label(e), lambda t, e=e: self.edit(
+                    "Change on-screen name", lambda: core.set_use_label(e, t))), 1)
+                grid.addLayout(line, row, 0, 1, 4)
+                row += 1
+            if e.kind == "permanent":
+                grid.addWidget(note("Permanent: the change stays after the item is used. "
+                                    "Check in the game that using it uses it up; if not, "
+                                    "it can be used again and again."), row, 0, 1, 4)
+                row += 1
+            stats = e.stats()
+            row = self._stat_rows(grid, stats, row)
+            add = QPushButton("Add a stat change...")
+            add.clicked.connect(lambda _c=False, e=e: self.add_use_stat(e))
+            grid.addWidget(add, row, 0)
+            row += 1
+        wand = core.wand_summary(doc)
+        if wand:
+            grid.addWidget(QLabel(wand), row, 0, 1, 4)
+            grid.addWidget(note(core.WAND_NOTE), row + 1, 0, 1, 4)
+        return box
+
+    def _stat_rows(self, grid: QGridLayout, lines: list, start: int) -> int:
+        """One row per modifier: stat, amount, percent, remove. Returns the next row."""
+        doc = self.doc
+        for row, st in enumerate(lines, start=start):
             combo = NoScrollComboBox()
             same = [ch for ch in self.stat_choices if core.stat_kind_for(ch.target)
                     == st.node.type_name]
@@ -1000,13 +1059,7 @@ class ItemWindow(QMainWindow):
             rm.clicked.connect(lambda _c=False, s=st: self.edit(
                 f"Remove {s.label}", lambda: core.remove_stat(doc, s), rebuild=True))
             grid.addWidget(rm, row, 3)
-        add = QPushButton("Add a bonus...")
-        add.clicked.connect(self.add_bonus)
-        grid.addWidget(add, len(lines) + 1, 0)
-        if doc.is_addition:
-            grid.addWidget(note("A bonus added here is a fixed amount. Bonuses set by the "
-                                "roll come from the roll card."), len(lines) + 2, 0, 1, 4)
-        return box
+        return start + len(lines)
 
     def _art_card(self) -> QGroupBox:
         doc = self.doc
@@ -1082,6 +1135,15 @@ class ItemWindow(QMainWindow):
         self.edit("Add strike effect", lambda: core.add_on_hit(
             self.doc, dlg.chance.text(), dlg.type_box.currentText(), dlg.lo.text(),
             dlg.hi.text(), duration), rebuild=True)
+
+    def add_use_stat(self, effect):
+        dlg = StatPicker(self, self.stat_choices)
+        dlg.setWindowTitle("Add a stat change")
+        if dlg.exec() != QDialog.Accepted or not dlg.chosen():
+            return
+        target, amount, pct = dlg.chosen(), dlg.amount.text(), dlg.percent.isChecked()
+        self.edit(f"Add {core.readable(target)}",
+                  lambda: core.add_stat_to(effect.action, target, amount, pct), rebuild=True)
 
     def make_new(self):
         if self.doc is None or not self._confirm_discard():

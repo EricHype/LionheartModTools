@@ -52,6 +52,16 @@ is close to the game's, but not exact.
 - **Bonuses while worn or held**: each stat the item raises, and by how much. Tick **%**
   for a percentage. **Add a bonus...** opens a searchable list of every stat. Use a minus
   sign for a penalty.
+- **When used** (potions, scrolls, books): how long the effect lasts, the name shown on
+  screen while it's active, and the stats it changes. **Add a stat change...** adds
+  another. The duration is stored twice, once for the effect and once for the on-screen
+  icon, and the editor sets both. Two Fire Protection items in the original game have
+  them out of step, and the Problems box says so. Books and the Potion of Luck change
+  stats permanently. Healing, mana and the other scripted effects are described but
+  can't be edited yet.
+- **Wands** are described, not edited. In the original game, wands never drop, they only
+  work when the game's loot generator makes them, and their charges never run down.
+  Lionheart Fixt's engine notes cover this in detail.
 - **Art**: the item's pictures. See "Changing the art" below.
 
 Press Enter or click elsewhere to finish typing in a box. **Ctrl+Z** undoes, and
@@ -86,6 +96,11 @@ this...**. Give it a name, change it however you like, and save it.
 - Copying a unique makes a new unique.
 - Copying a magic addition makes new magic. Its name is what follows "of": "Frost" makes
   "Helmet of Frost".
+- To make a new potion or scroll, copy one that does something close, then change its
+  stats and how long it lasts. The editor doesn't add "when used" effects to items that
+  don't have one: whether the game uses an item up when it's used isn't known for every
+  kind of item, and a permanent bonus on an item that isn't used up could be used again
+  and again.
 
 The editor takes care of the hidden places where an item names itself, so the copy reads
 its own numbers and never the original's.
@@ -132,7 +147,8 @@ install the mod, and in a new game. It doesn't show up on ones already picked up
 
 ## What it doesn't do yet
 
-- Wands, potions and other "when used" effects can't be edited yet.
+- Healing, mana and other scripted "when used" effects can't be edited yet, and wands
+  aren't editable at all (see above).
 - Most of the original game's strike effects are one-off scripts (fear, freezing,
   healing the wielder). The card describes them and can remove them, but can't change
   them.

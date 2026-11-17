@@ -167,6 +167,22 @@ class WindowTests(unittest.TestCase):
         w.open_rel("Resources/Inventory Items/Gem.InventoryItem", force=True)
         self.assertNotIn("Add a strike effect...", texts(QPushButton))
 
+    def test_potion_use_card(self):
+        from PySide6.QtWidgets import QGroupBox
+        w = self.win
+        w.open_rel("Resources/Inventory/Inventory Additions/Miscellaneous/Potions/"
+                   "Strength.InventoryAddition")
+        titles = [g.title() for g in w.cards_area.widget().findChildren(QGroupBox)]
+        self.assertIn("When used", titles)
+        self.assertNotIn("Bonuses while worn or held", titles)   # a potion is not worn
+        lasts = next(e for e in self.edits() if e.text() == "120")
+        lasts.setText("240")
+        lasts.editingFinished.emit()
+        e = self.core.use_effects(w.doc)[0]
+        self.assertEqual((self.core.get_use_duration(e),
+                          e.icon_duration_node.get("Constant Value")), ("240", "240"))
+        self.assertTrue(w.save())
+
     def test_magic_preview_follows_the_roll(self):
         w = self.win
         w.open_rel(POISON)

@@ -32,6 +32,7 @@ POISON = ("Resources/Inventory/Inventory Additions/Miscellaneous/Helmets/"
           "Poison Resistance.InventoryAddition")
 COLD_TOUCH = "Resources/Inventory/Inventory Additions/Armor/Cold Touch.InventoryAddition"
 HOLY_MACE = "Resources/Inventory/Specific Item Cans/Unique Magic Items/Holy Mace.InventoryItem"
+POTIONS = "Resources/Inventory/Inventory Additions/Miscellaneous/Potions/"
 
 
 def changed_lines(a: bytes, b: bytes) -> list[str]:
@@ -275,6 +276,58 @@ class CoreTests(unittest.TestCase):
                     for ln in node.to_text().split("\r\n")]
         ours = c.new_on_hit("30", "Slashing", "2", "4", "15")
         self.assertEqual(skeleton(ours), skeleton(theirs))
+
+    # -- when used ---------------------------------------------------------------
+
+    def test_timed_potion(self):
+        d = self.doc(POTIONS + "Strength.InventoryAddition")
+        (e,) = c.use_effects(d)
+        self.assertEqual((e.kind, c.get_use_duration(e), c.get_use_label(e)),
+                         ("timed", "120", "Strength"))
+        self.assertEqual([(s.label, c.get_stat_amount(s)) for s in e.stats()],
+                         [("Strength", "2")])
+        before = d.to_bytes()
+        c.set_use_duration(e, "300")
+        # the effect and its on-screen icon change together, and nothing else
+        self.assertEqual(sorted(l.replace("\t", "") for l in changed_lines(before, d.to_bytes())),
+                         ["+Constant Value=300", "+Constant Value=300",
+                          "-Constant Value=120", "-Constant Value=120"])
+        c.add_stat_to(e.action, "Character Attributes/(EN) Endurance", "1")
+        reread = c.use_effects(c.ItemDocument("x", d.to_bytes(), "new"))[0]
+        self.assertEqual([s.label for s in reread.stats()], ["Strength", "Endurance"])
+        self.assertEqual(c.child(reread.action, "Modifiers").get("Item Count"), "2")
+        with self.assertRaises(c.ItemError):
+            c.set_use_duration(e, "0")
+
+    def test_mismatched_icon_duration_is_a_problem(self):
+        # vanilla's Fire Protection potion lasts 60 s and its icon says 120 s
+        d = self.doc(POTIONS + "Fire Protection.InventoryAddition")
+        self.assertTrue(any("on-screen icon shows 120" in p for p in c.problems(d)))
+        c.set_use_duration(c.use_effects(d)[0], "60")
+        self.assertFalse(any("on-screen icon" in p for p in c.problems(d)))
+
+    def test_permanent_book_and_scripted_healing(self):
+        book = c.use_effects(self.doc(
+            "Resources/Inventory/Specific Item Cans/Quest Items/Books/Book of Death.InventoryItem"))
+        self.assertEqual([(e.kind, [s.label for s in e.stats()]) for e in book],
+                         [("permanent", ["Summoning"])])
+        heal = c.use_effects(self.doc(POTIONS + "Healing.InventoryAddition"))
+        self.assertEqual(heal[0].kind, "other")
+        self.assertIn("heals", heal[0].summary)
+
+    def test_preview_base_for_magic(self):
+        entries = c.library_entries(self.lib)
+        first = lambda rel: c.bases_for(self.lib, entries, self.doc(rel))[0].name
+        self.assertEqual(first(POTIONS + "Fire Protection.InventoryAddition"), "Potion")
+        self.assertEqual(first(POISON), "Helmet")
+        flat = self.doc(POTIONS + "Strength.InventoryAddition")
+        c.set_flat_price(flat, "95")
+        self.assertEqual({s.price for s in c.roll(flat)}, {"95"})
+
+    def test_wand_summary(self):
+        d = self.doc("Resources/Inventory/Inventory Additions/Miscellaneous/Wands/"
+                     "Fireball Minor.InventoryAddition")
+        self.assertEqual(c.wand_summary(d), "Casts Fireball, 5-15 charges, at spell level 5.")
 
     # -- saving --------------------------------------------------------------
 
