@@ -4,12 +4,27 @@
 You can change an item's name, description, price, damage and bonuses, make new items,
 and repaint their art. Everything you save goes into your own mod.
 
-You need Python 3 with PySide6, and the game installed with `modmanager.py init` run once
-(see the README).
+## Starting it
 
-```
-python itemedit.py
-```
+Double-click **`Item Editor.bat`** in the LionheartModTools folder.
+
+- **The first time**, it sets itself up, which downloads about 100 MB once. It needs
+  Python 3.9 or newer. If Python isn't installed, it opens the download page: install
+  Python, tick **"Add python.exe to PATH"** on the installer's first screen, then
+  double-click `Item Editor.bat` again.
+- **If the editor can't find Lionheart**, it asks you to show it the game folder (the one
+  with `data.dat` in it) and remembers it.
+- **The editor needs a backup of the game's original files**, kept beside `data.dat`. If
+  there isn't one, it offers to make it. That takes a minute, and only happens once. It
+  refuses if mods are already installed, because then `data.dat` isn't the original any
+  more; it tells you how to get the original files back.
+
+If something goes wrong, the editor shows the error and saves a copy in
+`%LOCALAPPDATA%\LionheartModTools\itemedit-error.log`, which you can send to whoever helps
+you.
+
+From a terminal, `python itemedit.py` does the same, with `--game` and `--mod` to skip
+the questions.
 
 ## Your mod
 
@@ -160,11 +175,7 @@ release. If any fail, the editor lists them. The status bar says when they pass.
 Press **Try it in the game...**. For magic, the editor asks which item to put it on. It
 saves your item if needed, then adds it to a test menu in your mod:
 
-1. Install your mod the usual way:
-
-   ```
-   python modmanager.py install <your mod folder> "<game folder>"
-   ```
+1. Press **Install my mod in the game** at the top.
 
 2. In the game, talk to **Raymundo the Bowyer**, the bow seller in the Barcelona Gate
    District.
@@ -182,6 +193,16 @@ out of my mod** before you share the mod.
 The menu uses Raymundo because nothing else this toolkit makes uses him. The Playtest
 Kit uses Merchant Lope and Jafar, and two mods that both replace the same conversation
 would hide one of the menus.
+
+## Installing your mod
+
+**Install my mod in the game** (at the top) puts your mod into the game, so you can play
+it. It saves your current item first if you want, and rebuilds the game's `data.dat` with
+your mod in it, which can take a minute. Close the game before you press it. Press it
+again after every change you want to try: installing again replaces the copy that's
+there.
+
+To remove your mod from the game, use the Mod Manager or `modmanager.py`.
 
 ## Testing in the game
 

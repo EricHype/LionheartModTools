@@ -17,7 +17,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import os
 import sys
+import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, Qt, QThread, QUrl, Signal
@@ -34,9 +36,9 @@ from PySide6.QtWidgets import (
 import icontool
 import itemedit_core as core
 import itemedit_reach as reach
+import itemedit_setup as setup
 import itemedit_test as testmenu
 import lhcheck
-from canedit_core import default_vanilla_dat
 from icontool import Library
 from qtwidgets import NoScrollComboBox
 from resource_format import parse_resource_text
@@ -85,6 +87,19 @@ def square_icon(pm: QPixmap | None, size: int = 32) -> QIcon:
 # Item files are a few KB, so a snapshot is cheap, and it makes every edit -- a field,
 # an added bonus, a damage line turned into a range -- undo the same way.
 # ---------------------------------------------------------------------------
+
+class InstallThread(QThread):
+    """Runs modmanager.py install, which rebuilds data.dat and can take a while."""
+    done = Signal(bool, str)
+
+    def __init__(self, mod: Path, game: Path):
+        super().__init__()
+        self.mod, self.game = mod, game
+
+    def run(self):
+        ok, text = setup.install_mod(self.mod, self.game)
+        self.done.emit(ok, text)
+
 
 class ReachThread(QThread):
     """Builds the "where it appears" index off the UI thread. It opens its own Library:
@@ -339,9 +354,11 @@ class NewItemDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class ItemWindow(QMainWindow):
-    def __init__(self, vanilla: Path, mod: Path | None = None):
+    def __init__(self, vanilla: Path, mod: Path | None = None, game: Path | None = None):
         super().__init__()
         self.vanilla = Path(vanilla)
+        # the game folder is where the backup lives, unless a backup was passed by hand
+        self.game = Path(game) if game else self.vanilla.parent
         self.settings = QSettings(ORG, "itemedit")
         if mod is None:
             last = self.settings.value("mod", "")
@@ -393,6 +410,9 @@ class ItemWindow(QMainWindow):
             b = QPushButton(text)
             b.clicked.connect(slot)
             tb.addWidget(b)
+        self.install_button = QPushButton("Install my mod in the game")
+        self.install_button.clicked.connect(self.install_into_game)
+        tb.addWidget(self.install_button)
         tb.addSeparator()
         self.test_label = QLabel()
         self.test_label.setContentsMargins(12, 0, 6, 0)
@@ -1267,8 +1287,7 @@ class ItemWindow(QMainWindow):
         QMessageBox.information(
             self, APP,
             f"Added \"{item.label}\" to the test menu in your mod.\n\n"
-            f"1. Install your mod: python modmanager.py install <your mod folder> "
-            f"\"<game folder>\"\n"
+            "1. Press \"Install my mod in the game\" at the top.\n"
             f"2. In the game, talk to {testmenu.WHERE}.\n"
             f"3. Choose \"{testmenu.HOOK_TEXT}\" and pick the item.\n\n"
             "It works on a save you already have. Magic gets whatever roll the game "
@@ -1317,6 +1336,54 @@ class ItemWindow(QMainWindow):
         close.clicked.connect(dlg.reject)
         dlg.resize(480, 360)
         dlg.exec()
+
+    def install_into_game(self):
+        if not self._need_mod():
+            return
+        if self.doc is not None and self.doc.dirty:
+            r = QMessageBox.question(self, APP, f"Save your changes to {self.doc.name} "
+                                     "first, so they are installed too?",
+                                     QMessageBox.Save | QMessageBox.Discard |
+                                     QMessageBox.Cancel)
+            if r == QMessageBox.Cancel or (r == QMessageBox.Save and not self.save()):
+                return
+        if not setup.is_game_dir(self.game):
+            QMessageBox.warning(self, APP, f"Cannot find the game at {self.game}.")
+            return
+        if setup.game_running():
+            QMessageBox.warning(self, APP, "Lionheart is running. Close the game first: "
+                                "it locks the file the mod is installed into.")
+            return
+        r = QMessageBox.question(
+            self, APP, f"Install {self.mod.name} into the game at {self.game}?\n\n"
+            "This rebuilds the game's data.dat with your mod in it, which can take a "
+            "minute. Installing again later replaces this copy, so press it after every "
+            "change you want to try.", QMessageBox.Yes | QMessageBox.Cancel)
+        if r != QMessageBox.Yes:
+            return
+        self.setEnabled(False)
+        self.statusBar().showMessage("Installing your mod into the game...")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        thread = InstallThread(self.mod, self.game)
+        self._install_thread = thread
+        self._threads.add(thread)
+        thread.finished.connect(lambda t=thread: self._threads.discard(t))
+        thread.done.connect(self._install_done)
+        thread.start()
+
+    def _install_done(self, ok: bool, text: str):
+        QApplication.restoreOverrideCursor()
+        self.setEnabled(True)
+        tail = "\n".join(text.splitlines()[-12:])
+        if ok:
+            self.statusBar().showMessage("Installed. Start the game to try it.", 15000)
+            extra = (f"\n\nTalk to {testmenu.WHERE} for your test items."
+                     if testmenu.is_installed(self.mod) else "")
+            QMessageBox.information(self, APP, "Installed. Start Lionheart to try it."
+                                    + extra + "\n\n" + tail)
+        else:
+            self.statusBar().showMessage("Not installed.", 15000)
+            QMessageBox.warning(self, APP, "Your mod was not installed:\n\n" + tail)
 
     def make_new(self):
         if self.doc is None or not self._confirm_discard():
@@ -1477,21 +1544,100 @@ class ItemWindow(QMainWindow):
             event.ignore()
 
 
+def log_path() -> Path:
+    base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LionheartModTools"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "itemedit-error.log"
+
+
+def install_error_box():
+    """Started by double-click there is no console, so an error would vanish silently.
+    Show it, and keep a copy someone can send."""
+    def hook(kind, value, tb):
+        text = "".join(traceback.format_exception(kind, value, tb))
+        try:
+            with open(log_path(), "a", encoding="utf-8") as f:
+                f.write(text + "\n")
+            where = f"\n\nA copy is saved in {log_path()}."
+        except OSError:
+            where = ""
+        sys.__stderr__ and sys.__stderr__.write(text)
+        if QApplication.instance() is not None:
+            QMessageBox.critical(None, APP, "Something went wrong. Your saved work is "
+                                 "safe; anything not yet saved may be lost.\n\n"
+                                 + text[-1500:] + where)
+    sys.excepthook = hook
+
+
+def find_game(settings: QSettings, given: Path | None) -> Path | None:
+    """The game folder: given, remembered, the GOG default, or asked for."""
+    for cand in (given, settings.value("game", ""), setup.default_game()):
+        if cand and setup.is_game_dir(Path(cand)):
+            return Path(cand)
+    while True:
+        QMessageBox.information(None, APP, "Show the editor where Lionheart is installed: "
+                                "the folder that holds data.dat.")
+        folder = QFileDialog.getExistingDirectory(None, "Where is Lionheart installed?")
+        if not folder:
+            return None
+        if setup.is_game_dir(Path(folder)):
+            return Path(folder)
+        QMessageBox.warning(None, APP, f"{folder} has no data.dat, so it is not the "
+                            "Lionheart folder.")
+
+
+def original_files(game: Path) -> Path | None:
+    """data.dat.vanilla.bak, made on the spot if that is safe and the person agrees."""
+    state = setup.check_game(game)
+    if state.ok:
+        return game / setup.VANILLA_NAME
+    if not state.can_backup:
+        QMessageBox.critical(None, APP, state.message)
+        return None
+    if QMessageBox.question(None, APP, state.message,
+                            QMessageBox.Yes | QMessageBox.Cancel) != QMessageBox.Yes:
+        return None
+    QApplication.setOverrideCursor(Qt.WaitCursor)
+    try:
+        return setup.make_backup(game)
+    except (OSError, RuntimeError) as e:
+        QApplication.restoreOverrideCursor()
+        QMessageBox.critical(None, APP, f"Could not make the backup: {e}")
+        return None
+    finally:
+        if QApplication.overrideCursor() is not None:
+            QApplication.restoreOverrideCursor()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--mod", type=Path, help="your mod folder")
-    ap.add_argument("--vanilla", type=Path, default=default_vanilla_dat(),
-                    help="the game's data.dat.vanilla.bak")
+    ap.add_argument("--game", type=Path, help="the Lionheart folder (default: remembered, "
+                    "or the GOG install)")
+    ap.add_argument("--vanilla", type=Path, help="the game's data.dat.vanilla.bak, if it "
+                    "is not in the game folder")
     ap.add_argument("--open", help="an item to open, by its file path")
     args = ap.parse_args(argv)
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP)
-    if not args.vanilla.is_file():
-        QMessageBox.critical(None, APP, f"Cannot find the game's original files at "
-                             f"{args.vanilla}.\nRun modmanager.py init once, or pass "
-                             "--vanilla.")
-        return 1
-    win = ItemWindow(args.vanilla, args.mod)
+    install_error_box()
+    settings = QSettings(ORG, "itemedit")
+    game = None
+    if args.vanilla:
+        if not args.vanilla.is_file():
+            QMessageBox.critical(None, APP, f"There is no file at {args.vanilla}.")
+            return 1
+        vanilla = args.vanilla
+        game = args.game or args.vanilla.parent
+    else:
+        game = find_game(settings, args.game)
+        if game is None:
+            return 1
+        vanilla = original_files(game)
+        if vanilla is None:
+            return 1
+    settings.setValue("game", str(game))
+    win = ItemWindow(vanilla, args.mod, game)
     if args.open:
         win.open_rel(args.open)
     win.show()

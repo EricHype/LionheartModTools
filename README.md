@@ -365,10 +365,18 @@ building anything on top of it.
 
 ## The item editor
 
+Double-click `Item Editor.bat`. The first time, it sets up a private Python environment
+with PySide6 (in `%LOCALAPPDATA%\LionheartModTools\venv`, nothing system-wide), finds
+the game, and offers to back up the original `data.dat` if no mod is installed yet. From a
+terminal:
+
 ```
 python itemedit.py                      # asks for your mod the first time
-python itemedit.py --mod <mod folder>
+python itemedit.py --mod <mod folder> --game <Lionheart folder>
 ```
+
+**Install my mod in the game** runs `modmanager.py install` for you, so a user of the
+editor never needs a terminal.
 
 Pick an item from the list (it shows every item, magic addition and unique in the game,
 with its picture), change it on cards (Basics, Damage, When a strike lands, Bonuses while

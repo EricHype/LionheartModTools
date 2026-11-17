@@ -207,6 +207,31 @@ class WindowTests(unittest.TestCase):
         self.assertTrue(w.save())
         self.assertIn("Engine checks passed", w.statusBar().currentMessage())
 
+    def test_install_button_uses_the_game_folder(self):
+        import zipfile
+        import itemedit_setup as setup
+        game = Path(self.tmp.name) / "FakeGame"
+        game.mkdir()
+        with zipfile.ZipFile(game / "data.dat", "w") as zf:
+            zf.writestr("Resources/x.txt", "x")
+        setup.make_backup(game)
+        w = self.ie.ItemWindow(DAT, self.mod, game)
+        w.wait_for_reach()
+        w.open_rel(SHORT_SWORD)
+        lo = next(e for e in w.cards_area.widget().findChildren(QLineEdit) if e.text() == "1")
+        lo.setText("2")
+        lo.editingFinished.emit()
+        self.assertTrue(w.save())
+        w.install_into_game()
+        w._install_thread.wait(120000)
+        self.app.processEvents()
+        self.assertTrue(w.isEnabled())
+        self.assertEqual(w.statusBar().currentMessage(), "Installed. Start the game to try it.")
+        with zipfile.ZipFile(game / "data.dat") as zf:
+            self.assertIn(SHORT_SWORD, zf.namelist())
+        w.doc = None
+        w.close()
+
     def test_magic_preview_follows_the_roll(self):
         w = self.win
         w.open_rel(POISON)
