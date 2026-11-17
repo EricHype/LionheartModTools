@@ -1,0 +1,69 @@
+48f2e4  add    eax, 0x320
+4a9365  push   0x320
+4ba2a4  push   0x320
+4be3c5  push   0x320
+4fc287  push   0x258
+4fc28c  push   0x320
+50667f  cmp    edx, 0x320
+50668b  cmp    ecx, 0x258
+525ba4  cmp    edi, 0x258
+5318fe  push   0x258
+5841fc  mov    eax, 0x320
+58421c  mov    eax, 0x258
+58d285  push   0x320
+5aadb2  mov    edx, 0xfffffda8
+5aadc0  lea    edi, [edi + edi + 0x258]
+5aafe6  mov    ecx, 0xfffffda8
+5aaff4  lea    ebx, [ebx + ebx + 0x258]
+5ab0f7  mov    dword ptr [eax + 8], 0x320
+5ab0fe  mov    dword ptr [eax + 0xc], 0x258
+5ab595  mov    ecx, 0xfffffce0
+5ab59c  mov    dword ptr [esp], 0xfffffda8
+5ab5cb  cmp    ecx, 0xfffffce0
+5ab5d7  mov    ecx, 0xfffffce0
+5ab5f4  lea    edi, [ecx + 0x320]
+5ab66a  cmp    eax, 0xfffffda8
+5ab671  mov    eax, 0xfffffda8
+5ab689  lea    edi, [eax + 0x258]
+5ab732  mov    ecx, 0xfffffce0
+5ab737  mov    dword ptr [esp + 0x14], 0xfffffda8
+5ab766  cmp    ecx, 0xfffffce0
+5ab772  mov    ecx, 0xfffffce0
+5ab78f  lea    edi, [ecx + 0x320]
+5ab805  cmp    eax, 0xfffffda8
+5ab80c  mov    eax, 0xfffffda8
+5ab824  lea    edi, [eax + 0x258]
+5ab90a  lea    ebp, [edi - 0x320]
+5ab979  lea    ecx, [edi - 0x258]
+5ab987  cmp    ebp, 0xfffffce0
+5ab98f  cmp    ecx, 0xfffffda8
+5aba2c  lea    ebp, [edi - 0x320]
+5aba9b  lea    ecx, [edi - 0x258]
+5abaa9  cmp    ebp, 0xfffffce0
+5abab1  cmp    ecx, 0xfffffda8
+5aff99  mov    dword ptr [esp + 0x2c], 0x320
+5affa1  mov    dword ptr [esp + 0x30], 0x258
+5c1301  push   0x320
+5c130d  push   0x258
+5c68de  push   0x320
+5c78b9  push   0x258
+61ba62  cmp    dword ptr [esp + 8], 0x31f
+61baa4  cmp    dword ptr [esp + 0xc], 0x257
+630434  push   0xfffffce0
+6307bd  push   0xfffffce0
+63727e  push   0x320
+63a89b  mov    ecx, 0x258
+63b174  mov    ecx, 0x258
+63b64c  cmp    eax, 0x258
+63b651  mov    dword ptr [esp + 0x10], 0x258
+63b6af  mov    ecx, 0x258
+654651  push   0x258
+654656  push   0x320
+66d7f0  cmp    word ptr [ebp + 0x5e], 0x320
+68cea6  mov    dword ptr [esi + 0x320], eax
+68e178  mov    edx, dword ptr [eax + 0x320]
+68fdec  mov    eax, 0x320
+6a4fe1  lea    edi, [ebp + 0x320]
+6acb1c  cmp    dword ptr [ecx + eax*4 + 0x320], 1
+6ad205  mov    ecx, dword ptr [edx + eax*4 + 0x320]
+6ad44c  mov    edx, dword ptr [ecx + eax*4 + 0x320]

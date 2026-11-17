@@ -1,0 +1,1089 @@
+=== VA 0x5877ab  file 0x1877ab  4 bytes  00 00 00 00  SYM 0=(W-0x1cd),1=(W-0x1cd),2=(W-0x1cd),3=(W-0x1cd)
+  orig:
+     5877ab  bound  eax, qword ptr [ecx]
+     5877ad  add    byte ptr [eax], al
+     5877af  mov    ecx, edi
+     5877b1  mov    dword ptr [edi], 0x6d3dd8
+  new:
+     5877ab  add    byte ptr [eax], al
+     5877ad  add    byte ptr [eax], al
+=== VA 0x587d73  file 0x187d73  4 bytes  00 00 00 00  SYM 0=(W-0x4be),1=(W-0x4be),2=(W-0x4be),3=(W-0x4be)
+  orig:
+  new:
+     587d73  add    byte ptr [eax], al
+     587d75  add    byte ptr [eax], al
+=== VA 0x58d25a  file 0x18d25a  5 bytes  e9 c7 00 00 00  
+  orig:
+     58d25a  nop    
+     58d25b  nop    
+     58d25c  nop    
+     58d25d  nop    
+     58d25e  nop    
+     58d25f  nop    
+     58d260  mov    eax, dword ptr [esp + 4]
+  new:
+     58d25a  jmp    0x58d326
+=== VA 0x58d291  file 0x18d291  2 bytes  eb c7  
+  orig:
+     58d291  push   0
+     58d293  push   0
+     58d295  mov    ecx, esi
+  new:
+     58d291  jmp    0x58d25a
+=== VA 0x58d326  file 0x18d326  10 bytes  68 00 00 00 00 e9 63 ff ff ff  SYM 1=(H-0x258),2=(H-0x258),3=(H-0x258),4=(H-0x258)
+  orig:
+     58d326  nop    
+     58d327  nop    
+     58d328  nop    
+     58d329  nop    
+     58d32a  nop    
+     58d32b  nop    
+     58d32c  nop    
+     58d32d  nop    
+     58d32e  nop    
+     58d32f  nop    
+     58d330  push   esi
+     58d331  mov    esi, ecx
+     58d333  push   1
+  new:
+     58d326  push   0
+     58d32b  jmp    0x58d293
+=== VA 0x4ba1c1  file 0x0ba1c1  15 bytes  68 00 00 00 00 68 00 00 00 00 e9 ec 00 00 00  SYM 1=(H-0x258),2=(H-0x258),3=(H-0x258),4=(H-0x258)
+  orig:
+     4ba1c1  nop    
+     4ba1c2  nop    
+     4ba1c3  nop    
+     4ba1c4  nop    
+     4ba1c5  nop    
+     4ba1c6  nop    
+     4ba1c7  nop    
+     4ba1c8  nop    
+     4ba1c9  nop    
+     4ba1ca  nop    
+     4ba1cb  nop    
+     4ba1cc  nop    
+     4ba1cd  nop    
+     4ba1ce  nop    
+     4ba1cf  nop    
+     4ba1d0  mov    eax, dword ptr [esp + 0x10]
+  new:
+     4ba1c1  push   0
+     4ba1c6  push   0
+     4ba1cb  jmp    0x4ba2bc
+=== VA 0x4ba25a  file 0x0ba25a  5 bytes  e9 62 ff ff ff  
+  orig:
+     4ba25a  nop    
+     4ba25b  nop    
+     4ba25c  nop    
+     4ba25d  nop    
+     4ba25e  nop    
+     4ba25f  nop    
+     4ba260  push   0
+     4ba262  push   0
+  new:
+     4ba25a  jmp    0x4ba1c1
+=== VA 0x4ba2ba  file 0x0ba2ba  2 bytes  eb 9e  
+  orig:
+     4ba2ba  push   ebx
+     4ba2bb  push   ebx
+     4ba2bc  call   0x40cd20
+  new:
+     4ba2ba  jmp    0x4ba25a
+=== VA 0x50bfb1  file 0x10bfb1  12 bytes  68 00 00 00 00 68 00 00 00 00 eb 33  SYM 1=(H-0x258),2=(H-0x258),3=(H-0x258),4=(H-0x258)
+  orig:
+     50bfb1  nop    
+     50bfb2  nop    
+     50bfb3  nop    
+     50bfb4  nop    
+     50bfb5  nop    
+     50bfb6  nop    
+     50bfb7  nop    
+     50bfb8  nop    
+     50bfb9  nop    
+     50bfba  nop    
+     50bfbb  nop    
+     50bfbc  nop    
+     50bfbd  nop    
+     50bfbe  nop    
+     50bfbf  nop    
+     50bfc0  push   ecx
+  new:
+     50bfb1  push   0
+     50bfb6  push   0
+     50bfbb  jmp    0x50bff0
+=== VA 0x50bfee  file 0x10bfee  2 bytes  eb c1  
+  orig:
+     50bfee  push   ebx
+     50bfef  push   ebx
+     50bff0  mov    ecx, esi
+     50bff2  call   0x40cd20
+  new:
+     50bfee  jmp    0x50bfb1
+=== VA 0x513993  file 0x113993  6 bytes  e9 0f 02 00 00 90  
+  orig:
+     513993  push   ebx
+     513994  push   0x190
+     513999  mov    ecx, esi
+     51399b  call   0x40cd20
+  new:
+     513993  jmp    0x513ba7
+     513998  nop    
+=== VA 0x513ba7  file 0x113ba7  7 bytes  68 00 00 00 00 eb 56  SYM 1=(H-0x258),2=(H-0x258),3=(H-0x258),4=(H-0x258)
+  orig:
+     513ba7  nop    
+     513ba8  nop    
+     513ba9  nop    
+     513baa  nop    
+     513bab  nop    
+     513bac  nop    
+     513bad  nop    
+     513bae  nop    
+     513baf  nop    
+     513bb0  push   esi
+     513bb1  mov    esi, ecx
+  new:
+     513ba7  push   0
+     513bac  jmp    0x513c04
+=== VA 0x513c04  file 0x113c04  10 bytes  68 00 00 00 00 e9 8b fd ff ff  SYM 1=(W-0x190),2=(W-0x190),3=(W-0x190),4=(W-0x190)
+  orig:
+     513c04  nop    
+     513c05  nop    
+     513c06  nop    
+     513c07  nop    
+     513c08  nop    
+     513c09  nop    
+     513c0a  nop    
+     513c0b  nop    
+     513c0c  nop    
+     513c0d  nop    
+     513c0e  nop    
+     513c0f  nop    
+     513c10  mov    eax, dword ptr [esp + 8]
+  new:
+     513c04  push   0
+     513c09  jmp    0x513999
+=== VA 0x61bdd3  file 0x21bdd3  5 bytes  e9 4e 04 00 00  
+  orig:
+     61bdd3  mov    esi, eax
+     61bdd5  mov    eax, dword ptr [edi + 0x20]
+     61bdd8  xor    ebx, ebx
+     61bdda  sub    eax, ebx
+  new:
+     61bdd3  jmp    0x61c226
+=== VA 0x61c226  file 0x21c226  10 bytes  8b f0 8b 0d b4 92 7d 00 eb 21  
+  orig:
+     61c226  nop    
+     61c227  nop    
+     61c228  nop    
+     61c229  nop    
+     61c22a  nop    
+     61c22b  nop    
+     61c22c  nop    
+     61c22d  nop    
+     61c22e  nop    
+     61c22f  nop    
+     61c230  mov    eax, dword ptr [esp + 4]
+  new:
+     61c226  mov    esi, eax
+     61c228  mov    ecx, dword ptr [0x7d92b4]
+     61c22e  jmp    0x61c251
+=== VA 0x61c251  file 0x21c251  13 bytes  e8 ba 89 f9 ff d1 e8 89 44 24 18 eb 45  
+  orig:
+     61c251  nop    
+     61c252  nop    
+     61c253  nop    
+     61c254  nop    
+     61c255  nop    
+     61c256  nop    
+     61c257  nop    
+     61c258  nop    
+     61c259  nop    
+     61c25a  nop    
+     61c25b  nop    
+     61c25c  nop    
+     61c25d  nop    
+     61c25e  nop    
+     61c25f  nop    
+     61c260  push   esi
+     61c261  mov    esi, ecx
+  new:
+     61c251  call   0x5b4c10
+     61c256  shr    eax, 1
+     61c258  mov    dword ptr [esp + 0x18], eax
+     61c25c  jmp    0x61c2a3
+=== VA 0x61c2a5  file 0x21c2a5  11 bytes  db 44 e4 18 d9 47 24 d8 d9 eb 1a  
+  orig:
+     61c2a5  nop    
+     61c2a6  nop    
+     61c2a7  nop    
+     61c2a8  nop    
+     61c2a9  nop    
+     61c2aa  nop    
+     61c2ab  nop    
+     61c2ac  nop    
+     61c2ad  nop    
+     61c2ae  nop    
+     61c2af  nop    
+     61c2b0  mov    al, byte ptr [esp + 4]
+  new:
+     61c2a5  fild   dword ptr [esp + 0x18]
+     61c2a9  fld    dword ptr [edi + 0x24]
+     61c2ac  fcomp  st(1)
+     61c2ae  jmp    0x61c2ca
+=== VA 0x61c2ca  file 0x21c2ca  4 bytes  df e0 eb 52  
+  orig:
+     61c2ca  nop    
+     61c2cb  nop    
+     61c2cc  nop    
+     61c2cd  nop    
+     61c2ce  nop    
+     61c2cf  nop    
+     61c2d0  sub    esp, 8
+  new:
+     61c2ca  fnstsw ax
+     61c2cc  jmp    0x61c320
+=== VA 0x61c322  file 0x21c322  9 bytes  9b 9e 77 52 d9 5f 24 eb 51  
+  orig:
+     61c322  nop    
+     61c323  nop    
+     61c324  nop    
+     61c325  nop    
+     61c326  nop    
+     61c327  nop    
+     61c328  nop    
+     61c329  nop    
+     61c32a  nop    
+     61c32b  nop    
+     61c32c  nop    
+     61c32d  nop    
+     61c32e  nop    
+  new:
+     61c322  wait   
+     61c323  sahf   
+     61c324  ja     0x61c378
+     61c326  fstp   dword ptr [edi + 0x24]
+     61c329  jmp    0x61c37c
+=== VA 0x61c378  file 0x21c378  6 bytes  db 5c e4 18 eb 54  
+  orig:
+     61c378  nop    
+     61c379  nop    
+     61c37a  nop    
+     61c37b  nop    
+     61c37c  nop    
+     61c37d  nop    
+     61c37e  nop    
+     61c37f  nop    
+     61c380  push   ebx
+     61c381  push   esi
+  new:
+     61c378  fistp  dword ptr [esp + 0x18]
+     61c37c  jmp    0x61c3d2
+=== VA 0x61c3d2  file 0x21c3d2  11 bytes  8b 0d b4 92 7d 00 e9 89 06 00 00  
+  orig:
+     61c3d2  nop    
+     61c3d3  nop    
+     61c3d4  nop    
+     61c3d5  nop    
+     61c3d6  nop    
+     61c3d7  nop    
+     61c3d8  nop    
+     61c3d9  nop    
+     61c3da  nop    
+     61c3db  nop    
+     61c3dc  nop    
+     61c3dd  nop    
+     61c3de  nop    
+     61c3df  nop    
+     61c3e0  push   ebx
+  new:
+     61c3d2  mov    ecx, dword ptr [0x7d92b4]
+     61c3d8  jmp    0x61ca66
+=== VA 0x61ca66  file 0x21ca66  10 bytes  e8 b5 81 f9 ff e9 48 02 00 00  
+  orig:
+     61ca66  nop    
+     61ca67  nop    
+     61ca68  nop    
+     61ca69  nop    
+     61ca6a  nop    
+     61ca6b  nop    
+     61ca6c  nop    
+     61ca6d  nop    
+     61ca6e  nop    
+     61ca6f  nop    
+     61ca70  mov    ecx, 0x80a728
+  new:
+     61ca66  call   0x5b4c20
+     61ca6b  jmp    0x61ccb8
+=== VA 0x61ccb8  file 0x21ccb8  8 bytes  d1 e8 89 44 e4 10 eb 23  
+  orig:
+     61ccb8  nop    
+     61ccb9  nop    
+     61ccba  nop    
+     61ccbb  nop    
+     61ccbc  nop    
+     61ccbd  nop    
+     61ccbe  nop    
+     61ccbf  nop    
+     61ccc0  mov    eax, dword ptr [ecx + 0x20]
+     61ccc3  push   esi
+  new:
+     61ccb8  shr    eax, 1
+     61ccba  mov    dword ptr [esp + 0x10], eax
+     61ccbe  jmp    0x61cce3
+=== VA 0x61cce3  file 0x21cce3  13 bytes  db 44 e4 10 d9 47 28 d8 d9 df e0 eb 32  
+  orig:
+     61cce3  nop    
+     61cce4  nop    
+     61cce5  nop    
+     61cce6  nop    
+     61cce7  nop    
+     61cce8  nop    
+     61cce9  nop    
+     61ccea  nop    
+     61cceb  nop    
+     61ccec  nop    
+     61cced  nop    
+     61ccee  nop    
+     61ccef  nop    
+     61ccf0  mov    al, byte ptr [ecx + 0x1c]
+     61ccf3  push   ebx
+  new:
+     61cce3  fild   dword ptr [esp + 0x10]
+     61cce7  fld    dword ptr [edi + 0x28]
+     61ccea  fcomp  st(1)
+     61ccec  fnstsw ax
+     61ccee  jmp    0x61cd22
+=== VA 0x61cd22  file 0x21cd22  13 bytes  9b 9e 0f 87 1c 01 00 00 d9 5f 28 eb 3b  
+  orig:
+     61cd22  nop    
+     61cd23  nop    
+     61cd24  nop    
+     61cd25  nop    
+     61cd26  nop    
+     61cd27  nop    
+     61cd28  nop    
+     61cd29  nop    
+     61cd2a  nop    
+     61cd2b  nop    
+     61cd2c  nop    
+     61cd2d  nop    
+     61cd2e  nop    
+     61cd2f  nop    
+     61cd30  push   ebx
+     61cd31  push   esi
+     61cd32  mov    esi, ecx
+  new:
+     61cd22  wait   
+     61cd23  sahf   
+     61cd24  ja     0x61ce46
+     61cd2a  fstp   dword ptr [edi + 0x28]
+     61cd2d  jmp    0x61cd6a
+=== VA 0x61cd6a  file 0x21cd6a  5 bytes  e9 db 00 00 00  
+  orig:
+     61cd6a  nop    
+     61cd6b  nop    
+     61cd6c  nop    
+     61cd6d  nop    
+     61cd6e  nop    
+     61cd6f  nop    
+     61cd70  push   ebx
+     61cd71  push   esi
+     61cd72  mov    esi, ecx
+  new:
+     61cd6a  jmp    0x61ce4a
+=== VA 0x61ce46  file 0x21ce46  9 bytes  db 5c e4 10 e9 b2 00 00 00  
+  orig:
+     61ce46  nop    
+     61ce47  nop    
+     61ce48  nop    
+     61ce49  nop    
+     61ce4a  nop    
+     61ce4b  nop    
+     61ce4c  nop    
+     61ce4d  nop    
+     61ce4e  nop    
+     61ce4f  nop    
+     61ce50  push   esi
+     61ce51  mov    esi, ecx
+  new:
+     61ce46  fistp  dword ptr [esp + 0x10]
+     61ce4a  jmp    0x61cf01
+=== VA 0x61cf01  file 0x21cf01  13 bytes  8b 0d b4 92 7d 00 8b 01 e9 a3 00 00 00  
+  orig:
+     61cf01  nop    
+     61cf02  nop    
+     61cf03  nop    
+     61cf04  nop    
+     61cf05  nop    
+     61cf06  nop    
+     61cf07  nop    
+     61cf08  nop    
+     61cf09  nop    
+     61cf0a  nop    
+     61cf0b  nop    
+     61cf0c  nop    
+     61cf0d  nop    
+     61cf0e  nop    
+     61cf0f  nop    
+     61cf10  push   ebx
+     61cf11  push   esi
+  new:
+     61cf01  mov    ecx, dword ptr [0x7d92b4]
+     61cf07  mov    eax, dword ptr [ecx]
+     61cf09  jmp    0x61cfb1
+=== VA 0x61cfb1  file 0x21cfb1  15 bytes  ff 90 cc 00 00 00 8b 18 6a 00 e9 31 02 00 00  
+  orig:
+     61cfb1  nop    
+     61cfb2  nop    
+     61cfb3  nop    
+     61cfb4  nop    
+     61cfb5  nop    
+     61cfb6  nop    
+     61cfb7  nop    
+     61cfb8  nop    
+     61cfb9  nop    
+     61cfba  nop    
+     61cfbb  nop    
+     61cfbc  nop    
+     61cfbd  nop    
+     61cfbe  nop    
+     61cfbf  nop    
+     61cfc0  push   ebx
+     61cfc1  push   esi
+     61cfc2  mov    esi, ecx
+  new:
+     61cfb1  call   dword ptr [eax + 0xcc]
+     61cfb7  mov    ebx, dword ptr [eax]
+     61cfb9  push   0
+     61cfbb  jmp    0x61d1f1
+=== VA 0x61d1f1  file 0x21d1f1  10 bytes  89 c1 ff 53 60 e9 d7 03 00 00  
+  orig:
+     61d1f1  nop    
+     61d1f2  nop    
+     61d1f3  nop    
+     61d1f4  nop    
+     61d1f5  nop    
+     61d1f6  nop    
+     61d1f7  nop    
+     61d1f8  nop    
+     61d1f9  nop    
+     61d1fa  nop    
+     61d1fb  nop    
+     61d1fc  nop    
+     61d1fd  nop    
+     61d1fe  nop    
+  new:
+     61d1f1  mov    ecx, eax
+     61d1f3  call   dword ptr [ebx + 0x60]
+     61d1f6  jmp    0x61d5d2
+=== VA 0x61d5d2  file 0x21d5d2  11 bytes  8b 0d b4 92 7d 00 e9 54 05 00 00  
+  orig:
+     61d5d2  nop    
+     61d5d3  nop    
+     61d5d4  nop    
+     61d5d5  nop    
+     61d5d6  nop    
+     61d5d7  nop    
+     61d5d8  nop    
+     61d5d9  nop    
+     61d5da  nop    
+     61d5db  nop    
+     61d5dc  nop    
+     61d5dd  nop    
+     61d5de  nop    
+     61d5df  nop    
+     61d5e0  push   ebp
+  new:
+     61d5d2  mov    ecx, dword ptr [0x7d92b4]
+     61d5d8  jmp    0x61db31
+=== VA 0x61db31  file 0x21db31  14 bytes  8b 98 18 01 00 00 83 fb ff e9 c5 03 00 00  
+  orig:
+     61db31  nop    
+     61db32  nop    
+     61db33  nop    
+     61db34  nop    
+     61db35  nop    
+     61db36  nop    
+     61db37  nop    
+     61db38  nop    
+     61db39  nop    
+     61db3a  nop    
+     61db3b  nop    
+     61db3c  nop    
+     61db3d  nop    
+     61db3e  nop    
+     61db3f  nop    
+     61db40  sub    esp, 0x38
+  new:
+     61db31  mov    ebx, dword ptr [eax + 0x118]
+     61db37  cmp    ebx, -1
+     61db3a  jmp    0x61df04
+=== VA 0x61df04  file 0x21df04  11 bytes  8b 47 20 0f 84 cb de ff ff eb 65  
+  orig:
+     61df04  nop    
+     61df05  nop    
+     61df06  nop    
+     61df07  nop    
+     61df08  nop    
+     61df09  nop    
+     61df0a  nop    
+     61df0b  nop    
+     61df0c  nop    
+     61df0d  nop    
+     61df0e  nop    
+     61df0f  nop    
+     61df10  sub    esp, 0xc
+  new:
+     61df04  mov    eax, dword ptr [edi + 0x20]
+     61df07  je     0x61bdd8
+     61df0d  jmp    0x61df74
+=== VA 0x61df74  file 0x21df74  10 bytes  3b 99 e4 00 00 00 7d 1d eb 20  
+  orig:
+     61df74  nop    
+     61df75  nop    
+     61df76  nop    
+     61df77  nop    
+     61df78  nop    
+     61df79  nop    
+     61df7a  nop    
+     61df7b  nop    
+     61df7c  nop    
+     61df7d  nop    
+     61df7e  nop    
+     61df7f  nop    
+     61df80  mov    eax, dword ptr [esp + 4]
+  new:
+     61df74  cmp    ebx, dword ptr [ecx + 0xe4]
+     61df7a  jge    0x61df99
+     61df7c  jmp    0x61df9e
+=== VA 0x61df99  file 0x21df99  7 bytes  e9 3a de ff ff eb 65  
+  orig:
+     61df99  nop    
+     61df9a  nop    
+     61df9b  nop    
+     61df9c  nop    
+     61df9d  nop    
+     61df9e  nop    
+     61df9f  nop    
+     61dfa0  sub    esp, 0xc
+     61dfa3  push   ebx
+  new:
+     61df99  jmp    0x61bdd8
+     61df9e  jmp    0x61e005
+=== VA 0x61e005  file 0x21e005  7 bytes  85 db e9 07 01 00 00  
+  orig:
+     61e005  nop    
+     61e006  nop    
+     61e007  nop    
+     61e008  nop    
+     61e009  nop    
+     61e00a  nop    
+     61e00b  nop    
+     61e00c  nop    
+     61e00d  nop    
+     61e00e  nop    
+     61e00f  nop    
+  new:
+     61e005  test   ebx, ebx
+     61e007  jmp    0x61e113
+=== VA 0x61e113  file 0x21e113  11 bytes  0f 8c bf dc ff ff e9 77 01 00 00  
+  orig:
+     61e113  nop    
+     61e114  nop    
+     61e115  nop    
+     61e116  nop    
+     61e117  nop    
+     61e118  nop    
+     61e119  nop    
+     61e11a  nop    
+     61e11b  nop    
+     61e11c  nop    
+     61e11d  nop    
+     61e11e  nop    
+     61e11f  nop    
+     61e120  push   ebx
+     61e121  mov    ecx, 0x80a794
+  new:
+     61e113  jl     0x61bdd8
+     61e119  jmp    0x61e295
+=== VA 0x61e295  file 0x21e295  11 bytes  8b 81 e0 00 00 00 8b 1c 98 eb 34  
+  orig:
+     61e295  nop    
+     61e296  nop    
+     61e297  nop    
+     61e298  nop    
+     61e299  nop    
+     61e29a  nop    
+     61e29b  nop    
+     61e29c  nop    
+     61e29d  nop    
+     61e29e  nop    
+     61e29f  nop    
+     61e2a0  push   ebx
+     61e2a1  push   esi
+     61e2a2  mov    esi, ecx
+  new:
+     61e295  mov    eax, dword ptr [ecx + 0xe0]
+     61e29b  mov    ebx, dword ptr [eax + ebx*4]
+     61e29e  jmp    0x61e2d4
+=== VA 0x61e2d4  file 0x21e2d4  12 bytes  8b 43 48 2b 44 e4 18 e9 69 03 00 00  
+  orig:
+     61e2d4  nop    
+     61e2d5  nop    
+     61e2d6  nop    
+     61e2d7  nop    
+     61e2d8  nop    
+     61e2d9  nop    
+     61e2da  nop    
+     61e2db  nop    
+     61e2dc  nop    
+     61e2dd  nop    
+     61e2de  nop    
+     61e2df  nop    
+     61e2e0  push   ebx
+     61e2e1  push   esi
+     61e2e2  mov    esi, ecx
+  new:
+     61e2d4  mov    eax, dword ptr [ebx + 0x48]
+     61e2d7  sub    eax, dword ptr [esp + 0x18]
+     61e2db  jmp    0x61e649
+=== VA 0x61e649  file 0x21e649  6 bytes  89 44 e4 18 eb 07  
+  orig:
+     61e649  nop    
+     61e64a  nop    
+     61e64b  nop    
+     61e64c  nop    
+     61e64d  nop    
+     61e64e  nop    
+     61e64f  nop    
+     61e650  mov    eax, 0x61e330
+  new:
+     61e649  mov    dword ptr [esp + 0x18], eax
+     61e64d  jmp    0x61e656
+=== VA 0x61e656  file 0x21e656  9 bytes  db 44 e4 18 e9 96 00 00 00  
+  orig:
+     61e656  nop    
+     61e657  nop    
+     61e658  nop    
+     61e659  nop    
+     61e65a  nop    
+     61e65b  nop    
+     61e65c  nop    
+     61e65d  nop    
+     61e65e  nop    
+     61e65f  nop    
+     61e660  sub    esp, 0x14
+  new:
+     61e656  fild   dword ptr [esp + 0x18]
+     61e65a  jmp    0x61e6f5
+=== VA 0x61e6f5  file 0x21e6f5  11 bytes  d9 47 24 d8 d9 df e0 9b 9e eb 18  
+  orig:
+     61e6f5  nop    
+     61e6f6  nop    
+     61e6f7  nop    
+     61e6f8  nop    
+     61e6f9  nop    
+     61e6fa  nop    
+     61e6fb  nop    
+     61e6fc  nop    
+     61e6fd  nop    
+     61e6fe  nop    
+     61e6ff  nop    
+     61e700  push   esi
+     61e701  mov    esi, ecx
+     61e703  mov    ecx, dword ptr [esp + 8]
+  new:
+     61e6f5  fld    dword ptr [edi + 0x24]
+     61e6f8  fcomp  st(1)
+     61e6fa  fnstsw ax
+     61e6fc  wait   
+     61e6fd  sahf   
+     61e6fe  jmp    0x61e718
+=== VA 0x61e718  file 0x21e718  5 bytes  e9 d7 00 00 00  
+  orig:
+     61e718  nop    
+     61e719  nop    
+     61e71a  nop    
+     61e71b  nop    
+     61e71c  nop    
+     61e71d  nop    
+     61e71e  nop    
+     61e71f  nop    
+     61e720  push   esi
+  new:
+     61e718  jmp    0x61e7f4
+=== VA 0x61e7f4  file 0x21e7f4  11 bytes  0f 87 c8 00 00 00 e9 c8 00 00 00  
+  orig:
+     61e7f4  nop    
+     61e7f5  nop    
+     61e7f6  nop    
+     61e7f7  nop    
+     61e7f8  nop    
+     61e7f9  nop    
+     61e7fa  nop    
+     61e7fb  nop    
+     61e7fc  nop    
+     61e7fd  nop    
+     61e7fe  nop    
+     61e7ff  nop    
+     61e800  push   ebx
+     61e801  push   esi
+     61e802  push   edi
+  new:
+     61e7f4  ja     0x61e8c2
+     61e7fa  jmp    0x61e8c7
+=== VA 0x61e8c2  file 0x21e8c2  14 bytes  d9 5f 24 eb 04 db 5c e4 18 e9 e2 01 00 00  
+  orig:
+     61e8c2  nop    
+     61e8c3  nop    
+     61e8c4  nop    
+     61e8c5  nop    
+     61e8c6  nop    
+     61e8c7  nop    
+     61e8c8  nop    
+     61e8c9  nop    
+     61e8ca  nop    
+     61e8cb  nop    
+     61e8cc  nop    
+     61e8cd  nop    
+     61e8ce  nop    
+     61e8cf  nop    
+     61e8d0  push   ebp
+     61e8d1  push   esi
+     61e8d2  mov    esi, ecx
+  new:
+     61e8c2  fstp   dword ptr [edi + 0x24]
+     61e8c5  jmp    0x61e8cb
+     61e8c7  fistp  dword ptr [esp + 0x18]
+     61e8cb  jmp    0x61eab2
+=== VA 0x61eab2  file 0x21eab2  12 bytes  8b 43 4c 2b 44 e4 10 e9 87 01 00 00  
+  orig:
+     61eab2  nop    
+     61eab3  nop    
+     61eab4  nop    
+     61eab5  nop    
+     61eab6  nop    
+     61eab7  nop    
+     61eab8  nop    
+     61eab9  nop    
+     61eaba  nop    
+     61eabb  nop    
+     61eabc  nop    
+     61eabd  nop    
+     61eabe  nop    
+     61eabf  nop    
+     61eac0  push   esi
+     61eac1  mov    esi, ecx
+  new:
+     61eab2  mov    eax, dword ptr [ebx + 0x4c]
+     61eab5  sub    eax, dword ptr [esp + 0x10]
+     61eab9  jmp    0x61ec45
+=== VA 0x61ec45  file 0x21ec45  10 bytes  89 44 e4 10 db 44 e4 10 eb 3f  
+  orig:
+     61ec45  nop    
+     61ec46  nop    
+     61ec47  nop    
+     61ec48  nop    
+     61ec49  nop    
+     61ec4a  nop    
+     61ec4b  nop    
+     61ec4c  nop    
+     61ec4d  nop    
+     61ec4e  nop    
+     61ec4f  nop    
+     61ec50  push   esi
+     61ec51  mov    esi, ecx
+  new:
+     61ec45  mov    dword ptr [esp + 0x10], eax
+     61ec49  fild   dword ptr [esp + 0x10]
+     61ec4d  jmp    0x61ec8e
+=== VA 0x61ec8e  file 0x21ec8e  2 bytes  eb 27  
+  orig:
+     61ec8e  nop    
+     61ec8f  nop    
+     61ec90  push   esi
+     61ec91  mov    esi, ecx
+     61ec93  mov    al, byte ptr [esi + 0x39]
+  new:
+     61ec8e  jmp    0x61ecb7
+=== VA 0x61ecb7  file 0x21ecb7  9 bytes  d9 47 28 d8 d9 df e0 eb 27  
+  orig:
+     61ecb7  nop    
+     61ecb8  nop    
+     61ecb9  nop    
+     61ecba  nop    
+     61ecbb  nop    
+     61ecbc  nop    
+     61ecbd  nop    
+     61ecbe  nop    
+     61ecbf  nop    
+     61ecc0  push   esi
+     61ecc1  mov    esi, ecx
+     61ecc3  mov    al, byte ptr [esi + 0x39]
+  new:
+     61ecb7  fld    dword ptr [edi + 0x28]
+     61ecba  fcomp  st(1)
+     61ecbc  fnstsw ax
+     61ecbe  jmp    0x61ece7
+=== VA 0x61ece7  file 0x21ece7  7 bytes  9b 9e e9 13 06 00 00  
+  orig:
+     61ece7  nop    
+     61ece8  nop    
+     61ece9  nop    
+     61ecea  nop    
+     61eceb  nop    
+     61ecec  nop    
+     61eced  nop    
+     61ecee  nop    
+     61ecef  nop    
+     61ecf0  push   esi
+     61ecf1  mov    esi, ecx
+  new:
+     61ece7  wait   
+     61ece8  sahf   
+     61ece9  jmp    0x61f301
+=== VA 0x61f301  file 0x21f301  15 bytes  0f 87 6c 07 00 00 db 5c e4 10 e9 66 07 00 00  
+  orig:
+     61f301  nop    
+     61f302  nop    
+     61f303  nop    
+     61f304  nop    
+     61f305  nop    
+     61f306  nop    
+     61f307  nop    
+     61f308  nop    
+     61f309  nop    
+     61f30a  nop    
+     61f30b  nop    
+     61f30c  nop    
+     61f30d  nop    
+     61f30e  nop    
+     61f30f  nop    
+     61f310  sub    esp, 8
+     61f313  fld    dword ptr [esp + 0xc]
+  new:
+     61f301  ja     0x61fa73
+     61f307  fistp  dword ptr [esp + 0x10]
+     61f30b  jmp    0x61fa76
+=== VA 0x61fa73  file 0x21fa73  11 bytes  d9 5f 28 8b 47 20 e9 5a c3 ff ff  
+  orig:
+     61fa73  nop    
+     61fa74  nop    
+     61fa75  nop    
+     61fa76  nop    
+     61fa77  nop    
+     61fa78  nop    
+     61fa79  nop    
+     61fa7a  nop    
+     61fa7b  nop    
+     61fa7c  nop    
+     61fa7d  nop    
+     61fa7e  nop    
+     61fa7f  nop    
+     61fa80  push   esi
+     61fa81  mov    esi, ecx
+  new:
+     61fa73  fstp   dword ptr [edi + 0x28]
+     61fa76  mov    eax, dword ptr [edi + 0x20]
+     61fa79  jmp    0x61bdd8
+=== VA 0x4fc29e  file 0x0fc29e  2 bytes  eb 8b  
+  orig:
+     4fc29e  push   ebx
+     4fc29f  push   ebx
+     4fc2a0  mov    ecx, esi
+     4fc2a2  call   0x40cd20
+  new:
+     4fc29e  jmp    0x4fc22b
+=== VA 0x4fc22b  file 0x0fc22b  5 bytes  e9 f3 04 00 00  
+  orig:
+     4fc22b  nop    
+     4fc22c  nop    
+     4fc22d  nop    
+     4fc22e  nop    
+     4fc22f  nop    
+     4fc230  sub    esp, 0x10c
+  new:
+     4fc22b  jmp    0x4fc723
+=== VA 0x4fc723  file 0x0fc723  12 bytes  68 00 00 00 00 68 00 00 00 00 eb cc  SYM 1=(H-0x12c),2=(H-0x12c),3=(H-0x12c),4=(H-0x12c),6=(W-0x190),7=(W-0x190),8=(W-0x190),9=(W-0x190)
+  orig:
+     4fc723  nop    
+     4fc724  nop    
+     4fc725  nop    
+     4fc726  nop    
+     4fc727  nop    
+     4fc728  nop    
+     4fc729  nop    
+     4fc72a  nop    
+     4fc72b  nop    
+     4fc72c  nop    
+     4fc72d  nop    
+     4fc72e  nop    
+     4fc72f  nop    
+     4fc730  sub    esp, 0x18
+  new:
+     4fc723  push   0
+     4fc728  push   0
+     4fc72d  jmp    0x4fc6fb
+=== VA 0x4fc6fb  file 0x0fc6fb  5 bytes  e9 a0 fb ff ff  
+  orig:
+     4fc6fb  nop    
+     4fc6fc  nop    
+     4fc6fd  nop    
+     4fc6fe  nop    
+     4fc6ff  nop    
+     4fc700  push   esi
+     4fc701  mov    esi, ecx
+     4fc703  call   0x4fc730
+  new:
+     4fc6fb  jmp    0x4fc2a0
+=== VA 0x5c68ea  file 0x1c68ea  6 bytes  e9 d8 0c 00 00 90  
+  orig:
+     5c68ea  push   0
+     5c68ec  push   0
+     5c68ee  mov    ecx, esi
+     5c68f0  call   0x40cd20
+  new:
+     5c68ea  jmp    0x5c75c7
+     5c68ef  nop    
+=== VA 0x5c75c7  file 0x1c75c7  7 bytes  68 00 00 00 00 eb 7c  SYM 1=(H-0x258),2=(H-0x258),3=(H-0x258),4=(H-0x258)
+  orig:
+     5c75c7  nop    
+     5c75c8  nop    
+     5c75c9  nop    
+     5c75ca  nop    
+     5c75cb  nop    
+     5c75cc  nop    
+     5c75cd  nop    
+     5c75ce  nop    
+     5c75cf  nop    
+     5c75d0  push   1
+  new:
+     5c75c7  push   0
+     5c75cc  jmp    0x5c764a
+=== VA 0x5c764a  file 0x1c764a  4 bytes  89 f1 eb 57  
+  orig:
+     5c764a  nop    
+     5c764b  nop    
+     5c764c  nop    
+     5c764d  nop    
+     5c764e  nop    
+     5c764f  nop    
+     5c7650  push   ebx
+     5c7651  mov    ebx, dword ptr [esp + 8]
+  new:
+     5c764a  mov    ecx, esi
+     5c764c  jmp    0x5c76a5
+=== VA 0x5c76a5  file 0x1c76a5  10 bytes  68 00 00 00 00 e9 41 f2 ff ff  
+  orig:
+     5c76a5  nop    
+     5c76a6  nop    
+     5c76a7  nop    
+     5c76a8  nop    
+     5c76a9  nop    
+     5c76aa  nop    
+     5c76ab  nop    
+     5c76ac  nop    
+     5c76ad  nop    
+     5c76ae  nop    
+     5c76af  nop    
+     5c76b0  push   ecx
+     5c76b1  push   ebx
+     5c76b2  push   esi
+  new:
+     5c76a5  push   0
+     5c76aa  jmp    0x5c68f0
+=== VA 0x5b3cb8  file 0x1b3cb8  5 bytes  90 90 90 90 90  
+  orig:
+     5b3cb8  call   0x61b500
+     5b3cbd  mov    eax, dword ptr [0x7d7de0]
+  new:
+     5b3cb8  nop    
+     5b3cb9  nop    
+     5b3cba  nop    
+     5b3cbb  nop    
+     5b3cbc  nop    
+=== VA 0x5b269c  file 0x1b269c  5 bytes  90 90 90 90 90  
+  orig:
+     5b269c  call   0x61b500
+     5b26a1  mov    eax, dword ptr [0x7d7de0]
+  new:
+     5b269c  nop    
+     5b269d  nop    
+     5b269e  nop    
+     5b269f  nop    
+     5b26a0  nop    
+=== VA 0x5b2705  file 0x1b2705  5 bytes  90 90 90 90 90  
+  orig:
+     5b2705  call   0x61b500
+     5b270a  dec    esi
+     5b270b  jne    0x5b26cc
+     5b270d  mov    eax, dword ptr [0x7d7de0]
+  new:
+     5b2705  nop    
+     5b2706  nop    
+     5b2707  nop    
+     5b2708  nop    
+     5b2709  nop    
+=== VA 0x5a7b64  file 0x1a7b64  2 bytes  eb f4  
+  orig:
+     5a7b64  mov    eax, edx
+     5a7b66  shr    eax, 6
+     5a7b69  shl    eax, 6
+  new:
+     5a7b64  jmp    0x5a7b5a
+=== VA 0x5a7b5a  file 0x1a7b5a  5 bytes  e9 24 fe ff ff  
+  orig:
+     5a7b5a  nop    
+     5a7b5b  nop    
+     5a7b5c  nop    
+     5a7b5d  nop    
+     5a7b5e  nop    
+     5a7b5f  nop    
+     5a7b60  mov    edx, dword ptr [esp + 4]
+  new:
+     5a7b5a  jmp    0x5a7983
+=== VA 0x5a7983  file 0x1a7983  12 bytes  b8 00 00 00 00 39 c2 e9 c3 fd ff ff  SYM 1=W,2=W,3=W,4=W
+  orig:
+     5a7983  nop    
+     5a7984  nop    
+     5a7985  nop    
+     5a7986  nop    
+     5a7987  nop    
+     5a7988  nop    
+     5a7989  nop    
+     5a798a  nop    
+     5a798b  nop    
+     5a798c  nop    
+     5a798d  nop    
+     5a798e  nop    
+     5a798f  nop    
+     5a7990  sub    esp, 0x1c
+  new:
+     5a7983  mov    eax, 0
+     5a7988  cmp    edx, eax
+     5a798a  jmp    0x5a7752
+=== VA 0x5a7752  file 0x1a7752  13 bytes  72 04 89 d0 eb 02 89 c2 e9 07 04 00 00  
+  orig:
+     5a7752  nop    
+     5a7753  nop    
+     5a7754  nop    
+     5a7755  nop    
+     5a7756  nop    
+     5a7757  nop    
+     5a7758  nop    
+     5a7759  nop    
+     5a775a  nop    
+     5a775b  nop    
+     5a775c  nop    
+     5a775d  nop    
+     5a775e  nop    
+     5a775f  nop    
+     5a7760  push   ecx
+     5a7761  push   ebx
+     5a7762  push   esi
+  new:
+     5a7752  jb     0x5a7758
+     5a7754  mov    eax, edx
+     5a7756  jmp    0x5a775a
+     5a7758  mov    edx, eax
+     5a775a  jmp    0x5a7b66
