@@ -381,7 +381,9 @@ wand support doesn't work as written (see Lionheart Fixt's engine notes).
 **Make a new item from this** copies the item under a new name. **Try it in the game**
 adds the item to a test menu in your mod, on Raymundo the Bowyer in the Barcelona Gate
 District, who hands it over on a save you already have. One button takes the menu out
-again before you share the mod. Every save goes into your mod and is listed in its
+again before you share the mod. A **Where it appears** panel lists the maps, creatures,
+conversations and loot tables that give the item (developer test maps apart), or for
+magic, the items it rolls on. Every save runs `lhcheck` over the mod. Every save goes into your mod and is listed in its
 `mod.json`; the game's own files are never written. **New mod** makes an empty mod to
 start from.
 

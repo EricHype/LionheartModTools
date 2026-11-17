@@ -196,6 +196,17 @@ class WindowTests(unittest.TestCase):
         w.set_mod(self.mod)
         self.assertEqual(w.test_label.text(), "")
 
+    def test_where_it_appears_and_engine_check(self):
+        w = self.win
+        w.open_rel(SHORT_SWORD)
+        w.wait_for_reach()
+        self.assertIn("Gate District", w.reach_label.text())
+        lo = next(e for e in self.edits() if e.text() == "1")
+        lo.setText("2")
+        lo.editingFinished.emit()
+        self.assertTrue(w.save())
+        self.assertIn("Engine checks passed", w.statusBar().currentMessage())
+
     def test_magic_preview_follows_the_roll(self):
         w = self.win
         w.open_rel(POISON)

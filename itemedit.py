@@ -20,7 +20,7 @@ import io
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt, QUrl
+from PySide6.QtCore import QSettings, QSize, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import (QAction, QDesktopServices, QIcon, QImage, QKeySequence, QPixmap,
                            QUndoCommand, QUndoStack)
 from PySide6.QtWidgets import (
@@ -33,7 +33,9 @@ from PySide6.QtWidgets import (
 
 import icontool
 import itemedit_core as core
+import itemedit_reach as reach
 import itemedit_test as testmenu
+import lhcheck
 from canedit_core import default_vanilla_dat
 from icontool import Library
 from qtwidgets import NoScrollComboBox
@@ -83,6 +85,29 @@ def square_icon(pm: QPixmap | None, size: int = 32) -> QIcon:
 # Item files are a few KB, so a snapshot is cheap, and it makes every edit -- a field,
 # an added bonus, a damage line turned into a range -- undo the same way.
 # ---------------------------------------------------------------------------
+
+class ReachThread(QThread):
+    """Builds the "where it appears" index off the UI thread. It opens its own Library:
+    a zip file handle must not be shared between threads."""
+    done = Signal(object)
+
+    def __init__(self, vanilla: Path, mod: Path | None):
+        super().__init__()
+        self.vanilla, self.mod = vanilla, mod
+
+    def run(self):
+        try:
+            self.done.emit(reach.ReachIndex(Library(self.vanilla, self.mod)))
+        except Exception as e:          # shown in the panel; never take the window down
+            self.done.emit(e)
+
+
+def engine_check(mod: Path, vanilla: Path) -> list[str]:
+    """lhcheck's findings for the whole mod: the rules Lionheart Fixt's releases gate on."""
+    ctx = lhcheck.Context(lhcheck.resolve_root(mod), str(vanilla), None)
+    findings, _stats = lhcheck.run(ctx)
+    return [f.message for f in findings]
+
 
 class SnapshotCommand(QUndoCommand):
     def __init__(self, window, label: str, before: bytes, after: bytes):
@@ -322,6 +347,9 @@ class ItemWindow(QMainWindow):
             last = self.settings.value("mod", "")
             mod = Path(last) if last and (Path(last) / "mod.json").is_file() else None
         self.mod: Path | None = None
+        self.reach = None
+        self._reach_thread = None
+        self._threads: set = set()       # every scan still running, kept alive until done
         self.doc: core.ItemDocument | None = None
         self.preview_base: core.ItemDocument | None = None
         self.undo = QUndoStack(self)
@@ -474,6 +502,13 @@ class ItemWindow(QMainWindow):
         self.problems.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         side.addWidget(self.problems)
         side.addSpacing(10)
+        side.addWidget(QLabel("<b>Where it appears</b>"))
+        self.reach_label = QLabel()
+        self.reach_label.setTextFormat(Qt.RichText)
+        self.reach_label.setWordWrap(True)
+        self.reach_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        side.addWidget(self.reach_label)
+        side.addSpacing(10)
         side.addWidget(QLabel("<b>Before you test</b>"))
         side.addWidget(note(core.REACH_NOTE))
         side.addStretch(1)
@@ -504,6 +539,7 @@ class ItemWindow(QMainWindow):
             raise
         self.stat_choices = core.stat_choices(self.lib)
         self.entries = core.library_entries(self.lib)
+        self._start_reach()
         self._thumbs.clear()
         self.mod_label.setText(f"My mod: <b>{self.mod.name}</b>" if self.mod
                                else "My mod: <i>none yet</i>")
@@ -511,6 +547,41 @@ class ItemWindow(QMainWindow):
         self._fill_library()
         if self.doc is not None:
             self.open_rel(self.doc.rel, force=True)
+
+    def _start_reach(self):
+        self.reach = None
+        thread = ReachThread(self.vanilla, self.mod)
+        thread.done.connect(self._reach_ready)
+        thread.finished.connect(lambda t=thread: self._threads.discard(t))
+        self._threads.add(thread)
+        self._reach_thread = thread
+        thread.start()
+
+    def _reach_ready(self, index):
+        if self.sender() is not self._reach_thread:
+            return                       # a mod switch started a newer scan
+        self.reach = index
+        self.refresh_reach()
+
+    def wait_for_reach(self, ms: int = 30000) -> None:
+        """Tests and the save dialog wait for the scan rather than show half an answer."""
+        t = self._reach_thread
+        if self.reach is None and t is not None:
+            t.wait(ms)
+            QApplication.processEvents()
+
+    def refresh_reach(self):
+        if not hasattr(self, "reach_label") or self.doc is None:
+            return
+        if self.reach is None:
+            self.reach_label.setText("<i>Looking through the game...</i>")
+            return
+        if isinstance(self.reach, Exception):
+            self.reach_label.setText(f"<i>Could not look: {self.reach}</i>")
+            return
+        lines = reach.summary(self.reach.where(self.doc), self.doc)
+        esc = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        self.reach_label.setText("<br>".join("&bull; " + esc(s) for s in lines))
 
     def choose_mod(self):
         if not self._confirm_discard():
@@ -715,6 +786,7 @@ class ItemWindow(QMainWindow):
             old.deleteLater()
         self.cards_area.setWidget(cards)
         self.refresh_preview()
+        self.refresh_reach()
         self._title()
 
     def refresh_preview(self):
@@ -1288,9 +1360,14 @@ class ItemWindow(QMainWindow):
             if r != QMessageBox.Save:
                 return False
         if doc.origin == "vanilla":
+            self.wait_for_reach(5000)
+            where = ""
+            if self.reach is not None and not isinstance(self.reach, Exception):
+                where = "\n".join("- " + s for s in reach.summary(self.reach.where(doc), doc))
+                where = f"\n\nWhere it appears:\n{where}"
             r = QMessageBox.question(
                 self, APP, f"This puts your version of {doc.name} in your mod. With the "
-                "mod installed, every one of them in the game changes.\n\n"
+                f"mod installed, every one of them in the game changes.{where}\n\n"
                 + core.REACH_NOTE, QMessageBox.Save | QMessageBox.Cancel)
             if r != QMessageBox.Save:
                 return False
@@ -1300,7 +1377,24 @@ class ItemWindow(QMainWindow):
             QMessageBox.critical(self, APP, f"Not saved: {e}")
             return False
         self.undo.setClean()
-        self.statusBar().showMessage(f"Saved {target}", 8000)
+        self.statusBar().showMessage(f"Saved {target}. Checking the mod...")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            found = engine_check(self.mod, self.vanilla)
+        except Exception as e:           # a checker bug must not lose the save
+            found = [f"The checker itself failed: {e}"]
+        finally:
+            QApplication.restoreOverrideCursor()
+        if found:
+            QMessageBox.warning(
+                self, APP, "Saved, but the engine checks found problems in your mod. These "
+                "are rules the game breaks on, so fix them before you play:\n\n"
+                + "\n".join("- " + m for m in found[:15])
+                + (f"\n... and {len(found) - 15} more" if len(found) > 15 else ""))
+            self.statusBar().showMessage(f"Saved {target}. Engine checks: "
+                                         f"{len(found)} problem(s).", 15000)
+        else:
+            self.statusBar().showMessage(f"Saved {target}. Engine checks passed.", 8000)
         rel = doc.rel
         self.doc = None                     # the library is reread; reopen from the mod
         self.set_mod(self.mod)
@@ -1376,6 +1470,8 @@ class ItemWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self._confirm_discard():
+            for t in list(self._threads):   # a running QThread must not outlive the window
+                t.wait()
             event.accept()
         else:
             event.ignore()

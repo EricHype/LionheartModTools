@@ -123,6 +123,23 @@ On the **Art** card:
 If other items share the picture, your item gets its own copy, so only your item changes.
 The rules for painting are in [icon-tool.md](icon-tool.md).
 
+## Where it appears
+
+Below the problems, **Where it appears** says how the player can get the item:
+
+- the maps it lies in, sits in a container in, or is sold in;
+- the creatures that carry or drop it;
+- the conversations that hand it over;
+- the loot tables it's in, and whether any map or creature uses them;
+- for magic, which items it can roll on at random, and how rare it is.
+
+Developer test maps are listed separately, because players never visit them. A new item
+shows "Nothing in the game gives this to the player" until you place it.
+
+The editor looks through the whole game when it starts, which takes a couple of seconds.
+The first time you save an item from the game, the same list appears in the save dialog,
+so you can see how far the change reaches.
+
 ## Problems
 
 The **Problems** box on the right lists things that would look wrong or do nothing in the
@@ -133,6 +150,10 @@ game, for example:
 - rolls out of order.
 
 You can still save with problems, but the editor asks first.
+
+**After every save, the editor runs the engine checks** (`lhcheck`) over your whole mod.
+They're the rules the game breaks on, the same ones Lionheart Fixt checks before each
+release. If any fail, the editor lists them. The status bar says when they pass.
 
 ## Trying it in the game
 
