@@ -40,6 +40,10 @@ official modding support or SDK for this game — this project exists to establi
   `dialogedit.py` is the visual editor over it; see below.
 - **`canedit.py`** / **`canedit_core.py`** / **`can_schema.py`**: an editor for creature
   cans with a Combat AI panel, and its headless core. See below.
+- **`itemedit.py`** / **`itemedit_core.py`**: an item editor for people who don't want to
+  read the game's files. Change an item's name, description, price, damage and bonuses,
+  make a new item from an existing one, and change its art. See below and
+  [`docs/item-editor.md`](docs/item-editor.md).
 - **`icontool.py`**: export any item's inventory or ground art to a PNG, paint it in any
   program, and import it back into a mod. Written for people who paint, not people who
   script; see [`docs/icon-tool.md`](docs/icon-tool.md).
@@ -359,7 +363,39 @@ nowhere in the game's own files.
 The round-trip is byte-identical across all 341 shipped files, which was the gate for
 building anything on top of it.
 
+## The item editor
+
+```
+python itemedit.py                      # asks for your mod the first time
+python itemedit.py --mod <mod folder>
+```
+
+Pick an item from the list (it shows every item, magic addition and unique in the game,
+with its picture), change it on cards (Basics, Damage, Bonuses while worn, Art), and see
+the result in a preview of the game's tooltip. **Make a new item from this** copies the
+item under a new name. Every save goes into your mod and is listed in its `mod.json`;
+the game's own files are never written. **New mod** makes an empty mod to start from.
+
+It is built on `itemedit_core`, which needs no Qt:
+
+- Load and save are byte-identical for all 536 shipped item files, and one edit is a
+  one-line change.
+- A copy has every path that names the file itself pointed at the new file. A copied
+  magic addition that kept the old path would quietly read the original's numbers.
+- The Problems panel catches a description amount that names nothing, a damage minimum
+  above its maximum, and rolls out of order.
+- The tooltip price is the base item's price plus the magic's price at the roll. That
+  matches a real save: a Helmet of Poison Resistance at the weakest roll costs 6 + 125 =
+  131.
+- A saved game keeps a full copy of every item the player has, so changes reach items
+  found after the mod is installed, not ones already picked up. The editor says so.
+
+The walkthrough, written for non-programmers, is in
+[`docs/item-editor.md`](docs/item-editor.md).
+
 ## Changing an item's art
+
+The item editor's Art card does this with buttons. From the command line:
 
 ```
 python icontool.py find mancha
