@@ -11,9 +11,8 @@ python enemyedit.py
 It shares the game folder, the original-files backup and your mod with the item editor,
 so if the item editor works, this does too.
 
-**Status:** this is milestone E2 of the plan. The window, the preview and the Basics, Stats
-and Model cards work. Still to come:
-- the Attacks, Behaviour, Drops and Sounds cards (E3);
+**Status:** milestones E2 and E3 of the plan are done. The window, the preview and all the
+cards work. Still to come:
 - "Spawn it in the game" and "Where it appears" (E4);
 - the double-click launcher (E5).
 
@@ -45,6 +44,29 @@ After that it's instant.
     skills;
   - the seven attributes;
   - **Add a resistance, stat or skill...** adds one the creature doesn't have.
+- **Attacks:** for each of its attacks:
+  - the damage type and range, and its reach;
+  - strike effects: a chance on a hit to deal extra damage, at once or over time, built
+    as the item editor builds them;
+  - an archer's or caster's shots get their damage from an item (an arrow or projectile).
+    The card names it, and the item editor changes it (tick "Also show creature weapons").
+  - Strike effects on a creature's own attack haven't been checked in the game yet.
+- **Behaviour:** the can editor's Combat AI panel:
+  - who it attacks and from how far;
+  - how far it chases;
+  - whether it answers calls for help;
+  - its attack style and distances.
+  It refuses the three attack styles that crash the game. Retreat is shown greyed out,
+  because the engine never runs it.
+- **Drops:**
+  - the drop recipes it uses when the player kills it, such as a gold pile at 1 in 2 or
+    a spirit health drop. Each is one of the game's 66 shared recipes, shown with the
+    line its author wrote. Change, remove or add them.
+  - Items its death action makes directly (a wolf's pelt) are listed but not changed here.
+  - A few creatures have no place in their death action for drops, and the editor says so
+    instead of guessing.
+- **Sounds:** what it plays when hurt, when it dies and while it's active. **Play** plays
+  one; **Change...** picks from the game's 1,436 sounds and plays each as you pick.
 - **Model:**
   - its model, its animations (click one to play it), and the animations this creature
     uses;

@@ -17,7 +17,10 @@ import re
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+import tempfile
+
+from PySide6.QtCore import QSettings, Qt, QUrl
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtGui import QAction, QKeySequence, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout,
@@ -26,12 +29,14 @@ from PySide6.QtWidgets import (
     QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+import canedit
+import canedit_core
 import enemyedit_core as core
 import itemedit
 import itemedit_core as icore
 from enemyedit_preview import ModelCache, PreviewWidget, ViewerServer
 from icontool import Library
-from itemedit import StatPicker, commit_edit, engine_check, note
+from itemedit import DamageDialog, StatPicker, commit_edit, engine_check, note
 from qtwidgets import NoScrollComboBox
 from resource_format import parse_resource_text
 
@@ -160,6 +165,82 @@ class ModelPicker(QDialog):
         self.preview.show_model(ref)
 
     def chosen(self) -> str | None:
+        it = self.list.currentItem()
+        return it.data(ROLE) if it is not None else None
+
+
+class CombatHost:
+    """Lets canedit's Combat AI panel run inside this window. The panel pushes its own
+    QUndoCommands; each is applied here and recorded as one snapshot undo step, so Ctrl+Z
+    walks back panel edits and card edits alike."""
+
+    def __init__(self, window, creature: core.Creature):
+        self.window = window
+        self.doc = canedit_core.CanDocument(creature.can.to_bytes(), path=None,
+                                            resource_path=creature.can.rel)
+        self.doc.root = creature.can.root          # the panel edits the creature's own tree
+        self.panel = canedit.CombatPanel(self)
+
+    def push(self, command):
+        before = snapshot(self.window.creature)
+        command.redo()
+        after = snapshot(self.window.creature)
+        if after != before:
+            self.window.undo.push(SnapshotCommand(self.window, command.text(), before, after))
+        self.panel.sync()
+        self.window.refresh()
+
+    def mark_dirty(self):
+        pass
+
+    def statusBar(self):
+        return self.window.statusBar()
+
+    def show_in_tree(self, node):
+        self.window.statusBar().showMessage(
+            "The raw tree view is in the can editor (canedit.py); this editor shows cards.", 8000)
+
+
+class ListPicker(QDialog):
+    """A searchable list; `extra` makes rows with a second line of explanation."""
+
+    def __init__(self, parent, title: str, rows: list[tuple[str, str, str]], hint: str = "",
+                 on_pick=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.rows, self.on_pick = rows, on_pick
+        lay = QVBoxLayout(self)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search...")
+        lay.addWidget(self.search)
+        self.list = QListWidget()
+        lay.addWidget(self.list, 1)
+        if hint:
+            lay.addWidget(note(hint))
+        b = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        b.accepted.connect(self.accept)
+        b.rejected.connect(self.reject)
+        lay.addWidget(b)
+        self.search.textChanged.connect(self._fill)
+        if on_pick:
+            self.list.currentItemChanged.connect(
+                lambda cur, _p: cur is not None and on_pick(cur.data(ROLE)))
+        self.resize(520, 560)
+        self._fill("")
+
+    def _fill(self, text):
+        self.list.clear()
+        words = text.lower().split()
+        for value, label, extra in self.rows:
+            if words and not all(w in (label + " " + extra).lower() for w in words):
+                continue
+            it = QListWidgetItem(label + (f"\n    {extra}" if extra else ""))
+            it.setData(ROLE, value)
+            self.list.addItem(it)
+            if self.list.count() >= 600 and not words:
+                break
+
+    def chosen(self):
         it = self.list.currentItem()
         return it.data(ROLE) if it is not None else None
 
@@ -326,6 +407,7 @@ class EnemyWindow(QMainWindow):
         self.model_users = {}
         for e in self.entries:
             self.model_users[e["model"].lower()] = self.model_users.get(e["model"].lower(), 0) + 1
+        self.drop_choices = core.drop_choices(self.lib)
         self.stat_choices = [c for c in icore.stat_choices(self.lib)
                              if c.group in ("Resistances and damage", "Other stats", "Skills")]
         self.mod_label.setText(f"My mod: <b>{self.mod.name}</b>" if self.mod
@@ -526,6 +608,10 @@ class EnemyWindow(QMainWindow):
         lay = QVBoxLayout(cards)
         lay.addWidget(self._basics_card())
         lay.addWidget(self._stats_card())
+        lay.addWidget(self._attacks_card())
+        lay.addWidget(self._behaviour_card())
+        lay.addWidget(self._drops_card())
+        lay.addWidget(self._sounds_card())
         lay.addWidget(self._model_card())
         lay.addStretch(1)
         old = self.cards_area.takeWidget()
@@ -617,6 +703,148 @@ class EnemyWindow(QMainWindow):
             row += 1
         return box
 
+    def _attacks_card(self) -> QGroupBox:
+        c = self.creature
+        box = QGroupBox("Attacks")
+        lay = QVBoxLayout(box)
+        weapons = c.weapons()
+        if not weapons:
+            lay.addWidget(note("It carries no weapon of its own."))
+        for wp in weapons:
+            title = "Ranged attack" if wp.ranged else "Melee attack"
+            lay.addWidget(QLabel(f"<b>{title}</b>" + (f": {wp.name}" if wp.name !=
+                                                      "natural weapon" else "")))
+            grid = QGridLayout()
+            grid.setColumnStretch(5, 1)
+            row = 0
+            for line in icore.damage_lines(wp):
+                if line.kind == "over time":
+                    grid.addWidget(QLabel(f"{line.damage_type} damage over time"), row, 0, 1, 5)
+                    row += 1
+                    continue
+                types = NoScrollComboBox()
+                types.addItems(icore.DAMAGE_TYPES)
+                types.setCurrentText(line.damage_type)
+                types.currentTextChanged.connect(lambda t, ln=line: self.edit(
+                    "Change damage type", lambda: icore.set_damage_type(ln, t)))
+                grid.addWidget(types, row, 0)
+                if line.editable:
+                    lo, hi = icore.damage_range(line)
+                    st = {"lo": lo, "hi": hi}
+
+                    def commit(which, text, ln=line, st=st):
+                        st[which] = text
+                        self.edit("Change damage", lambda: icore.set_damage_range(
+                            ln, st["lo"], st["hi"]), rebuild=ln.kind == "fixed")
+                    grid.addWidget(commit_edit(lo, lambda t, f=commit: f("lo", t), width=60), row, 1)
+                    grid.addWidget(QLabel("to"), row, 2)
+                    grid.addWidget(commit_edit(hi, lambda t, f=commit: f("hi", t), width=60), row, 3)
+                else:
+                    grid.addWidget(note("a formula this editor leaves as it is"), row, 1, 1, 4)
+                row += 1
+            reach = wp.reach
+            if reach is not None and reach.get("Max Attack Range") is not None:
+                grid.addWidget(QLabel("Reach"), row, 0)
+                grid.addWidget(commit_edit(reach.get("Max Attack Range"), lambda t, r=reach: self.edit(
+                    "Change reach", lambda: r.set("Max Attack Range",
+                                                  icore.parse_number(t, "Reach"))), width=60), row, 1)
+                grid.addWidget(note("How far its attack reaches. The AI also decides how close "
+                                    "it gets (Behaviour card)."), row, 2, 1, 4)
+                row += 1
+            lay.addLayout(grid)
+            for ammo in wp.ammunition:
+                lay.addWidget(note(f"Its shots are {icore.readable(ammo)}: the damage of a "
+                                   "shot belongs to that item. Change it in the item editor "
+                                   "(\"Also show creature weapons\")."))
+            hits = icore.on_hits(wp)
+            for h in hits:
+                v = icore.on_hit_values(h)
+                text = (icore.on_hit_sentence(h) or h.summary) if h.kind != "other" else h.summary
+                r = QHBoxLayout()
+                r.addWidget(note(text), 1)
+                rm = QPushButton("Remove")
+                rm.clicked.connect(lambda _c=False, wv=wp, b=h.behaviour: self.edit(
+                    "Remove strike effect", lambda: icore.remove_behaviour(wv, b), rebuild=True))
+                r.addWidget(rm)
+                lay.addLayout(r)
+            add = QPushButton("Add a strike effect...")
+            add.clicked.connect(lambda _c=False, wv=wp: self.add_strike(wv))
+            lay.addWidget(add)
+        if weapons:
+            lay.addWidget(note("Strike effects (a chance to deal extra damage on a hit, at "
+                               "once or over time) work on items; on a creature's own attack "
+                               "they haven't been checked in the game yet."))
+        return box
+
+    def _behaviour_card(self) -> QGroupBox:
+        box = QGroupBox("Behaviour")
+        lay = QVBoxLayout(box)
+        self.combat = CombatHost(self, self.creature)
+        self.combat.panel.load(self.combat.doc)
+        # the can editor's jump-to-raw-tree buttons have no tree to jump to here
+        for b in self.combat.panel.findChildren(QPushButton):
+            if b.text().startswith("Show in Can tree") or b.text() == "Show":
+                b.hide()
+        lay.addWidget(self.combat.panel)
+        return box
+
+    def _drops_card(self) -> QGroupBox:
+        c = self.creature
+        box = QGroupBox("Drops")
+        lay = QVBoxLayout(box)
+        drops = c.drops()
+        comments = {d.ref: d.comment for d in self.drop_choices}
+        if not drops:
+            lay.addWidget(note("No drop recipes."))
+        for d in drops:
+            r = QHBoxLayout()
+            lab = QLabel(d.label)
+            lab.setToolTip(comments.get(d.ref, d.ref))
+            r.addWidget(lab, 1)
+            ch = QPushButton("Change...")
+            ch.clicked.connect(lambda _c=False, d=d: self.pick_drop(d))
+            rm = QPushButton("Remove")
+            rm.clicked.connect(lambda _c=False, d=d: self.edit(
+                "Remove drop", lambda: c.remove_drop(d), rebuild=True))
+            r.addWidget(ch)
+            r.addWidget(rm)
+            lay.addLayout(r)
+            if comments.get(d.ref):
+                lay.addWidget(note(comments[d.ref]))
+        gens = c.item_generators()
+        if gens:
+            lay.addWidget(note("It also drops, from its own death action: "
+                               + ", ".join(dict.fromkeys(gens)) + "."))
+        if c._drop_array() is not None:
+            add = QPushButton("Add a drop...")
+            add.clicked.connect(lambda: self.pick_drop(None))
+            lay.addWidget(add)
+        else:
+            lay.addWidget(note("Its death action has no place for drops, so the editor "
+                               "doesn't add any."))
+        lay.addWidget(note("Drops happen only when the player kills it. Each drop is one of "
+                           "the game's shared recipes, such as a gold pile at 1 in 2."))
+        return box
+
+    def _sounds_card(self) -> QGroupBox:
+        c = self.creature
+        box = QGroupBox("Sounds")
+        grid = QGridLayout(box)
+        grid.setColumnStretch(1, 1)
+        sounds = c.sounds()
+        if not sounds:
+            grid.addWidget(note("No sounds of its own."), 0, 0, 1, 4)
+        for row, s in enumerate(sounds):
+            grid.addWidget(QLabel(s.when), row, 0)
+            grid.addWidget(QLabel(s.file.rsplit("/", 1)[-1]), row, 1)
+            play = QPushButton("Play")
+            play.clicked.connect(lambda _c=False, f=s.file: self.play_sound(f))
+            ch = QPushButton("Change...")
+            ch.clicked.connect(lambda _c=False, s=s: self.pick_sound(s))
+            grid.addWidget(play, row, 2)
+            grid.addWidget(ch, row, 3)
+        return box
+
     def _model_card(self) -> QGroupBox:
         c = self.creature
         box = QGroupBox("Model")
@@ -654,6 +882,54 @@ class EnemyWindow(QMainWindow):
         target, amount = dlg.chosen(), dlg.amount.text()
         self.stat_edit(f"Add {icore.readable(target)}",
                        lambda: self.creature.set_preset(target, amount))
+
+    def add_strike(self, wp):
+        dlg = DamageDialog(self, extra=False)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        duration = dlg.duration.text() if dlg.over_time.isChecked() else None
+        self.edit("Add strike effect", lambda: icore.add_on_hit(
+            wp, dlg.chance.text(), dlg.type_box.currentText(), dlg.lo.text(), dlg.hi.text(),
+            duration), rebuild=True)
+
+    def pick_drop(self, drop):
+        rows = [(d.ref, d.label, d.comment) for d in self.drop_choices]
+        dlg = ListPicker(self, "Change the drop" if drop else "Add a drop", rows,
+                         "Each is one of the game's own drop recipes; the line under it is "
+                         "what its author wrote it does.")
+        if dlg.exec() != QDialog.Accepted or not dlg.chosen():
+            return
+        ref = dlg.chosen()
+        c = self.creature
+        if drop is None:
+            self.edit("Add drop", lambda: c.add_drop(ref), rebuild=True)
+        else:
+            self.edit("Change drop", lambda: c.set_drop(drop, ref), rebuild=True)
+
+    def pick_sound(self, sound):
+        if not hasattr(self, "_sound_rows"):
+            self._sound_rows = [(f, f, "") for f in core.sound_choices(self.lib)]
+        dlg = ListPicker(self, f"Sound: {sound.when}", self._sound_rows,
+                         "Picking a sound plays it.", on_pick=self.play_sound)
+        if dlg.exec() == QDialog.Accepted and dlg.chosen():
+            f = dlg.chosen()
+            self.edit("Change sound", lambda: self.creature.set_sound(sound, f), rebuild=True)
+
+    def play_sound(self, file: str):
+        rel = "Sounds/" + file
+        if not self.lib.exists(rel):
+            self.statusBar().showMessage(f"There is no sound file {file}.", 6000)
+            return
+        if not hasattr(self, "_player"):
+            self._player = QMediaPlayer(self)
+            self._audio = QAudioOutput(self)
+            self._player.setAudioOutput(self._audio)
+            self._sound_dir = tempfile.TemporaryDirectory()
+        path = Path(self._sound_dir.name) / (str(abs(hash(rel))) + Path(rel).suffix)
+        path.write_bytes(self.lib.read(rel))
+        self._player.stop()
+        self._player.setSource(QUrl.fromLocalFile(str(path)))
+        self._player.play()
 
     def change_model(self):
         c = self.creature

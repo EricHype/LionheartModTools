@@ -171,12 +171,28 @@ class WeaponView:
 
     @property
     def name(self) -> str:
-        return (self.root.get("Display Name") or "").strip() or "natural weapon"
+        name = (self.root.get("Display Name") or "").strip()
+        return name if name and name.lower() not in ("unnamed", "undefined") else "natural weapon"
 
     @property
     def reach(self) -> ResourceNode | None:
         """The CPlugInBehaviorAttack holding Max Attack Range."""
         return next((b for b in self.behaviours() if b.type_name == "CPlugInBehaviorAttack"), None)
+
+    @property
+    def ammunition(self) -> list[str]:
+        """What a ranged weapon launches (an arrow item, a spell projectile). Its damage
+        lives in that item, not here."""
+        out = []
+        for n in walk(self.root):
+            v = n.get("Secondary Launchable Type")
+            if isinstance(v, str) and v.strip() and v.strip() not in out:
+                out.append(v.strip())
+        return out
+
+    @property
+    def ranged(self) -> bool:
+        return bool(self.ammunition)
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +212,55 @@ class Preset:
     @property
     def value(self) -> str:
         return self.node.get(self.key) or "0"
+
+
+DROP_ROOT = "Inventory/Enemy Drop Items Cans/"
+
+
+@dataclass
+class Drop:
+    """A drop recipe the death action calls: a shared can such as
+    `Gold/Chance 1 in 2 SmallMedium Gold Pile Drop Action`."""
+    node: ResourceNode       # the CUseCannedActionAction
+
+    @property
+    def ref(self) -> str:
+        return (self.node.get("Canned Object") or "").strip()
+
+    @property
+    def label(self) -> str:
+        return drop_label(self.ref)
+
+
+def drop_label(ref: str) -> str:
+    name = ref.rsplit("/", 1)[-1]
+    name = re.sub(r"\s*Drop Action$", "", name, flags=re.I)
+    folder = ref[len(DROP_ROOT):].rsplit("/", 1)[0] if "/" in ref[len(DROP_ROOT):] else ""
+    return f"{folder}: {name}" if folder else name
+
+
+@dataclass
+class DropChoice:
+    ref: str
+    label: str
+    comment: str
+
+
+def drop_choices(lib: Library) -> list[DropChoice]:
+    """Every drop recipe in the game, with the comment its author wrote."""
+    out = []
+    root = "Resources/" + DROP_ROOT
+    for n in lib.names():
+        if n.startswith(root) and n.lower().endswith(".can"):
+            raw = lib.read(n)
+            top = re.search(rb"\tObject=(C\w+)", raw[:300])
+            if not top or not top.group(1).endswith(b"Action"):
+                continue          # item lists the recipes use, not recipes
+            m = re.search(rb"Comment=([^\r\n]*)", raw)
+            ref = n[len("Resources/"):-len(".can")]
+            out.append(DropChoice(ref, drop_label(ref),
+                                  m.group(1).decode("latin-1").strip() if m else ""))
+    return sorted(out, key=lambda c: c.label.lower())
 
 
 @dataclass
@@ -466,6 +531,70 @@ class Creature:
             raise ItemError("Pick a sound file.")
         sound.node.set("Sound", file.strip())
 
+    # -- drops ----------------------------------------------------------------------
+
+    def _death(self) -> ResourceNode | None:
+        return child(self.entity, "Destroyed Effect Action")
+
+    def drops(self) -> list[Drop]:
+        d = self._death()
+        return [Drop(n) for n in walk(d) if n.type_name == "CUseCannedActionAction"
+                and (n.get("Canned Object") or "").startswith(DROP_ROOT)] if d is not None else []
+
+    def item_generators(self) -> list[str]:
+        """What the death action generates directly (85 creatures), as readable names."""
+        d = self._death()
+        out = []
+        for g in (walk(d) if d is not None else []):
+            if g.type_name != "CGenerateInventoryItemAction":
+                continue
+            for n in walk(g):
+                for key in ("Item", "Canned Item List", "Addition"):
+                    v = n.get(key)
+                    if isinstance(v, str) and "/" in v:
+                        out.append(readable(v))
+        return out
+
+    def _drop_array(self) -> ResourceNode | None:
+        """The action list the drops belong in: the one already holding drops or the
+        experience award, inside the was-it-killed-by-the-player check."""
+        d = self._death()
+        for n in walk(d) if d is not None else []:
+            if n.type_name != "Array":
+                continue
+            kinds = {v.type_name for _k, v in n.fields if isinstance(v, ResourceNode)}
+            if "CGiveExperiencePointsToAllPlayersAction" in kinds or any(
+                    v.type_name == "CUseCannedActionAction" and
+                    (v.get("Canned Object") or "").startswith(DROP_ROOT)
+                    for _k, v in n.fields if isinstance(v, ResourceNode)):
+                return n
+        return None
+
+    def set_drop(self, drop: Drop, ref: str) -> None:
+        if not ref.startswith(DROP_ROOT):
+            raise ItemError("Pick one of the game's drop recipes.")
+        drop.node.set("Canned Object", ref)
+
+    def add_drop(self, ref: str) -> Drop:
+        if not ref.startswith(DROP_ROOT):
+            raise ItemError("Pick one of the game's drop recipes.")
+        arr = self._drop_array()
+        if arr is None:
+            raise ItemError("This creature's death action has no place for drops, so the "
+                            "editor can't add one safely.")
+        node = ResourceNode("CUseCannedActionAction", [("Canned Object", ref)])
+        arr.fields.append(("Action", node))
+        arr.set("Item Count", str(len(arr.items())))
+        return Drop(node)
+
+    def remove_drop(self, drop: Drop) -> None:
+        d = self._death()
+        for n in walk(d) if d is not None else []:
+            if n.type_name == "Array" and any(v is drop.node for _k, v in n.fields):
+                n.fields = [(k, v) for k, v in n.fields if v is not drop.node]
+                n.set("Item Count", str(len(n.items())))
+                return
+
     # -- checks -------------------------------------------------------------------
 
     def problems(self) -> list[str]:
@@ -540,6 +669,13 @@ def race_index(lib: Library) -> dict[str, list[str]]:
             out.setdefault(m.group(1).decode("latin-1").strip().lower(), []).append(n)
             break
     return out
+
+
+def sound_choices(lib: Library) -> list[str]:
+    """Every sound a creature can play, as `Sound=` names them (without `Sounds/`)."""
+    return sorted((n[len("Sounds/"):] for n in lib.names()
+                   if n.startswith("Sounds/") and n.lower().endswith((".ogg", ".wav"))),
+                  key=str.lower)
 
 
 def tier_of(stem: str) -> str:

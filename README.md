@@ -369,9 +369,10 @@ building anything on top of it.
 python enemyedit.py
 ```
 
-A work in progress (milestone E2 of the plan). Pick a creature from the list and see its
-model in a 3D preview that plays every animation the model has. Change its name, level and
-stats, or give it another creature's model; the editor refuses a model that lacks an
+A work in progress (milestones E2 and E3 of the plan). Pick a creature from the list and see
+its model in a 3D preview that plays every animation the model has. Change its name, level,
+stats, attacks, behaviour (the can editor's Combat AI panel), drop recipes and sounds, or
+give it another creature's model; the editor refuses a model that lacks an
 animation the creature uses. **Make a new enemy from this** copies a creature with its own
 stats. Saves go into your mod, as with the item editor. The preview is three.js r160
 (MIT, vendored in `viewer/vendor/three`) in a Qt web view. See

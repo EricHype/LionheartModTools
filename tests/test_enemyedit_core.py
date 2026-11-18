@@ -158,6 +158,35 @@ class EnemyCoreTests(unittest.TestCase):
         self.assertEqual(changed(before, w.can.to_bytes()),
                          ["-Constant Value=2", "+Constant Value=3"])
 
+    def test_drops(self):
+        w = self.wolf()
+        self.assertEqual([d.label for d in w.drops()], ["Spirit Energy: FERAL HEALTH 1 in 2"])
+        self.assertIn("Wolf Pelt base", w.item_generators())
+        choices = {c.ref: c for c in e.drop_choices(self.lib)}
+        gold = "Inventory/Enemy Drop Items Cans/Gold/Chance 1 in 2 SmallMedium Gold Pile Drop Action"
+        self.assertIn(gold, choices)
+        self.assertTrue(choices[gold].comment)
+        # item lists the recipes use are not recipes
+        self.assertFalse(any("Arrows N Bolts" in r for r in choices))
+        d = w.add_drop(gold)
+        again = e.Creature(self.lib, e.ResDoc("x.can", w.can.to_bytes(), "new"), None)
+        self.assertEqual([x.ref for x in again.drops()][-1], gold)
+        arr = w._drop_array()
+        self.assertEqual(arr.get("Item Count"), str(len(arr.items())))
+        w.remove_drop(d)
+        self.assertEqual(w.can.to_bytes(), self.lib.read(WOLF))
+        with self.assertRaises(ic.ItemError):
+            w.add_drop("Inventory Items/Gem")
+
+    def test_ranged_weapon(self):
+        h = e.Creature.from_library(self.lib, "Resources/Monster Cans/Thugs/Crossroads Hunter.can")
+        (wp,) = h.weapons()
+        self.assertTrue(wp.ranged)
+        self.assertEqual(wp.ammunition, ["Inventory Items/Enemy Items/Arrow Thug3 Bow"])
+        self.assertEqual(wp.name, "natural weapon")      # "unnamed" in the file
+        self.assertEqual(wp.reach.get("Max Attack Range"), "500")
+        self.assertGreater(len(e.sound_choices(self.lib)), 1000)
+
     def test_sounds(self):
         w = self.wolf()
         s = next(s for s in w.sounds() if s.when == "When hurt")

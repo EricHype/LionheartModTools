@@ -117,6 +117,39 @@ class EnemyWindowTests(unittest.TestCase):
         self.assertEqual(w.creature.race.rel, "Resources/Races/Enemies/Animals/Wolf Gray.Race")
         self.assertEqual(w.creature.preset(HP).value, "25")
 
+    def test_behaviour_panel_edits_undo_with_the_rest(self):
+        w = self.win
+        w.open_rel(WOLF)
+        panel = w.combat.panel
+        f, widget = next((f, wd) for f, wd in panel.controls if f.key == "Pursue max dist from home"
+                         or "Pursue" in f.label)
+        old = widget.currentText() if hasattr(widget, "currentText") else widget.text()
+        if hasattr(widget, "setCurrentText"):
+            widget.setCurrentText("2000")
+            widget.lineEdit().editingFinished.emit()
+        else:
+            widget.setText("2000")
+            widget.editingFinished.emit()
+        self.assertIn("2000", w.creature.can.to_bytes().decode("latin-1"))
+        self.assertTrue(w.creature.dirty)
+        w.undo.undo()
+        self.assertFalse(w.creature.dirty, "undo puts the can back exactly")
+        self.assertFalse(any(b.isVisible() and b.text().startswith("Show in Can tree")
+                             for b in panel.findChildren(QPushButton)))
+
+    def test_drop_and_strike_through_the_window(self):
+        w = self.win
+        w.open_rel(WOLF)
+        gold = "Inventory/Enemy Drop Items Cans/Gold/Chance 1 in 2 SmallMedium Gold Pile Drop Action"
+        w.edit("Add drop", lambda: w.creature.add_drop(gold), rebuild=True)
+        w.edit("Add strike", lambda: self.icore.add_on_hit(
+            w.creature.weapons()[0], "20", "Cold", "1", "3"), rebuild=True)
+        self.assertTrue(w.save())
+        text = (self.mod / "files" / WOLF).read_text("latin-1")
+        self.assertIn("Canned Object=" + gold, text)
+        self.assertIn("CPlugInBehaviorStrikeAction", text)
+        self.assertIn("Engine checks passed", w.statusBar().currentMessage())
+
     def test_model_check_and_new_enemy(self):
         w = self.win
         w.open_rel(WOLF)
