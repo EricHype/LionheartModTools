@@ -39,6 +39,7 @@ controls.enableDamping = true;
 
 const clock = new THREE.Clock();
 let root = null, mixer = null, actions = {}, current = null, grid = null;
+let loadToken = 0;   // a load that finishes after a newer one started is thrown away
 let state = { loaded: false, error: '', clips: [], playing: '', speed: 1, loop: true };
 
 // The posed figure's box. A skinned mesh's stored box is its bind pose, in mesh space,
@@ -61,7 +62,7 @@ function frame(obj) {
   const centre = box.getCenter(new THREE.Vector3());
   const r = Math.max(size.x, size.y, size.z) || 1;
   controls.target.copy(centre);
-  camera.position.copy(centre).add(new THREE.Vector3(r * 1.1, r * 0.6, r * 1.6));
+  camera.position.copy(centre).add(new THREE.Vector3(r * 1.4, r * 0.75, r * 2.1));
   camera.near = r / 100; camera.far = r * 100; camera.updateProjectionMatrix();
   if (grid) scene.remove(grid);
   grid = new THREE.GridHelper(r * 3, 12, 0x6b5a33, 0x3d372c);
@@ -71,10 +72,14 @@ function frame(obj) {
 }
 
 function load(url) {
+  const token = ++loadToken;
   state = { loaded: false, error: '', clips: [], playing: '', speed: 1, loop: true };
   msg.textContent = 'Loading...';
+  if (current) { current.stop(); current = null; }
   if (root) { scene.remove(root); root = null; }
+  mixer = null; actions = {};
   new GLTFLoader().load(url, (gltf) => {
+    if (token !== loadToken) return;
     root = new THREE.Group();
     // Granny data is Z-up; three.js is Y-up.
     gltf.scene.rotation.x = -Math.PI / 2;
@@ -88,7 +93,10 @@ function load(url) {
     frame(root);
     state.loaded = true;
     msg.textContent = '';
-  }, undefined, (err) => { state.error = String(err && err.message || err); msg.textContent = state.error; });
+  }, undefined, (err) => {
+    if (token !== loadToken) return;
+    state.error = String(err && err.message || err); msg.textContent = state.error;
+  });
 }
 
 function play(name, loop = true, speed = 1) {

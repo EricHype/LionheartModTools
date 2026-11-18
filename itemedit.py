@@ -1550,7 +1550,7 @@ def log_path() -> Path:
     return base / "itemedit-error.log"
 
 
-def install_error_box():
+def install_error_box(title: str = APP):
     """Started by double-click there is no console, so an error would vanish silently.
     Show it, and keep a copy someone can send."""
     def hook(kind, value, tb):
@@ -1563,38 +1563,38 @@ def install_error_box():
             where = ""
         sys.__stderr__ and sys.__stderr__.write(text)
         if QApplication.instance() is not None:
-            QMessageBox.critical(None, APP, "Something went wrong. Your saved work is "
+            QMessageBox.critical(None, title, "Something went wrong. Your saved work is "
                                  "safe; anything not yet saved may be lost.\n\n"
                                  + text[-1500:] + where)
     sys.excepthook = hook
 
 
-def find_game(settings: QSettings, given: Path | None) -> Path | None:
+def find_game(settings: QSettings, given: Path | None, title: str = APP) -> Path | None:
     """The game folder: given, remembered, the GOG default, or asked for."""
     for cand in (given, settings.value("game", ""), setup.default_game()):
         if cand and setup.is_game_dir(Path(cand)):
             return Path(cand)
     while True:
-        QMessageBox.information(None, APP, "Show the editor where Lionheart is installed: "
+        QMessageBox.information(None, title, "Show the editor where Lionheart is installed: "
                                 "the folder that holds data.dat.")
         folder = QFileDialog.getExistingDirectory(None, "Where is Lionheart installed?")
         if not folder:
             return None
         if setup.is_game_dir(Path(folder)):
             return Path(folder)
-        QMessageBox.warning(None, APP, f"{folder} has no data.dat, so it is not the "
+        QMessageBox.warning(None, title, f"{folder} has no data.dat, so it is not the "
                             "Lionheart folder.")
 
 
-def original_files(game: Path) -> Path | None:
+def original_files(game: Path, title: str = APP) -> Path | None:
     """data.dat.vanilla.bak, made on the spot if that is safe and the person agrees."""
     state = setup.check_game(game)
     if state.ok:
         return game / setup.VANILLA_NAME
     if not state.can_backup:
-        QMessageBox.critical(None, APP, state.message)
+        QMessageBox.critical(None, title, state.message)
         return None
-    if QMessageBox.question(None, APP, state.message,
+    if QMessageBox.question(None, title, state.message,
                             QMessageBox.Yes | QMessageBox.Cancel) != QMessageBox.Yes:
         return None
     QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -1602,7 +1602,7 @@ def original_files(game: Path) -> Path | None:
         return setup.make_backup(game)
     except (OSError, RuntimeError) as e:
         QApplication.restoreOverrideCursor()
-        QMessageBox.critical(None, APP, f"Could not make the backup: {e}")
+        QMessageBox.critical(None, title, f"Could not make the backup: {e}")
         return None
     finally:
         if QApplication.overrideCursor() is not None:
