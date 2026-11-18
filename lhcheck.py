@@ -67,6 +67,9 @@ DASHES = "-" * 60
 # other extension is checked, so a new *text* type cannot slip through by being unlisted.
 # .seq16 is the animated or multi-frame form of .frm16 (the title screen's painted backgrounds are one-frame .seq16s)
 BINARY = {".mdl16", ".frm16", ".seq16", ".ogg", ".wav", ".gr2", ".way", ".bmp", ".tga", ".png"}
+# Game files the engine reads as plain lines, not as resource text. `Credits.txt` is the end-game
+# credits roll: `//` comments, `_` and `+` header lines, `FRAME:` art. Encoding still applies.
+PLAIN_TEXT = {"credits.txt"}
 
 # Editor/* markers are placeholders the editor draws and the engine ignores, and the
 # empty value and !Unknown Model are both legal "no art" spellings.
@@ -636,6 +639,8 @@ def _file_pass(ctx, enabled):
             continue
         if "encoding" in enabled:
             out.extend(Finding("encoding", m) for m in check_encoding(ctx, p, raw))
+        if ctx.rel(p).lower() in PLAIN_TEXT:
+            continue
         if "nested-assignment" in enabled:
             out.extend(Finding("nested-assignment", m) for m in check_nested_assignment(ctx, p, raw))
         if suffix == ".dialogtree":
