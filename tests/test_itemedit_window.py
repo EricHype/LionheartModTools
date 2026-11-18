@@ -191,7 +191,7 @@ class WindowTests(unittest.TestCase):
         w.try_in_game()
         self.assertTrue(testmenu.is_installed(self.mod))
         self.assertEqual([i.label for i in testmenu.load(self.mod)], ["Short Sword"])
-        self.assertIn("1 item", w.test_label.text())
+        self.assertIn("1 thing", w.test_label.text())
         testmenu.remove(self.mod)
         w.set_mod(self.mod)
         self.assertEqual(w.test_label.text(), "")

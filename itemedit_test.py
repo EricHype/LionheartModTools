@@ -49,8 +49,13 @@ CR = "\r\n"
 @dataclass
 class TestItem:
     label: str
-    item: str              # the base item, as the game names it (no Resources/, no extension)
+    item: str = ""         # the base item, as the game names it (no Resources/, no extension)
     addition: str = ""     # a magic addition, or empty
+    creature: str = ""     # a creature can to summon instead (Monster Cans/...), or empty
+
+    @property
+    def key(self) -> tuple:
+        return (self.item, self.addition, self.creature)
 
 
 def state_path(mod: Path) -> Path:
@@ -87,6 +92,18 @@ def give_block(it: TestItem) -> list[str]:
             f"Inventory Item To Give={it.item}", "Additions to add=Array", "{", *adds, "}", "}"]
 
 
+# The developers' own "companion" cheat summons a creature beside the player this way
+# (Resources/Cheat Code Scripts/Give Companion.Cheat.txt). In a reply, $Instigator is the
+# player. Unproven inside a conversation until checked in the game (docs/enemy-editor-e0.md).
+SUMMON_SPREAD = "300"
+
+
+def summon_block(it: TestItem) -> list[str]:
+    return ["{", "New Location=$Instigator", "Copy Height=0",
+            f"Random Location Delta={SUMMON_SPREAD}", "Warp Behavior=",
+            f"Canned Entity to Create={it.creature}", "New Name=", "}"]
+
+
 def build_tree(lib: Library, items: list[TestItem]) -> bytes:
     """Raymundo's conversation with the hook in every entry node and the menu at the end."""
     base = lib.read(HOST_TREE).decode("latin-1")
@@ -109,11 +126,19 @@ def build_tree(lib: Library, items: list[TestItem]) -> bytes:
             node.insert_reply_entries(replies[0].start, hook + [dt.Entry(None)])
         else:
             node.add_reply(HOOK_TEXT, MENU_ID)
-    menu = dt.new_node(MENU_ID, "These are the items you are testing. Which one do you want?")
+    text = ("These are the things you are testing. Pick an item to take it, or a creature "
+            "to summon it beside you." if any(i.creature for i in items) else
+            "These are the items you are testing. Which one do you want?")
+    menu = dt.new_node(MENU_ID, text)
     for it in items:
-        menu.add_reply(it.label, MENU_ID)
-        menu.entries.append(dt.Entry("Custom Action", "CActionGiveStandardInventoryItem",
-                                     give_block(it)))
+        if it.creature:
+            menu.add_reply(f"Summon: {it.label}", "")      # end the talk; it will attack
+            menu.entries.append(dt.Entry("Custom Action", "CCreateEntityFromCanAction",
+                                         summon_block(it)))
+        else:
+            menu.add_reply(it.label, MENU_ID)
+            menu.entries.append(dt.Entry("Custom Action", "CActionGiveStandardInventoryItem",
+                                         give_block(it)))
     menu.add_reply("Goodbye.", "")
     tree.add_node(menu)
     text = tree.to_text()
@@ -160,7 +185,24 @@ def add(lib: Library, mod: Path, doc: ItemDocument, base: ItemDocument | None = 
                       item_ref(base.rel), item_ref(doc.rel))
     else:
         it = TestItem(label or doc.name, item_ref(doc.rel))
-    items = [x for x in load(mod) if (x.item, x.addition) != (it.item, it.addition)] + [it]
+    items = [x for x in load(mod) if x.key != it.key] + [it]
+    _write(vanilla_library(lib), mod, items)
+    return it
+
+
+def add_creature(lib: Library, mod: Path, can_rel: str, label: str) -> TestItem:
+    """Add a "Summon:" reply for a creature can (saved in the mod or vanilla)."""
+    mod = Path(mod)
+    if not (mod / "mod.json").is_file():
+        raise ItemError(f"{mod} has no mod.json, so it is not a mod folder.")
+    own = mod / "files" / HOST_TREE
+    if own.is_file() and not is_installed(mod):
+        raise ItemError(f"Your mod changes {HOST_NAME}'s conversation itself, so the test "
+                        "menu cannot go there.")
+    if not lib.exists(can_rel):
+        raise ItemError("Save the creature first.")
+    it = TestItem(label, creature=item_ref(can_rel))
+    items = [x for x in load(mod) if x.key != it.key] + [it]
     _write(vanilla_library(lib), mod, items)
     return it
 
