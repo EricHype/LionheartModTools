@@ -365,11 +365,15 @@ building anything on top of it.
 
 ## The enemy editor
 
+Double-click `Enemy Editor.bat`. It shares the item editor's setup, game folder and mod, so
+if the item editor opens, this opens straight away. From a terminal:
+
 ```
 python enemyedit.py
+python enemyedit.py --mod <mod folder> --game <Lionheart folder> --open <creature file>
 ```
 
-A work in progress (milestones E2 to E4 of the plan). Pick a creature from the list and see
+Pick a creature from the list and see
 its model in a 3D preview that plays every animation the model has. Change its name, level,
 stats, attacks, behaviour (the can editor's Combat AI panel), drop recipes and sounds, or
 give it another creature's model. **Where it appears** lists the spawners that make it and

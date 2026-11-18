@@ -21,7 +21,20 @@ import { GLTFLoader } from './vendor/three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from './vendor/three/examples/jsm/controls/OrbitControls.js';
 
 const msg = document.getElementById('msg');
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+// Without WebGL (switched off, or a graphics driver too old) say so instead of hanging:
+// the Python side reads state().error and shows it under the view.
+function noWebGL() {
+  const why = "this computer can't draw 3D inside the editor (WebGL is off, or the " +
+              "graphics driver is too old). Editing still works; only the preview is missing.";
+  msg.textContent = why;
+  window.preview = { load() {}, play: () => false, stop() {}, pose: () => false,
+                     snapshot: () => '', webgl: () => false,
+                     state: () => ({ loaded: false, error: why, clips: [] }) };
+  throw new Error(why);
+}
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); }
+catch (e) { noWebGL(); }
 renderer.setPixelRatio(window.devicePixelRatio || 1);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;

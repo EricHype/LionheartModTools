@@ -1,4 +1,5 @@
-# The toolchain is stdlib-only except for the map editor's UI.
+# The toolchain is stdlib-only except for the editors' windows.
 # Everything else -- archive.py, resource_format.py, mdl16_format.py, modmanager.py,
 # zax_render.py, mapedit_core.py -- runs with no third-party packages at all.
-PySide6>=6.5      # mapedit.py only
+# The full PySide6 package includes QtWebEngine, which the enemy editor's 3D preview needs.
+PySide6>=6.5      # mapedit.py, itemedit.py, enemyedit.py

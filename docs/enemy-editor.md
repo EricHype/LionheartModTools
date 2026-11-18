@@ -4,15 +4,24 @@
 can change their stats, give them another creature's look, watch every animation their
 model has, and make new creatures. Everything you save goes into your own mod.
 
-```
-python enemyedit.py
-```
+## Starting it
 
-It shares the game folder, the original-files backup and your mod with the item editor,
-so if the item editor works, this does too.
+Double-click **`Enemy Editor.bat`** in the LionheartModTools folder.
 
-**Status:** milestones E2 to E4 of the plan are done. Still to come: the double-click
-launcher (E5).
+It shares everything with the item editor: the setup, the game folder, the backup of the
+game's original files and your mod. If the item editor already opens, this opens straight
+away. If not, the first run sets itself up as `Item Editor.bat` does (about 100 MB, once,
+and it needs Python 3.9 or newer); see [the item editor's guide](item-editor.md#starting-it).
+
+If the 3D view says this computer can't draw 3D inside the editor, everything else still
+works; only the preview is missing. Updating the graphics driver usually fixes it.
+
+If something goes wrong, the editor shows the error and saves a copy in
+`%LOCALAPPDATA%\LionheartModTools\itemedit-error.log` (the same log the item editor
+uses), which you can send to whoever helps you.
+
+From a terminal, `python enemyedit.py` does the same, with `--game` and `--mod` to skip
+the questions and `--open <creature file>` to open one creature.
 
 ## Finding a creature
 
@@ -129,7 +138,10 @@ a new game.
 - `enemyedit_preview.py` holds the model cache, the localhost viewer server and the
   preview widget.
 - `viewer/creature.html` is the three.js page.
+- `enemyedit_reach.py` scans the maps' spawners for **Where it appears**.
 - E0's findings, which these rest on, are in `docs/enemy-editor-e0.md`.
-- Tests: `tests/test_enemyedit_core.py` and `tests/test_enemyedit_window.py`. The window
+- The script for a first user trial is `docs/enemy-editor-trial.md`.
+- Tests: `tests/test_enemyedit_core.py`, `tests/test_enemyedit_reach.py` and
+  `tests/test_enemyedit_window.py`. The window
   tests run headless; the 3D view needs the real display, because WebGL loses its context
   under Qt's offscreen platform.
