@@ -121,6 +121,7 @@ FILE_CHECKS = [
 TREE_CHECKS = [
     ("quest-states", "-", "every quest state is activated somewhere, and the States array is well formed"),
     ("references", "A0.8", "every path-shaped resource reference resolves to a file"),
+    ("weapon-clips", "-", "every creature weapon's Sequence Name starts some clip its model has"),
     ("self-reference", "-", "no DialogTree names itself, and no trees form a reference loop"),
     ("overridden-drops", "A0.14", "no can-level quest-item drop is overridden by the generator that spawns it"),
     ("class-names", "A0.15", "every =CSomething is a class the engine registers"),
@@ -1552,9 +1553,86 @@ def check_nameless_spawns(ctx):
 
 
 # --------------------------------------------------------------------------- running
+PLAY_SEQ_RE = re.compile(r"CPlugInBehaviorPlaySequence\r\n(\t*)\{\r\n(.*?)\r\n\1\}", re.S)
+CAN_MODEL_RE = re.compile(r"\r\n\t\tModel=([^\r\n]*)\r\n")
+
+
+def model_clips(ctx, model):
+    """The clip names a character manifest lists, lowercased; None if there is no manifest.
+
+    A manifest (`Cache/Models/<model>.mdl16`) is u32-length-prefixed strings, and every mesh and
+    clip it loads appears as a `Models3D/...` path whose file leaf is the clip's Short Name.
+    Mesh leaves come along too; they only add names, so they can hide a miss but never invent one.
+    """
+    rel = "Cache/Models/" + model + ".mdl16"
+    p = ctx.root / rel
+    if p.exists():
+        b = p.read_bytes()
+    else:
+        n = ctx.names_lower.get(rel.lower())
+        if not n:
+            return None
+        b = ctx.zf.read(n)
+    out = set()
+    for m in re.finditer(rb"Models3D/[ -~]+", b):
+        ln = int.from_bytes(b[m.start() - 4:m.start()], "little")
+        out.add(b[m.start():m.start() + ln].decode("latin-1").rsplit("/", 1)[-1].lower())
+    return out
+
+
+def weapon_clip_misses(ctx, text):
+    """(model, sequence) for each weapon sequence in a can that starts none of its model's clips."""
+    m = CAN_MODEL_RE.findall(text)
+    model = m[-1].strip() if m else ""
+    if not model:
+        return set()
+    clips = model_clips(ctx, model)
+    if clips is None:
+        return set()                     # `models` owns a missing manifest
+    out = set()
+    for pm in PLAY_SEQ_RE.finditer(text):
+        s = re.search(r"(?:^|\n)\t*Sequence Name=([^\r\n]*)", pm.group(2))
+        seq = s.group(1).strip() if s else ""
+        if seq and not any(c.startswith(seq.lower()) for c in clips):
+            out.add((model, seq))
+    return out
+
+
+def check_weapon_clips(ctx):
+    """A creature weapon whose `Sequence Name` names no clip its model has.
+
+    A `CPlugInBehaviorPlaySequence{Sequence Name=X}` plays the clips whose Short Name starts with X
+    (`Attack` -> `Attack01`/`Attack02`). Matching none, every swing draws the "GRANNY MODEL"
+    placeholder, and since the strike is a trigger inside the clip, probably lands nothing. Clip
+    names are each model's own: 604 of vanilla's 613 weapon sequences match this way, and the 9
+    that do not are vanilla's (excused below, as inherited).
+
+    Lionheart Fixt 0.21.0's Bonecaller wore the Boss Lich model, whose swings alone in the game are
+    `OneHandedSwing_01`/`_02`, under the ghouls' `Attack`; a playtester saw it flicker while
+    attacking, 78 releases later.
+    """
+    fails = []
+    for p in ctx.files:
+        if p.suffix.lower() != ".can":
+            continue
+        misses = weapon_clip_misses(ctx, p.read_bytes().decode("latin-1"))
+        if not misses:
+            continue
+        try:
+            misses -= weapon_clip_misses(ctx, ctx.zf.read(ctx.rel(p)).decode("latin-1"))
+        except KeyError:
+            pass
+        for model, seq in sorted(misses):
+            fails.append("%s: a weapon plays %r, but Model=%r has no clip starting with it; every swing "
+                         "shows GRANNY MODEL (clips: %s)"
+                         % (p.name, seq, model, ", ".join(sorted(model_clips(ctx, model)))))
+    return fails
+
+
 TREE_FNS = {
     "quest-states": check_quest_states,
     "references": check_references,
+    "weapon-clips": check_weapon_clips,
     "self-reference": check_self_reference,
     "overridden-drops": check_overridden_drops,
     "class-names": check_class_names,

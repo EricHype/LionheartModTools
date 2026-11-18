@@ -423,6 +423,27 @@ class TreeChecks(Base):
         self.mod.add(MAP, level_map(part("Sahar", ("Action", death))))
         self.assertSilent("corpse-specifier")
 
+    def test_weapon_clips(self):
+        # Fixt 0.21.0: the Bonecaller swung "Attack" on a model whose swings are OneHandedSwing_01/02
+        def s(x):
+            b = x.encode("latin-1")
+            return len(b).to_bytes(4, "little") + b
+        mdl = b"".join(s("Models3D/Enemies/Lich/" + c) for c in ("Body", "Idle", "OneHandedSwing_01", "OneHandedSwing_02"))
+        self.mod.add("Cache/Models/Characters/Lich.mdl16", mdl)
+
+        def can(seq):
+            return CR.join(["CEntityWalking", "{", "\tAI=", "\t{", "\t\tModel=Characters/Lich",
+                            "\t\tPlugIn Behavior=CPlugInBehaviorPlaySequence", "\t\t{",
+                            "\t\t\tSequence Name=" + seq, "\t\t\tRandom Sequence Selection=1", "\t\t}",
+                            "\t}", "}", ""]).encode("latin-1")
+        rel = "Resources/Monster Cans/Lich.can"
+        self.mod.add(rel, can("Attack"))
+        self.assertFinds("weapon-clips", "a weapon plays 'Attack'")
+        self.mod.add(rel, can("OneHandedSwing"))
+        self.assertSilent("weapon-clips")
+        self.mod.add(rel, can("Attack")).vanilla(rel, can("Attack"))
+        self.assertSilent("weapon-clips")          # inherited from vanilla's own copy
+
     def test_repeatable_grants(self):
         # 0.83.3: Brendan's Serpent's Bile, six gated doors and one open one
         give = ("CActionGiveInventoryItem", ["Inventory Item To Give=Inventory/Serpents Bile"])
