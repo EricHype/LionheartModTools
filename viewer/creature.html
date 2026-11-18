@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Creature preview</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2a2620; }
+  #msg { position: absolute; left: 8px; top: 6px; color: #d8d0bc; font: 12px sans-serif; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="msg">Loading...</div>
+<script type="module">
+// The item editor's sibling for creatures: shows a model exported by gr2_to_gltf.py and
+// plays its clips. Python drives it through window.preview (load, play, pose, snapshot).
+import * as THREE from 'three';
+import { GLTFLoader } from './vendor/three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from './vendor/three/examples/jsm/controls/OrbitControls.js';
+
+const msg = document.getElementById('msg');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2620);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444033, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(2, 4, 3);
+scene.add(sun);
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.01, 1e6);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+const clock = new THREE.Clock();
+let root = null, mixer = null, actions = {}, current = null, grid = null;
+let state = { loaded: false, error: '', clips: [], playing: '', speed: 1, loop: true };
+
+// The posed figure's box. A skinned mesh's stored box is its bind pose, in mesh space,
+// which aimed the camera at a humanoid's knees; computeBoundingBox applies the bones.
+function posedBox(obj) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  obj.traverse((m) => {
+    if (!m.isMesh) return;
+    if (m.isSkinnedMesh) m.computeBoundingBox(); else if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    const b = (m.isSkinnedMesh ? m.boundingBox : m.geometry.boundingBox).clone();
+    box.union(b.applyMatrix4(m.matrixWorld));
+  });
+  return box;
+}
+
+function frame(obj) {
+  const box = posedBox(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const r = Math.max(size.x, size.y, size.z) || 1;
+  controls.target.copy(centre);
+  camera.position.copy(centre).add(new THREE.Vector3(r * 1.1, r * 0.6, r * 1.6));
+  camera.near = r / 100; camera.far = r * 100; camera.updateProjectionMatrix();
+  if (grid) scene.remove(grid);
+  grid = new THREE.GridHelper(r * 3, 12, 0x6b5a33, 0x3d372c);
+  grid.position.y = box.min.y;
+  scene.add(grid);
+  controls.update();
+}
+
+function load(url) {
+  state = { loaded: false, error: '', clips: [], playing: '', speed: 1, loop: true };
+  msg.textContent = 'Loading...';
+  if (root) { scene.remove(root); root = null; }
+  new GLTFLoader().load(url, (gltf) => {
+    root = new THREE.Group();
+    // Granny data is Z-up; three.js is Y-up.
+    gltf.scene.rotation.x = -Math.PI / 2;
+    root.add(gltf.scene);
+    scene.add(root);
+    mixer = new THREE.AnimationMixer(gltf.scene);
+    actions = {};
+    for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
+    state.clips = gltf.animations.map(c => ({ name: c.name, seconds: c.duration }));
+    root.updateMatrixWorld(true);
+    frame(root);
+    state.loaded = true;
+    msg.textContent = '';
+  }, undefined, (err) => { state.error = String(err && err.message || err); msg.textContent = state.error; });
+}
+
+function play(name, loop = true, speed = 1) {
+  if (!actions[name]) return false;
+  if (current) current.stop();
+  current = actions[name];
+  current.reset();
+  current.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+  current.clampWhenFinished = !loop;
+  current.timeScale = speed;
+  current.play();
+  state.playing = name; state.loop = loop; state.speed = speed;
+  return true;
+}
+
+function stop() { if (current) current.stop(); current = null; state.playing = ''; }
+
+// Hold one clip at one moment (seconds, or a fraction 0-1 with asFraction) and draw it.
+function pose(name, t, asFraction = false) {
+  if (!actions[name]) return false;
+  if (current) current.stop();
+  current = actions[name];
+  current.reset(); current.play(); current.paused = true;
+  const d = current.getClip().duration;
+  current.time = asFraction ? t * d : t;
+  mixer.update(0);
+  if (root) frame(root);  // keep the whole pose in view
+  renderer.render(scene, camera);
+  state.playing = '';
+  return true;
+}
+
+function snapshot() { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); }
+
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = clock.getDelta();
+  if (mixer && current && !current.paused) mixer.update(dt);
+  controls.update();
+  renderer.render(scene, camera);
+}
+tick();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.preview = { load, play, stop, pose, snapshot, state: () => state,
+                   webgl: () => !!renderer.getContext() };
+const q = new URLSearchParams(location.search).get('model');
+if (q) load(q);
+</script>
+</body>
+</html>
