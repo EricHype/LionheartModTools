@@ -46,7 +46,8 @@ class EnemyWindowTests(unittest.TestCase):
         import enemyedit
         cls.ee = enemyedit
         cls.answer = QMessageBox.Yes
-        cls._q, cls._w = QMessageBox.question, QMessageBox.warning
+        cls._q, cls._w, cls._i = QMessageBox.question, QMessageBox.warning, QMessageBox.information
+        QMessageBox.information = staticmethod(lambda *a, **k: None)
         cls.warnings = []
         QMessageBox.question = staticmethod(
             lambda *a, **k: QMessageBox.Save if "puts your version" in str(a[2]) else cls.answer)
@@ -55,7 +56,7 @@ class EnemyWindowTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        QMessageBox.question, QMessageBox.warning = cls._q, cls._w
+        QMessageBox.question, QMessageBox.warning, QMessageBox.information = cls._q, cls._w, cls._i
         cls.tmpdir.cleanup()
 
     def setUp(self):
@@ -149,6 +150,18 @@ class EnemyWindowTests(unittest.TestCase):
         self.assertIn("Canned Object=" + gold, text)
         self.assertIn("CPlugInBehaviorStrikeAction", text)
         self.assertIn("Engine checks passed", w.statusBar().currentMessage())
+
+    def test_where_it_appears_and_spawn(self):
+        w = self.win
+        w.open_rel(WOLF)
+        w.wait_for_spawns()
+        self.assertIn("Spawns in 14 maps", w.reach_label.text())
+        self.assertIn("Wolf Gray Tough", w.reach_label.text())
+        self.assertFalse(w.test_label_act.isVisible())
+        w.spawn_in_game()
+        import itemedit_test as tm
+        self.assertEqual([i.creature for i in tm.load(self.mod)], ["Monster Cans/Animals/Wolf Gray"])
+        self.assertIn("1 thing", w.test_label.text())
 
     def test_model_check_and_new_enemy(self):
         w = self.win

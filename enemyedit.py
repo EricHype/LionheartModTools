@@ -19,7 +19,7 @@ from pathlib import Path
 
 import tempfile
 
-from PySide6.QtCore import QSettings, Qt, QUrl
+from PySide6.QtCore import QSettings, Qt, QThread, QUrl, Signal
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtGui import QAction, QKeySequence, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
@@ -32,7 +32,10 @@ from PySide6.QtWidgets import (
 import canedit
 import canedit_core
 import enemyedit_core as core
+import enemyedit_reach as reach
 import itemedit
+import itemedit_setup as setup
+import itemedit_test as testmenu
 import itemedit_core as icore
 from enemyedit_preview import ModelCache, PreviewWidget, ViewerServer
 from icontool import Library
@@ -169,6 +172,22 @@ class ModelPicker(QDialog):
         return it.data(ROLE) if it is not None else None
 
 
+class SpawnThread(QThread):
+    """Builds the spawn index off the UI thread, with its own Library (a zip handle must not
+    be shared between threads)."""
+    done = Signal(object)
+
+    def __init__(self, vanilla, mod):
+        super().__init__()
+        self.vanilla, self.mod = vanilla, mod
+
+    def run(self):
+        try:
+            self.done.emit(reach.SpawnIndex(Library(self.vanilla, self.mod)))
+        except Exception as e:
+            self.done.emit(e)
+
+
 class CombatHost:
     """Lets canedit's Combat AI panel run inside this window. The panel pushes its own
     QUndoCommands; each is applied here and recorded as one snapshot undo step, so Ctrl+Z
@@ -288,6 +307,9 @@ class EnemyWindow(QMainWindow):
         self.undo = QUndoStack(self)
         self.undo.cleanChanged.connect(self._clean_changed)
         self.server = None
+        self.spawns = None
+        self._spawn_thread = None
+        self._threads: set = set()
         self._build_menus()
         self._build_library()
         self._build_central()
@@ -319,10 +341,26 @@ class EnemyWindow(QMainWindow):
         self.mod_label = QLabel()
         self.mod_label.setContentsMargins(6, 0, 12, 0)
         tb.addWidget(self.mod_label)
-        for text, slot in (("Choose my mod...", self.choose_mod), ("New mod...", self.new_mod)):
+        for text, slot in (("Choose my mod...", self.choose_mod), ("New mod...", self.new_mod),
+                           ("Install my mod in the game", self.install_into_game)):
             b = QPushButton(text)
             b.clicked.connect(slot)
             tb.addWidget(b)
+        tb.addSeparator()
+        self.test_label = QLabel()
+        self.test_label.setContentsMargins(12, 0, 6, 0)
+        self.test_label.setStyleSheet("color: #b35c00; font-weight: bold;")
+        self.test_manage = QPushButton("Test menu...")
+        self.test_manage.clicked.connect(lambda: self.mod and itemedit.test_menu_dialog(
+            self, self.mod, self.lib, lambda: self.set_mod(self.mod)))
+        self.test_label_act = tb.addWidget(self.test_label)
+        self.test_manage_act = tb.addWidget(self.test_manage)
+
+    def _sync_test_banner(self):
+        text = itemedit.test_banner_text(self.mod)
+        self.test_label.setText(text)
+        self.test_label_act.setVisible(bool(text))
+        self.test_manage_act.setVisible(bool(text))
 
     def _build_library(self):
         dock = QDockWidget("Creatures", self)
@@ -367,8 +405,11 @@ class EnemyWindow(QMainWindow):
         self.new_button.clicked.connect(self.make_new)
         self.save_button = QPushButton("Save into my mod")
         self.save_button.clicked.connect(self.save)
+        self.spawn_button = QPushButton("Spawn it in the game...")
+        self.spawn_button.clicked.connect(self.spawn_in_game)
         head.addWidget(self.new_button)
         head.addWidget(self.save_button)
+        head.addWidget(self.spawn_button)
         outer.addLayout(head)
 
         split = QSplitter(Qt.Horizontal)
@@ -382,6 +423,11 @@ class EnemyWindow(QMainWindow):
         self.problems.setTextFormat(Qt.RichText)
         self.problems.setWordWrap(True)
         lv.addWidget(self.problems)
+        lv.addWidget(QLabel("<b>Where it appears</b>"))
+        self.reach_label = QLabel()
+        self.reach_label.setTextFormat(Qt.RichText)
+        self.reach_label.setWordWrap(True)
+        lv.addWidget(self.reach_label)
         lv.addWidget(note(core.REACH_NOTE))
         split.addWidget(left)
         self.cards_area = QScrollArea()
@@ -412,6 +458,8 @@ class EnemyWindow(QMainWindow):
                              if c.group in ("Resistances and damage", "Other stats", "Skills")]
         self.mod_label.setText(f"My mod: <b>{self.mod.name}</b>" if self.mod
                                else "My mod: <i>none yet</i>")
+        self._sync_test_banner()
+        self._start_spawns()
         if not hasattr(self, "preview"):
             self.cache = ModelCache(self.lib)
             self.server = ViewerServer(self.cache.root)
@@ -626,7 +674,50 @@ class EnemyWindow(QMainWindow):
         probs = c.problems()
         self.problems.setText("<br>".join("&bull; " + esc(p) for p in probs) if probs
                               else "<span style='color:palette(dark)'>None found.</span>")
+        self.refresh_reach()
         self._title()
+
+    def _start_spawns(self):
+        self.spawns = None
+        t = SpawnThread(self.vanilla, self.mod)
+        t.done.connect(self._spawns_ready)
+        t.finished.connect(lambda t=t: self._threads.discard(t))
+        self._threads.add(t)
+        self._spawn_thread = t
+        t.start()
+
+    def _spawns_ready(self, index):
+        if self.sender() is not self._spawn_thread:
+            return
+        self.spawns = index
+        self.refresh_reach()
+
+    def wait_for_spawns(self, ms: int = 30000):
+        if self.spawns is None and self._spawn_thread is not None:
+            self._spawn_thread.wait(ms)
+            QApplication.processEvents()
+
+    def refresh_reach(self):
+        c = self.creature
+        if c is None or not hasattr(self, "reach_label"):
+            return
+        if self.spawns is None:
+            self.reach_label.setText("<i>Looking through the maps...</i>")
+            return
+        if isinstance(self.spawns, Exception):
+            self.reach_label.setText(f"<i>Could not look: {self.spawns}</i>")
+            return
+        ref = c.can.ref
+        esc = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        lines = reach.summary(self.spawns.where(ref))
+        stem = c.stem
+        base = re.sub(r" (Tough|Super)$", "", stem)
+        tiers = [t for t in (base, base + " Tough", base + " Super") if t != stem and
+                 self.lib.exists(c.can.rel.rsplit("/", 1)[0] + "/" + t + ".can")]
+        if tiers:
+            lines.append("Other versions: " + ", ".join(tiers) + ". Each is a creature of its "
+                         "own, chosen for a different party strength.")
+        self.reach_label.setText("<br>".join("&bull; " + esc(s) for s in lines))
 
     # -- cards ------------------------------------------------------------------------
 
@@ -941,6 +1032,74 @@ class EnemyWindow(QMainWindow):
                 return
         self.preview.show_model(c.model)
 
+    def spawn_in_game(self):
+        c = self.creature
+        if c is None:
+            return
+        if c.dirty and not self.save():
+            return
+        if not self._need_mod():
+            return
+        c = self.creature
+        try:
+            testmenu.add_creature(self.lib, self.mod, c.can.rel, c.name)
+        except icore.ItemError as e:
+            QMessageBox.warning(self, APP, str(e))
+            return
+        self.set_mod(self.mod)
+        QMessageBox.information(
+            self, APP,
+            f"Added \"Summon: {c.name}\" to the test menu in your mod.\n\n"
+            "1. Press \"Install my mod in the game\" at the top.\n"
+            f"2. In the game, talk to {testmenu.WHERE}.\n"
+            f"3. Choose \"{testmenu.HOOK_TEXT}\", then \"Summon: {c.name}\". It appears "
+            "beside you, ready to fight.\n\nIt works on a save you already have. Summoning "
+            "from a conversation hasn't been checked in the game yet, so tell us if nothing "
+            "appears.\n\nThe test menu stays in your mod until you take it out with the Test "
+            "menu button at the top.")
+
+    def install_into_game(self):
+        if not self._need_mod():
+            return
+        if self.creature is not None and self.creature.dirty:
+            r = QMessageBox.question(self, APP, f"Save your changes to {self.creature.name} "
+                                     "first, so they are installed too?",
+                                     QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+            if r == QMessageBox.Cancel or (r == QMessageBox.Save and not self.save()):
+                return
+        if not setup.is_game_dir(self.game):
+            QMessageBox.warning(self, APP, f"Cannot find the game at {self.game}.")
+            return
+        if setup.game_running():
+            QMessageBox.warning(self, APP, "Lionheart is running. Close the game first: it "
+                                "locks the file the mod is installed into.")
+            return
+        if QMessageBox.question(
+                self, APP, f"Install {self.mod.name} into the game at {self.game}?\n\nThis "
+                "rebuilds the game's data.dat with your mod in it, which can take a minute.",
+                QMessageBox.Yes | QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        self.setEnabled(False)
+        self.statusBar().showMessage("Installing your mod into the game...")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        t = itemedit.InstallThread(self.mod, self.game)
+        self._install_thread = t
+        self._threads.add(t)
+        t.finished.connect(lambda t=t: self._threads.discard(t))
+        t.done.connect(self._install_done)
+        t.start()
+
+    def _install_done(self, ok: bool, text: str):
+        QApplication.restoreOverrideCursor()
+        self.setEnabled(True)
+        tail = "\n".join(text.splitlines()[-12:])
+        if ok:
+            self.statusBar().showMessage("Installed. Start the game to try it.", 15000)
+            QMessageBox.information(self, APP, "Installed. Start Lionheart to try it.\n\n" + tail)
+        else:
+            self.statusBar().showMessage("Not installed.", 15000)
+            QMessageBox.warning(self, APP, "Your mod was not installed:\n\n" + tail)
+
     def make_new(self):
         if self.creature is None or not self._confirm_discard():
             return
@@ -1013,6 +1172,8 @@ class EnemyWindow(QMainWindow):
             event.ignore()
             return
         self.preview.wait_threads()
+        for t in list(self._threads):
+            t.wait()
         if self.server:
             self.server.close()
         event.accept()

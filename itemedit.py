@@ -353,6 +353,63 @@ class NewItemDialog(QDialog):
 # The window
 # ---------------------------------------------------------------------------
 
+def test_menu_label(it) -> str:
+    return f"Summon: {it.label}" if getattr(it, "creature", "") else it.label
+
+
+def test_banner_text(mod) -> str:
+    """The toolbar warning both editors show while the test menu is in the mod."""
+    if mod is None or not testmenu.is_installed(mod):
+        return ""
+    n = len(testmenu.load(mod))
+    return (f"Test menu in this mod ({n} thing{'s' * (n != 1)}): take it out before you "
+            "share the mod")
+
+
+def test_menu_dialog(parent, mod, lib, on_change):
+    """List what the test menu holds; remove single entries, or take the menu out. Shared
+    by the item and enemy editors, which both add to the same menu."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Test menu")
+    lay = QVBoxLayout(dlg)
+    lay.addWidget(note(f"These are handed out or summoned by {testmenu.WHERE}, through the "
+                       f"\"{testmenu.HOOK_TEXT}\" reply. The menu is part of your mod until "
+                       "you take it out."))
+    lst = QListWidget()
+    for it in testmenu.load(mod):
+        lst.addItem(test_menu_label(it))
+    lay.addWidget(lst)
+    row = QHBoxLayout()
+    rm = QPushButton("Remove the chosen one")
+    out = QPushButton("Take the test menu out of my mod")
+    close = QPushButton("Close")
+    row.addWidget(rm)
+    row.addWidget(out)
+    row.addStretch(1)
+    row.addWidget(close)
+    lay.addLayout(row)
+
+    def remove_one():
+        i = lst.currentRow()
+        if i < 0:
+            return
+        testmenu.remove_item(lib, mod, i)
+        lst.takeItem(i)
+        on_change()
+        if lst.count() == 0:
+            dlg.accept()
+
+    def take_out():
+        testmenu.remove(mod)
+        on_change()
+        dlg.accept()
+    rm.clicked.connect(remove_one)
+    out.clicked.connect(take_out)
+    close.clicked.connect(dlg.reject)
+    dlg.resize(480, 360)
+    dlg.exec()
+
+
 class ItemWindow(QMainWindow):
     def __init__(self, vanilla: Path, mod: Path | None = None, game: Path | None = None):
         super().__init__()
@@ -1251,10 +1308,9 @@ class ItemWindow(QMainWindow):
                   lambda: core.add_stat_to(effect.action, target, amount, pct), rebuild=True)
 
     def _sync_test_banner(self):
-        on = self.mod is not None and testmenu.is_installed(self.mod)
-        n = len(testmenu.load(self.mod)) if on else 0
-        self.test_label.setText(f"Test menu in this mod ({n} item{'s' * (n != 1)}): take it "
-                                "out before you share the mod" if on else "")
+        text = test_banner_text(self.mod)
+        on = bool(text)
+        self.test_label.setText(text)
         self.test_label_act.setVisible(on)
         self.test_manage_act.setVisible(on)
 
@@ -1295,47 +1351,8 @@ class ItemWindow(QMainWindow):
             "Test menu button at the top. Take it out before you share the mod.")
 
     def manage_test_menu(self):
-        if self.mod is None:
-            return
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Test menu")
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(note(f"These items are handed out by {testmenu.WHERE}, through the "
-                           f"\"{testmenu.HOOK_TEXT}\" reply. The menu is part of your mod "
-                           "until you take it out."))
-        lst = QListWidget()
-        for it in testmenu.load(self.mod):
-            lst.addItem(it.label)
-        lay.addWidget(lst)
-        row = QHBoxLayout()
-        rm = QPushButton("Remove the chosen item")
-        out = QPushButton("Take the test menu out of my mod")
-        close = QPushButton("Close")
-        row.addWidget(rm)
-        row.addWidget(out)
-        row.addStretch(1)
-        row.addWidget(close)
-        lay.addLayout(row)
-
-        def remove_one():
-            i = lst.currentRow()
-            if i < 0:
-                return
-            testmenu.remove_item(self.lib, self.mod, i)
-            lst.takeItem(i)
-            self.set_mod(self.mod)
-            if lst.count() == 0:
-                dlg.accept()
-
-        def take_out():
-            testmenu.remove(self.mod)
-            self.set_mod(self.mod)
-            dlg.accept()
-        rm.clicked.connect(remove_one)
-        out.clicked.connect(take_out)
-        close.clicked.connect(dlg.reject)
-        dlg.resize(480, 360)
-        dlg.exec()
+        if self.mod is not None:
+            test_menu_dialog(self, self.mod, self.lib, lambda: self.set_mod(self.mod))
 
     def install_into_game(self):
         if not self._need_mod():

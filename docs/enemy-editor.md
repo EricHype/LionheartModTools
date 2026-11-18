@@ -11,10 +11,8 @@ python enemyedit.py
 It shares the game folder, the original-files backup and your mod with the item editor,
 so if the item editor works, this does too.
 
-**Status:** milestones E2 and E3 of the plan are done. The window, the preview and all the
-cards work. Still to come:
-- "Spawn it in the game" and "Where it appears" (E4);
-- the double-click launcher (E5).
+**Status:** milestones E2 to E4 of the plan are done. Still to come: the double-click
+launcher (E5).
 
 ## Finding a creature
 
@@ -85,6 +83,35 @@ its own copy, so only it changes. **Give it its own stats** does the same at any
 Press **Make a new enemy from this...** and give it a name. The copy gets its own stats
 from the start, so changing it never changes the original. A new creature isn't in the
 game until something spawns it.
+
+## Where it appears
+
+Beside the preview, **Where it appears** lists:
+- the maps whose spawners make this creature, and the party strengths it's chosen for;
+- anything else that creates it by name;
+- its Tough or Super versions, each a separate creature.
+
+Developer test maps are listed separately, because players never visit them. A new
+creature shows "Nothing in the game spawns this creature" until you place it with the map
+editor.
+
+## Spawning it in the game
+
+Press **Spawn it in the game...**. The editor saves the creature if needed and adds a
+**Summon:** reply to the test menu in your mod, the same menu the item editor uses:
+
+1. Press **Install my mod in the game** at the top.
+2. In the game, talk to **Raymundo the Bowyer**, the bow seller in the Barcelona Gate
+   District.
+3. Choose **[TEST] Show me the items I am testing.**, then **Summon: <name>**. It appears
+   beside you, ready to fight.
+
+It works on a save you already have. Summoning from a conversation uses the same action as
+the developers' own "companion" cheat, but it hasn't been checked inside a conversation in
+the game yet.
+
+The test menu stays in your mod until you take it out with the **Test menu...** button at
+the top. Take it out before you share the mod.
 
 ## Saving and testing
 
