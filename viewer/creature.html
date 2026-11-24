@@ -49,6 +49,35 @@ scene.add(sun);
 const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.01, 1e6);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+controls.zoomToCursor = true;   // scroll zooms toward the spot under the mouse
+// Right-drag (or Shift+drag) pans; setPanMode makes a plain left-drag pan too.
+function setPanMode(on) {
+  controls.mouseButtons.LEFT = on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+  renderer.domElement.style.cursor = on ? 'move' : '';
+}
+
+// Double-click a part of the model to turn and zoom around it from then on. Camera and
+// target move together, so the view slides over without changing its angle.
+const ray = new THREE.Raycaster();
+// fx, fy: the spot as fractions of the view's width and height, from its top left.
+function centreAt(fx, fy) {
+  if (!root) return false;
+  // A skinned mesh keeps the bounding sphere of the pose it was first measured in, and
+  // the ray skips anything outside it, so measure the current pose first.
+  root.traverse((m) => { if (m.isSkinnedMesh) m.computeBoundingSphere(); });
+  ray.setFromCamera(new THREE.Vector2(fx * 2 - 1, -fy * 2 + 1), camera);
+  const hit = ray.intersectObject(root, true)[0];
+  if (!hit) return false;
+  const shift = hit.point.clone().sub(controls.target);
+  controls.target.add(shift);
+  camera.position.add(shift);
+  controls.update();
+  return true;
+}
+renderer.domElement.addEventListener('dblclick', (ev) => {
+  const r = renderer.domElement.getBoundingClientRect();
+  centreAt((ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
+});
 
 const clock = new THREE.Clock();
 let root = null, mixer = null, actions = {}, current = null, grid = null;
@@ -159,7 +188,8 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-window.preview = { load, play, stop, pose, snapshot, state: () => state,
+window.preview = { load, play, stop, pose, snapshot, setPanMode, centreAt,
+                   resetView: () => { if (root) frame(root); }, state: () => state,
                    webgl: () => !!renderer.getContext() };
 const q = new URLSearchParams(location.search).get('model');
 if (q) load(q);

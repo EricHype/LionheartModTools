@@ -35,8 +35,12 @@ doesn't change a Gray Wolf Tough.
 
 ## The preview
 
-The 3D view shows the creature's model. Drag to turn it and scroll to zoom. Pick an
-animation below it and choose **Loop**, the speed, or **Play again**.
+The 3D view shows the creature's model. Pick an animation below it and choose **Loop**,
+the speed, or **Play again**. To look around:
+- **Drag** to turn it, and **scroll** to zoom toward the spot under the mouse.
+- **Right-drag** to slide the view (pan), or press **Pan** so a plain drag slides it.
+- **Double-click** a part, such as the head or a weapon, to turn and zoom around that part.
+- **Reset view** shows the whole creature again.
 
 The first time a model is shown, the editor prepares it, which takes about six seconds.
 After that it's instant.

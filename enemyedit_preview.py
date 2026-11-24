@@ -182,6 +182,24 @@ class PreviewWidget(QWidget):
         row.addWidget(self.speed)
         row.addWidget(self.replay)
         lay.addLayout(row)
+        view_row = QHBoxLayout()
+        self.pan = QPushButton("Pan")
+        self.pan.setCheckable(True)
+        self.pan.setToolTip("Drag to slide the view instead of turning it. Right-drag pans "
+                            "at any time.")
+        self.pan.toggled.connect(lambda on: self.view.page().runJavaScript(
+            f"window.preview && window.preview.setPanMode({'true' if on else 'false'})"))
+        self.reset_view = QPushButton("Reset view")
+        self.reset_view.setToolTip("Show the whole creature again.")
+        self.reset_view.clicked.connect(lambda: self.view.page().runJavaScript(
+            "window.preview && window.preview.resetView()"))
+        view_row.addWidget(self.pan)
+        view_row.addWidget(self.reset_view)
+        hint = QLabel("<small>Right-drag pans. Double-click a part to centre on it. Scroll "
+                      "zooms toward the mouse.</small>")
+        hint.setWordWrap(True)
+        view_row.addWidget(hint, 1)
+        lay.addLayout(view_row)
         self.status = QLabel("")
         lay.addWidget(self.status)
         # The page has to be up before a model can be sent to it; a cached model is ready
