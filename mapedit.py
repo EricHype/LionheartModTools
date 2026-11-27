@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QDoubleSpinBox, QSpinBox, QCheckBox, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QLabel, QMessageBox, QDialog, QPlainTextEdit,
     QGraphicsSimpleTextItem, QAbstractSpinBox, QProgressBar,
-    QDialogButtonBox, QInputDialog, QMenu,
+    QDialogButtonBox, QInputDialog, QMenu, QFileDialog,
 )
 
 import zax_render as zr
@@ -3163,7 +3163,9 @@ class MainWindow(QMainWindow):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Lionheart .zax map editor")
-    parser.add_argument("zax_path", help="path to the .zax map file (e.g. under mods/)")
+    parser.add_argument("zax_path", nargs="?",
+                        help="path to the .zax map file (e.g. under mods/); "
+                             "without one, a file picker opens")
     parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT,
                         help="game data root (contains Cache/Models, Cache/Textures)")
     parser.add_argument("--focus", metavar="NAME", default=None,
@@ -3172,7 +3174,16 @@ def main() -> int:
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
-    window = MainWindow(Path(args.zax_path), Path(args.data_root))
+    zax_path = args.zax_path
+    if not zax_path:
+        # Opened from Map Editor.bat with no file dropped on it. pythonw has no console,
+        # so a missing-argument error would just quit silently: ask instead.
+        zax_path, _ = QFileDialog.getOpenFileName(
+            None, "Open a map", str(Path(__file__).parent / "mods"),
+            "Lionheart maps (*.zax);;All files (*)")
+        if not zax_path:
+            return 0
+    window = MainWindow(Path(zax_path), Path(args.data_root))
     window.resize(1400, 900)
     window.show()
     # Fit after show(), so the viewport has its real size -- fitting before it is laid

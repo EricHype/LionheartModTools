@@ -4,6 +4,9 @@
 from. It exists so a human can change an enemy's AI without hand-editing 1,600 lines of
 brace-delimited text, and without naming a class that crashes the game.
 
+Double-click **`Can Editor.bat`** in the LionheartModTools folder (it shares
+`Item Editor.bat`'s setup), or drop a `.can` onto it. From a shell:
+
 ```
 python canedit.py                                         # pick from the Cans list
 python canedit.py "Monster Cans/English Enemies/Soldier1"  # a vanilla can, read-only

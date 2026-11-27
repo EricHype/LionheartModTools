@@ -1302,8 +1302,14 @@ def main() -> int:
     mods_root = Path(args.mods_root) if args.mods_root else Path(__file__).parent / "mods"
     path = Path(args.path) if args.path else _first_dialog(mods_root)
     if path is None:
-        print(f"No .DialogTree files under {mods_root}; pass one explicitly.")
-        return 1
+        # No mod ships a dialogue yet. Under pythonw (Dialog Editor.bat) a print would
+        # go nowhere and the window would never appear, so ask for a file instead.
+        chosen, _ = QFileDialog.getOpenFileName(
+            None, "Open a DialogTree", str(mods_root),
+            "DialogTree (*.DialogTree);;All files (*)")
+        if not chosen:
+            return 0
+        path = Path(chosen)
     window = DialogWindow(path, mods_root,
                           Path(args.game_root) if args.game_root else None)
     window.resize(1500, 950)

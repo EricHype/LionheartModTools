@@ -179,7 +179,8 @@ in-game for static mesh edits; animated edits aren't proven yet. See
 
 The game's own editor was stripped from the retail build — the F6 handler is gone, not
 hidden — so hand-editing `.zax` text was the only way to author a map. `mapedit.py` is a
-replacement:
+replacement. Double-click **`Map Editor.bat`** (it shares the item editor's setup and
+asks which map to open; drop a `.zax` onto it to skip the question), or from a shell:
 
 ```
 pip install -r requirements.txt
@@ -272,7 +273,8 @@ behaviour are in [`docs/map-editor-design.md`](docs/map-editor-design.md).
 ## The dialogue editor
 
 Dialogue is a graph — NPC lines as nodes, player replies as edges — and a graph is the one
-shape a text editor shows badly. `dialogedit.py` draws it:
+shape a text editor shows badly. `dialogedit.py` draws it. Double-click
+**`Dialog Editor.bat`**, or drop a `.DialogTree` onto it, or from a shell:
 
 ```
 python dialogedit.py                      # opens the first dialogue under mods/
@@ -457,7 +459,8 @@ in [`docs/icon-tool.md`](docs/icon-tool.md).
 
 A monster's behaviour is one `CSkeletonAI` block deep inside its `.can`: who it targets and
 from how far, how far it chases, whether it answers a call for help, what attack AI it
-runs. `canedit.py` puts those in labelled controls:
+runs. `canedit.py` puts those in labelled controls. Double-click **`Can Editor.bat`**, or
+drop a `.can` onto it, or from a shell:
 
 ```
 python canedit.py                                         # pick from the Cans list
