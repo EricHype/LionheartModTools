@@ -449,6 +449,46 @@ function Write-Archive ($ctx, $Replace, $Drop) {
 }
 
 # --- install ----------------------------------------------------------------
+function Write-MismatchReport ($ctx, $Mismatch, $Already, $NPatched) {
+    <#
+    The list a player can post when the install refuses: which patched files their data.dat
+    does not hold the expected original of, with both hashes. It goes to the Desktop, where
+    a player will find it, not the game folder, which may need administrator rights and is
+    promised unchanged. Returns the path, or $null if nothing could be written.
+    #>
+    $m = $ctx.Manifest
+    $exe = Join-Path $ctx.Game 'Lionheart.exe'
+    $exeHash = if (Test-Path -LiteralPath $exe) { Get-BytesHash ([System.IO.File]::ReadAllBytes($exe)) } else { 'missing' }
+    $datLen = (Get-Item -LiteralPath $ctx.Dat).Length
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("$($m.name) $($m.version) -- install check")
+    $lines.Add("Written $((Get-Date).ToString('s')). Nothing was changed.")
+    $lines.Add("")
+    $lines.Add("Game folder:     $($ctx.Game)")
+    $lines.Add("data.dat size:   $datLen bytes")
+    $lines.Add("Lionheart.exe:   sha256 $exeHash")
+    $lines.Add("")
+    $lines.Add("$($Mismatch.Count) of $NPatched patched files do not match the original this mod expects.")
+    if ($Already.Count) { $lines.Add("$($Already.Count) more are already this mod's version.") }
+    $lines.Add("")
+    foreach ($x in $Mismatch) {
+        $state = if ($x.Present) { "yours $($x.Have)" } else { "missing from data.dat" }
+        $lines.Add("$($x.Rel)")
+        $lines.Add("    expected $($x.Want)")
+        $lines.Add("    $state")
+    }
+    $name = "Lionheart install check - $($m.id).txt"
+    foreach ($dir in @([Environment]::GetFolderPath('Desktop'), $env:TEMP)) {
+        if (-not $dir) { continue }
+        try {
+            $path = Join-Path $dir $name
+            [System.IO.File]::WriteAllLines($path, $lines, (New-Object System.Text.UTF8Encoding($false)))
+            return $path
+        } catch { continue }
+    }
+    return $null
+}
+
 function Invoke-Install ($ctx) {
     $m = $ctx.Manifest
     Write-Lh "$($m.name) $($m.version)"
@@ -483,6 +523,11 @@ function Invoke-Install ($ctx) {
         $content[$rel] = [System.IO.File]::ReadAllBytes($srcPath)
     }
 
+    # Every patch is checked before any failure is reported. Stopping at the first named one
+    # file, and a player with a translated edition of the game -- whose data.dat differs in
+    # most of the files a mod touches -- was told another mod had probably changed it.
+    $already = New-Object System.Collections.Generic.List[string]
+    $mismatch = New-Object System.Collections.Generic.List[object]
     $archive = [System.IO.Compression.ZipFile]::OpenRead($ctx.Dat)
     try {
         foreach ($rel in $ctx.Payload.patched) {
@@ -495,34 +540,61 @@ function Invoke-Install ($ctx) {
             }
             $delta = Get-Content -LiteralPath $patchPath -Raw | ConvertFrom-Json
             $source = Read-ZipEntry $archive $rel
+            $present = [bool]$source
             if (-not $source) { $source = @() }
             $rebuilt = Invoke-Delta $source $delta
             if (-not $rebuilt) {
                 # A delta records the hash of its result as well as its source, so the
-                # commonest failure can be named exactly instead of guessed at: if what is
-                # already in the archive IS the patched version, this mod is installed
-                # already and the user needs to remove it, not hunt for a conflicting one.
-                if ((Get-BytesHash $source) -eq $delta.dstSha256) {
-                    throw ("$($m.name) is already installed.`n`n" +
-                           "$rel in your data.dat is already the modded version, so there is " +
-                           "no original left to patch.`n" +
-                           "Uninstall it first, then install again. If it does not appear in " +
-                           "the list above, it was installed with a different tool " +
-                           "(modmanager.py) -- use that to remove it.`n`n" +
-                           "Nothing has been changed.")
+                # commonest failure can be named exactly: if what is already in the archive IS
+                # the patched version, this mod is installed already.
+                $have = Get-BytesHash $source
+                if ($have -eq $delta.dstSha256) { $already.Add($rel) }
+                else {
+                    $mismatch.Add([pscustomobject]@{ Rel = $rel; Present = $present; Have = $have; Want = $delta.srcSha256 })
                 }
-                throw ("Could not rebuild $rel.`n`n" +
-                       "This mod patches your own game files rather than shipping copies of " +
-                       "them, so it needs the original, and your data.dat holds neither the " +
-                       "original nor this mod's version of that file.`n" +
-                       "Another mod has probably changed it. Remove other mods or reinstall " +
-                       "the game, then try again.`n`n" +
-                       "Nothing has been changed.")
+                continue
             }
             $content[$rel] = $rebuilt
             $originals[$rel] = $source        # kept so uninstall can put it back
         }
     } finally { $archive.Dispose() }
+
+    if ($already.Count -and -not $mismatch.Count) {
+        throw ("$($m.name) is already installed.`n`n" +
+               "$($already[0]) in your data.dat is already the modded version, so there is " +
+               "no original left to patch.`n" +
+               "Uninstall it first, then install again. If it does not appear in " +
+               "the list above, it was installed with a different tool " +
+               "(modmanager.py) -- use that to remove it.`n`n" +
+               "Nothing has been changed.")
+    }
+    if ($mismatch.Count) {
+        $report = Write-MismatchReport $ctx $mismatch $already $nPatched
+        $where = if ($report) { "`n`nThe full list is in:`n$report" } else { "" }
+        $n = $mismatch.Count
+        # A translation rewrites the text in maps and dialogue, which is most of what a mod
+        # patches; another mod touches a handful. A tenth of the patched files, or 20, is
+        # far past anything one other mod does.
+        if ($n -ge 20 -or $n * 10 -ge $nPatched) {
+            throw ("Your game is a different edition from the one $($m.name) was built for.`n`n" +
+                   "$n of the $nPatched game files this mod patches are not the versions it " +
+                   "expects. This mod changes your own game files rather than shipping copies " +
+                   "of them, so it needs them to match exactly. A difference this wide usually " +
+                   "means a translated release, such as the Polish edition. The English, " +
+                   "French, German, Italian and Spanish GOG installs share one data.dat, which " +
+                   "is the one this mod expects.$where`n`n" +
+                   "Nothing has been changed.")
+        }
+        $names = ($mismatch | Select-Object -First 5 | ForEach-Object { "  " + $_.Rel }) -join "`n"
+        $more = if ($n -gt 5) { "`n  ... and $($n - 5) more" } else { "" }
+        throw ("Could not rebuild $n of the game files this mod patches:`n$names$more`n`n" +
+               "This mod patches your own game files rather than shipping copies of " +
+               "them, so it needs the originals, and your data.dat holds neither the " +
+               "originals nor this mod's versions of these.`n" +
+               "Another mod has probably changed them. Remove other mods or reinstall " +
+               "the game, then try again.$where`n`n" +
+               "Nothing has been changed.")
+    }
 
     # Save the originals we are about to overwrite, so uninstall needs no 1.6 GB backup.
     New-Item -ItemType Directory -Path $ctx.Backup -Force | Out-Null
